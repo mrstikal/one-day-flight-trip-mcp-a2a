@@ -13,6 +13,7 @@
     { "path": "../../packages/data" },
     { "path": "../../packages/ai" },
     { "path": "../../packages/persistence" },
+    { "path": "../../packages/services" },
     { "path": "../../packages/workflow" }
   ]
 }

@@ -20,6 +20,7 @@ import {
   type ScenarioDomain,
   type ServiceLevel,
   type TripPreferences,
+  type TripRecord,
 } from "@odft/contracts";
 import { getTrip } from "../trips.js";
 import { recordRecommendationArtifact } from "../recommendations.js";
@@ -281,49 +282,45 @@ export function overlayTargetsDomain(overlay: BehaviorOverlay, domain: ScenarioD
 }
 
 /**
- * Deterministic per-domain research input fingerprints. Only the domain's own
- * content hash, the effective preferences it consumes, and the overlay that can
- * alter its provider behavior enter the digest, so extending the dinner inventory
- * cannot invalidate flights or other meals, while arming/re-arming a fault for a
- * domain does invalidate that domain's cached result.
+ * Phase 02: an EXPLICIT snapshot reference for read-only research queries.
+ *
+ * The trip record and the snapshot id are supplied by the caller instead of
+ * being resolved from the trip's active-snapshot pointer inside the query, so a
+ * future MCP/read-only caller can query the exact snapshot it names (and a
+ * snapshot other than the trip's current one, for example a pinned reference)
+ * without mutating artifacts, faults or any other persisted state.
  */
-export async function loadTripResearchInputs(
-  pool: Pool,
-  tripId: string,
-  operationId?: string,
-  searchIntent?: ResearchSearchIntent | null,
+export interface ResearchSnapshotReference {
+  readonly trip: TripRecord;
+  readonly snapshotId: string;
+  /** Operation-scoped fault overlays (optional; only for replay consistency). */
+  readonly operationId?: string;
+  /** Phase 11: operation-scoped search intent (level override / cheaper). */
+  readonly searchIntent?: ResearchSearchIntent | null;
+}
+
+/** Read-only per-domain research input fingerprints for an explicit snapshot. */
+async function researchInputsForSnapshot(
+  client: Queryable,
+  reference: ResearchSnapshotReference,
 ): Promise<TripResearchInputs> {
-  const client = await pool.connect();
-  let trip: Awaited<ReturnType<typeof getTrip>>;
-  let manifest: Awaited<ReturnType<typeof loadSnapshotManifest>>;
-  let overlays: Awaited<ReturnType<typeof loadOverlaySummaries>>;
+  const trip = reference.trip;
+  const manifest = await loadSnapshotManifest(client, reference.snapshotId);
+  const overlays = await loadOverlaySummaries(client, trip.id, reference.operationId);
+  // One operation-scoped override can only target the searched domain.
   let override: { readonly domain: ResearchDomain; readonly level: ServiceLevel } | undefined;
-  try {
-    trip = await getTrip(client, tripId);
-    if (!trip) {
-      throw new Error(`trip ${tripId} not found while loading research inputs`);
+  const overrideDomain = SEARCH_TARGET_DOMAIN[reference.searchIntent?.target ?? ""];
+  if (reference.searchIntent && overrideDomain) {
+    const level = await searchLevelOverride({
+      client,
+      tripId: trip.id,
+      snapshotId: manifest.snapshotId,
+      searchIntent: reference.searchIntent,
+      domain: overrideDomain,
+    });
+    if (level) {
+      override = { domain: overrideDomain, level };
     }
-    if (!trip.activeScenarioSnapshotId) {
-      throw new Error(`trip ${tripId} has no active scenario snapshot`);
-    }
-    manifest = await loadSnapshotManifest(client, trip.activeScenarioSnapshotId);
-    overlays = await loadOverlaySummaries(client, tripId, operationId);
-    // One operation-scoped override can only target the searched domain.
-    const overrideDomain = SEARCH_TARGET_DOMAIN[searchIntent?.target ?? ""];
-    if (searchIntent && overrideDomain) {
-      const level = await searchLevelOverride({
-        client,
-        tripId,
-        snapshotId: manifest.snapshotId,
-        searchIntent,
-        domain: overrideDomain,
-      });
-      if (level) {
-        override = { domain: overrideDomain, level };
-      }
-    }
-  } finally {
-    client.release();
   }
   const levelFor = (domain: "hotel" | Meal): ServiceLevel =>
     override && override.domain === domain ? override.level : effectiveLevel(trip.preferences, domain);
@@ -387,18 +384,78 @@ export async function loadTripResearchInputs(
   };
 }
 
-type DomainProviderOutcome =
+/**
+ * Read-only: deterministic per-domain research input fingerprints for the
+ * explicitly referenced snapshot. Performs no artifact, fault or trip write.
+ */
+export async function loadSnapshotResearchInputs(
+  pool: Pool,
+  reference: ResearchSnapshotReference,
+): Promise<TripResearchInputs> {
+  const client = await pool.connect();
+  try {
+    return await researchInputsForSnapshot(client, reference);
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Deterministic per-domain research input fingerprints. Only the domain's own
+ * content hash, the effective preferences it consumes, and the overlay that can
+ * alter its provider behavior enter the digest, so extending the dinner inventory
+ * cannot invalidate flights or other meals, while arming/re-arming a fault for a
+ * domain does invalidate that domain's cached result.
+ *
+ * Resolves the trip's ACTIVE snapshot pointer and delegates to the explicit
+ * snapshot query; the worker path keeps this resolution for compatibility.
+ */
+export async function loadTripResearchInputs(
+  pool: Pool,
+  tripId: string,
+  operationId?: string,
+  searchIntent?: ResearchSearchIntent | null,
+): Promise<TripResearchInputs> {
+  const client = await pool.connect();
+  try {
+    const trip = await getTrip(client, tripId);
+    if (!trip) {
+      throw new Error(`trip ${tripId} not found while loading research inputs`);
+    }
+    if (!trip.activeScenarioSnapshotId) {
+      throw new Error(`trip ${tripId} has no active scenario snapshot`);
+    }
+    return await researchInputsForSnapshot(client, {
+      trip,
+      snapshotId: trip.activeScenarioSnapshotId,
+      operationId,
+      searchIntent: searchIntent ?? null,
+    });
+  } finally {
+    client.release();
+  }
+}
+
+export type DomainProviderOutcome =
   | { readonly status: "ok"; readonly offerIds: string[] }
   | {
       readonly status: "unavailable" | "retryable_error" | "unsupported";
       readonly reason: string;
     };
 
-async function callDomainProvider(input: {
+/**
+ * Phase 02: read-only domain query against an EXPLICIT snapshot.
+ *
+ * This is the query half of `researchTripDomain`: it resolves nothing from the
+ * trip's active-snapshot pointer and writes nothing (no artifact, no fault
+ * counter). Providers acquire their own short-lived connections, so this call
+ * never holds a transaction across a provider read.
+ */
+export async function queryDomainCandidates(input: {
   readonly pool: Pool;
   readonly domain: ResearchDomain;
   readonly snapshotId: string;
-  readonly trip: NonNullable<Awaited<ReturnType<typeof getTrip>>>;
+  readonly trip: TripRecord;
   readonly behavior: BehaviorOverlay;
   readonly attempt: number;
   /** Phase 11: operation-scoped category override for the searched domain. */
@@ -519,7 +576,7 @@ export async function researchTripDomain(
     }
   }
 
-  const result = await callDomainProvider({
+  const result = await queryDomainCandidates({
     pool,
     domain: input.domain,
     snapshotId,

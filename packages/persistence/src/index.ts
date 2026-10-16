@@ -237,16 +237,20 @@ export type {
 } from "./recommendations.js";
 
 export {
+  loadSnapshotResearchInputs,
   loadTripResearchInputs,
   overlayTargetsDomain,
+  queryDomainCandidates,
   rankTripRecommendations,
   researchTripDomain,
 } from "./scenario/research-domains.js";
 export type {
+  DomainProviderOutcome,
   RankDomainCandidates,
   RankedTripServices,
   ResearchDomainOutcome,
   ResearchDomainRequest,
+  ResearchSnapshotReference,
   TripResearchInputs,
 } from "./scenario/research-domains.js";
 

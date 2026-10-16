@@ -19,6 +19,7 @@
     "@odft/data": "*",
     "@odft/domain": "*",
     "@odft/persistence": "*",
+    "@odft/services": "*",
     "@odft/workflow": "*",
     "pg": "8.23.1"
   },

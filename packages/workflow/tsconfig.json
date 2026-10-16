@@ -10,6 +10,7 @@
   "references": [
     { "path": "../contracts" },
     { "path": "../domain" },
-    { "path": "../persistence" }
+    { "path": "../persistence" },
+    { "path": "../services" }
   ]
 }

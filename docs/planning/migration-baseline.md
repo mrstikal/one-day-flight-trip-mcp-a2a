@@ -253,3 +253,34 @@ database fingerprint was identical before/after
 - The E2E suite is green except for the documented stale phase-10 spec; the
   isolated harness (origin from `PUBLIC_BASE_URL`, no server reuse, fixture AI,
   discovery off, `_test`-only data) is reproducible from the commands above.
+
+## 8. Phase 02 post-extraction comparison (2026-10-16)
+
+Phase 02 extracted the worker composition into the SDK-free `@odft/services`
+package (worker ports became compatibility adapters; the persistence research
+path gained an explicit-snapshot read-only query). The full check set was re-run
+against the same isolated stack:
+
+| Check | Baseline (Phase 01) | After Phase 02 |
+| --- | --- | --- |
+| Unit | 60 files / 554 tests | 61 files / 559 tests (new boundary test) |
+| Integration | 47 files / 197 tests, 577.8 s | 47 files / 197 tests, 564.2 s |
+| E2E (isolated) | 85 passed / 6 stale / 1 skipped, 973 s | 85 passed / 6 stale / 1 skipped, 969 s |
+| Benchmark | 20/30, p50 5215 ms | 20/30, p50 5228 ms |
+| Negative route case | PASS | PASS |
+| Graph version | travel-graph-v7, 29 nodes | unchanged |
+
+Raw artifact of the post-extraction benchmark:
+`.cache/benchmarks/langgraph-phase02.json` (baseline:
+`.cache/benchmarks/langgraph-baseline.json`). Compared programmatically:
+
+- all six scenario seeds are **identical** (route fingerprints unchanged),
+- `generator-v1` / `reference-2026-10-10` unchanged,
+- **every completed trial's decision-step sequence is identical** (e.g.
+  `start->flight_choice->booking_confirmation->hotel_choice->booking_confirmation->program_choices->itinerary_approval->completed`),
+- reservations, fixture AI invocation counts (1 planner + 1 reviewer) and the
+  zero paid LLM ledger are unchanged.
+
+Conclusion: the extraction is behavior-preserving on every observable axis the
+baseline pinned (completion, step transitions, seeds/fingerprints, reservations,
+latencies within noise).

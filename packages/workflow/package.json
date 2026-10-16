@@ -21,6 +21,7 @@
     "@langchain/langgraph-checkpoint-postgres": "1.0.6",
     "@odft/contracts": "*",
     "@odft/domain": "*",
-    "@odft/persistence": "*"
+    "@odft/persistence": "*",
+    "@odft/services": "*"
   }
 }

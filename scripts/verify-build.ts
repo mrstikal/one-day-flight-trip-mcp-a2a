@@ -17,6 +17,7 @@ const PACKAGES: ReadonlyArray<readonly [string, string]> = [
   ["@odft/data", "@odft/data"],
   ["@odft/ai", "@odft/ai"],
   ["@odft/persistence", "@odft/persistence"],
+  ["@odft/services", "@odft/services"],
   ["@odft/workflow", "@odft/workflow"],
 ];
 
