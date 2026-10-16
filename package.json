@@ -35,6 +35,7 @@
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:e2e": "playwright test",
+    "benchmark:baseline": "tsx tests/benchmarks/travel-baseline.ts",
     "clean": "tsc -b tsconfig.build.json --clean"
   },
   "devDependencies": {

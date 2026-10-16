@@ -221,6 +221,30 @@ async function openRail(page: Page, tripId: string): Promise<void> {
   await page.goto(`/trips/${tripId}/flights`);
   await expect(page.getByTestId("assistant-rail")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("voice-controls")).toBeVisible({ timeout: 30_000 });
+  // While the trip's initial work runs, the app blocks interaction with an
+  // inert, full-screen operation preloader; typing into the composer during
+  // that window silently loses the draft (no focus, no input event). Wait for
+  // the projection to settle (server truth) and the preloader to clear
+  // (client truth) before any test types or dictates.
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(`/api/trips/${tripId}`);
+        if (!response.ok()) {
+          return "http_error";
+        }
+        const body = (await response.json()) as {
+          operations?: { status: string }[];
+        };
+        const active = (body.operations ?? []).some(
+          (operation) => operation.status === "queued" || operation.status === "running",
+        );
+        return active ? "active" : "settled";
+      },
+      { timeout: 30_000, intervals: [250] },
+    )
+    .toBe("settled");
+  await expect(page.getByTestId("operation-preloader")).toBeHidden({ timeout: 15_000 });
 }
 
 async function chatValue(page: Page): Promise<string> {

@@ -8,7 +8,7 @@
     "predev": "tsx ../../scripts/voice-vad-assets.ts",
     "build": "next build",
     "prebuild": "tsx ../../scripts/voice-vad-assets.ts",
-    "start": "next start -p 3000"
+    "start": "next start"
   },
   "dependencies": {
     "@odft/ai": "*",
