@@ -1,0 +1,15 @@
+{
+  "source": "geo-tz",
+  "url": "https://github.com/evansiroky/node-geo-tz",
+  "retrievedAt": "2026-10-10",
+  "revision": "8.1.9",
+  "sha256": "0476464817178462008acd6b73e3b0b09a285d9bb5719d1e7c69161bcac23471",
+  "license": "geo-tz code MIT; underlying boundary data ODbL (see data/manifests/licenses/odbl-timezone.txt).",
+  "licenseUrl": "https://github.com/evansiroky/node-geo-tz",
+  "transformVersion": "reference-import-v1",
+  "hashTarget": "derived data/reference/airports.ndjson zone-resolution output",
+  "recordCount": 690,
+  "rejectedCount": 0,
+  "rejectedReport": [],
+  "attribution": "Airport zones resolved at import time with geo-tz 8.1.9 (ODbL boundary data)."
+}

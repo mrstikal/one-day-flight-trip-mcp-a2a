@@ -1,0 +1,36 @@
+{
+  "source": "ourairports",
+  "url": "https://davidmegginson.github.io/ourairports-data/airports.csv",
+  "retrievedAt": "2026-10-10",
+  "revision": "2026-10-10-ourairports",
+  "sha256": "79dd7db7228a12199839aa6acbc2dc1f1e50a4604f14d7f60dceb6983de91906",
+  "license": "Public domain (OurAirports); credit retained voluntarily.",
+  "licenseUrl": "https://ourairports.com/data/",
+  "transformVersion": "reference-import-v1",
+  "hashTarget": "downloaded airports.csv (upstream OurAirports artifact)",
+  "recordCount": 690,
+  "rejectedCount": 85541,
+  "rejectedReport": [
+    {
+      "reason": "ineligible_type:heliport",
+      "count": 15
+    },
+    {
+      "reason": "ineligible_type:small_airport",
+      "count": 163
+    },
+    {
+      "reason": "missing_or_invalid_iata",
+      "count": 12623
+    },
+    {
+      "reason": "out_of_scope_country",
+      "count": 72461
+    },
+    {
+      "reason": "partial_admission_airport_excluded",
+      "count": 279
+    }
+  ],
+  "attribution": "Airport data from OurAirports (https://ourairports.com/data/), public domain."
+}

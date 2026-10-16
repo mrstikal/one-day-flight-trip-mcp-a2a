@@ -1,0 +1,15 @@
+{
+  "source": "wikidata-landmarks",
+  "url": "https://www.wikidata.org/",
+  "retrievedAt": "2026-10-10",
+  "revision": "2026-10-10-wikidata",
+  "sha256": "1b843b4ee65beb0f2f85cfce8f82a8759446c917f7b1665ce13b55f8dbed9ada",
+  "license": "CC0 1.0 (Wikidata structured data); source QIDs retained.",
+  "licenseUrl": "https://www.wikidata.org/wiki/Wikidata:Licensing",
+  "transformVersion": "reference-import-v1",
+  "hashTarget": "derived data/reference/landmarks.ndjson (reviewed, pinned QIDs and coordinates)",
+  "recordCount": 24,
+  "rejectedCount": 0,
+  "rejectedReport": [],
+  "attribution": "Landmark identity and coordinates from Wikidata (CC0 1.0). QIDs are reviewed and pinned in the importer; no network lookup is required to reproduce this asset."
+}

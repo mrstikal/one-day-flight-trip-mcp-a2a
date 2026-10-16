@@ -1,0 +1,107 @@
+{
+  "geo-tz": {
+    "source": "geo-tz",
+    "url": "https://github.com/evansiroky/node-geo-tz",
+    "retrievedAt": "2026-10-10",
+    "revision": "8.1.9",
+    "sha256": "0476464817178462008acd6b73e3b0b09a285d9bb5719d1e7c69161bcac23471",
+    "license": "geo-tz code MIT; underlying boundary data ODbL (see data/manifests/licenses/odbl-timezone.txt).",
+    "licenseUrl": "https://github.com/evansiroky/node-geo-tz",
+    "transformVersion": "reference-import-v1",
+    "hashTarget": "derived data/reference/airports.ndjson zone-resolution output",
+    "recordCount": 690,
+    "rejectedCount": 0,
+    "rejectedReport": [],
+    "attribution": "Airport zones resolved at import time with geo-tz 8.1.9 (ODbL boundary data)."
+  },
+  "geonames": {
+    "source": "geonames",
+    "url": "https://download.geonames.org/export/dump/cities15000.zip",
+    "retrievedAt": "2026-10-10",
+    "revision": "2026-10-10-cities15000",
+    "sha256": "9339ac426943c265eb7fdfd5350ae351a5584b4d4271ed58f071ddc432982aeb",
+    "license": "CC BY 4.0 (GeoNames); attribution and transformation notice in data/manifests/licenses/geonames-cc-by.txt",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "transformVersion": "reference-import-v1",
+    "hashTarget": "downloaded cities15000.zip (upstream GeoNames artifact)",
+    "recordCount": 7059,
+    "rejectedCount": 27097,
+    "rejectedReport": [
+      {
+        "reason": "out_of_scope_country",
+        "count": 25561
+      },
+      {
+        "reason": "partial_admission_city_excluded",
+        "count": 1536
+      }
+    ],
+    "attribution": "Contains data from GeoNames (https://www.geonames.org/), licensed under CC BY 4.0."
+  },
+  "ourairports": {
+    "source": "ourairports",
+    "url": "https://davidmegginson.github.io/ourairports-data/airports.csv",
+    "retrievedAt": "2026-10-10",
+    "revision": "2026-10-10-ourairports",
+    "sha256": "79dd7db7228a12199839aa6acbc2dc1f1e50a4604f14d7f60dceb6983de91906",
+    "license": "Public domain (OurAirports); credit retained voluntarily.",
+    "licenseUrl": "https://ourairports.com/data/",
+    "transformVersion": "reference-import-v1",
+    "hashTarget": "downloaded airports.csv (upstream OurAirports artifact)",
+    "recordCount": 690,
+    "rejectedCount": 85541,
+    "rejectedReport": [
+      {
+        "reason": "ineligible_type:heliport",
+        "count": 15
+      },
+      {
+        "reason": "ineligible_type:small_airport",
+        "count": 163
+      },
+      {
+        "reason": "missing_or_invalid_iata",
+        "count": 12623
+      },
+      {
+        "reason": "out_of_scope_country",
+        "count": 72461
+      },
+      {
+        "reason": "partial_admission_airport_excluded",
+        "count": 279
+      }
+    ],
+    "attribution": "Airport data from OurAirports (https://ourairports.com/data/), public domain."
+  },
+  "tz-boundary-odbl": {
+    "source": "tz-boundary-odbl",
+    "url": "https://github.com/evansiroky/timezone-boundary-builder",
+    "retrievedAt": "2026-10-10",
+    "revision": "paired-with-geo-tz-8.1.9",
+    "sha256": "cbcce83ac9b0ac9264c9938675764e55560a801eeb0aacf554809a9672d3c575",
+    "license": "ODbL v1.0 (boundary data). Not redistributed; only derived zone lookups and this notice are committed.",
+    "licenseUrl": "https://opendatacommons.org/licenses/odbl/1-0/",
+    "transformVersion": "reference-import-v1",
+    "hashTarget": "data/manifests/licenses/odbl-timezone.txt (committed license notice)",
+    "recordCount": 0,
+    "rejectedCount": 0,
+    "rejectedReport": [],
+    "attribution": "Contains data derived from OpenStreetMap contributors and timezone-boundary-builder, licensed under ODbL."
+  },
+  "wikidata-landmarks": {
+    "source": "wikidata-landmarks",
+    "url": "https://www.wikidata.org/",
+    "retrievedAt": "2026-10-10",
+    "revision": "2026-10-10-wikidata",
+    "sha256": "1b843b4ee65beb0f2f85cfce8f82a8759446c917f7b1665ce13b55f8dbed9ada",
+    "license": "CC0 1.0 (Wikidata structured data); source QIDs retained.",
+    "licenseUrl": "https://www.wikidata.org/wiki/Wikidata:Licensing",
+    "transformVersion": "reference-import-v1",
+    "hashTarget": "derived data/reference/landmarks.ndjson (reviewed, pinned QIDs and coordinates)",
+    "recordCount": 24,
+    "rejectedCount": 0,
+    "rejectedReport": [],
+    "attribution": "Landmark identity and coordinates from Wikidata (CC0 1.0). QIDs are reviewed and pinned in the importer; no network lookup is required to reproduce this asset."
+  }
+}

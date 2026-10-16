@@ -1,0 +1,92 @@
+SLF4J(E): A service provider failed to instantiate:
+org.slf4j.spi.SLF4JServiceProvider: org.slf4j.jul.JULServiceProvider not a subtype
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+Exception in thread "IjentThreadPool-7" com.intellij.platform.ijent.IjentUnavailableException$CommunicationFailure: The process IjentId(ijent-1-wsl-nx-json) suddenly exited with the code -1
+	at com.intellij.platform.ijent.spi.IjentSessionMediatorUtils.ijentProcessExitCodeHandler(IjentSessionMediatorUtils.kt:274)
+	at com.intellij.platform.ijent.spi.IjentSessionProcessMediator$Companion$create$awaiterScope$1.invokeSuspend(IjentSessionProcessMediator.kt:166)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1090)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:614)
+	at com.intellij.platform.ijent.spi.IjentThreadPool$IjentThreadFactory$newThread$thread$1.run(IjentThreadPool.kt:101)
+	Suppressed: java.lang.Throwable: Rethrown from here
+		at com.intellij.platform.ijent.spi.IjentSessionMediatorUtils.createProcessScope$lambda$1(IjentSessionMediatorUtils.kt:71)
+		at kotlinx.coroutines.InvokeOnCompletion.invoke(JobSupport.kt:1550)
+		at kotlinx.coroutines.JobSupport.notifyCompletion(JobSupport.kt:1653)
+		at kotlinx.coroutines.JobSupport.completeStateFinalization(JobSupport.kt:323)
+		at kotlinx.coroutines.JobSupport.finalizeFinishingState(JobSupport.kt:240)
+		at kotlinx.coroutines.JobSupport.continueCompleting(JobSupport.kt:993)
+		at kotlinx.coroutines.JobSupport.access$continueCompleting(JobSupport.kt:25)
+		at kotlinx.coroutines.JobSupport$ChildCompletion.invoke(JobSupport.kt:1284)
+		at kotlinx.coroutines.JobSupport.notifyCompletion(JobSupport.kt:1653)
+		at kotlinx.coroutines.JobSupport.completeStateFinalization(JobSupport.kt:323)
+		at kotlinx.coroutines.JobSupport.finalizeFinishingState(JobSupport.kt:240)
+		at kotlinx.coroutines.JobSupport.tryMakeCompletingSlowPath(JobSupport.kt:953)
+		at kotlinx.coroutines.JobSupport.tryMakeCompleting(JobSupport.kt:901)
+		at kotlinx.coroutines.JobSupport.makeCompletingOnce$kotlinx_coroutines_core(JobSupport.kt:866)
+		at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:99)
+		at kotlinx.coroutines.debug.internal.DebugProbesImpl$CoroutineOwner.resumeWith(DebugProbesImpl.kt:555)
+		at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:47)
+		at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:98)
+		... 3 more
+	Suppressed: kotlinx.coroutines.internal.DiagnosticCoroutineContextException: [Kernel@mtjamnf8sclq93niafcn, Rete(abortOnError=false, commands=capacity=2147483647,data=[onReceive], reteState=kotlinx.coroutines.flow.StateFlowImpl@358ee631, dbSource=ReteDbSource(reteState=kotlinx.coroutines.flow.StateFlowImpl@358ee631)), DbSourceContextElement(kernel Kernel@mtjamnf8sclq93niafcn), ComponentManager(ApplicationImpl@1748763745), com.intellij.codeWithMe.ClientIdContextElementPrecursor@70371930, CoroutineName(com.intellij.platform.ide.impl.wsl.ProductionWslIjentManager), StandaloneCoroutine{Cancelling}@4804ecc, Dispatchers.Default]
+Exception in thread "IjentThreadPool-7" com.intellij.platform.ijent.IjentUnavailableException$CommunicationFailure: The process IjentId(ijent-2-wsl-workspace-json) suddenly exited with the code -1
+	at com.intellij.platform.ijent.spi.IjentSessionMediatorUtils.ijentProcessExitCodeHandler(IjentSessionMediatorUtils.kt:274)
+	at com.intellij.platform.ijent.spi.IjentSessionProcessMediator$Companion$create$awaiterScope$1.invokeSuspend(IjentSessionProcessMediator.kt:166)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1090)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:614)
+	at com.intellij.platform.ijent.spi.IjentThreadPool$IjentThreadFactory$newThread$thread$1.run(IjentThreadPool.kt:101)
+	Suppressed: java.lang.Throwable: Rethrown from here
+		at com.intellij.platform.ijent.spi.IjentSessionMediatorUtils.createProcessScope$lambda$1(IjentSessionMediatorUtils.kt:71)
+		at kotlinx.coroutines.InvokeOnCompletion.invoke(JobSupport.kt:1550)
+		at kotlinx.coroutines.JobSupport.notifyCompletion(JobSupport.kt:1653)
+		at kotlinx.coroutines.JobSupport.completeStateFinalization(JobSupport.kt:323)
+		at kotlinx.coroutines.JobSupport.finalizeFinishingState(JobSupport.kt:240)
+		at kotlinx.coroutines.JobSupport.continueCompleting(JobSupport.kt:993)
+		at kotlinx.coroutines.JobSupport.access$continueCompleting(JobSupport.kt:25)
+		at kotlinx.coroutines.JobSupport$ChildCompletion.invoke(JobSupport.kt:1284)
+		at kotlinx.coroutines.JobSupport.notifyCompletion(JobSupport.kt:1653)
+		at kotlinx.coroutines.JobSupport.completeStateFinalization(JobSupport.kt:323)
+		at kotlinx.coroutines.JobSupport.finalizeFinishingState(JobSupport.kt:240)
+		at kotlinx.coroutines.JobSupport.tryMakeCompletingSlowPath(JobSupport.kt:953)
+		at kotlinx.coroutines.JobSupport.tryMakeCompleting(JobSupport.kt:901)
+		at kotlinx.coroutines.JobSupport.makeCompletingOnce$kotlinx_coroutines_core(JobSupport.kt:866)
+		at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:99)
+		at kotlinx.coroutines.debug.internal.DebugProbesImpl$CoroutineOwner.resumeWith(DebugProbesImpl.kt:555)
+		at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:47)
+		at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:98)
+		... 3 more
+	Suppressed: kotlinx.coroutines.internal.DiagnosticCoroutineContextException: [Kernel@mtjamnf8sclq93niafcn, Rete(abortOnError=false, commands=capacity=2147483647,data=[onReceive], reteState=kotlinx.coroutines.flow.StateFlowImpl@358ee631, dbSource=ReteDbSource(reteState=kotlinx.coroutines.flow.StateFlowImpl@358ee631)), DbSourceContextElement(kernel Kernel@mtjamnf8sclq93niafcn), ComponentManager(ApplicationImpl@1748763745), com.intellij.codeWithMe.ClientIdContextElementPrecursor@70371930, CoroutineName(com.intellij.platform.ide.impl.wsl.ProductionWslIjentManager), StandaloneCoroutine{Cancelling}@32152567, Dispatchers.Default]
+Exception in thread "IjentThreadPool-7" com.intellij.platform.ijent.IjentUnavailableException$CommunicationFailure: The process IjentId(ijent-3-wsl-lerna-json) suddenly exited with the code -1
+	at com.intellij.platform.ijent.spi.IjentSessionMediatorUtils.ijentProcessExitCodeHandler(IjentSessionMediatorUtils.kt:274)
+	at com.intellij.platform.ijent.spi.IjentSessionProcessMediator$Companion$create$awaiterScope$1.invokeSuspend(IjentSessionProcessMediator.kt:166)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1090)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:614)
+	at com.intellij.platform.ijent.spi.IjentThreadPool$IjentThreadFactory$newThread$thread$1.run(IjentThreadPool.kt:101)
+	Suppressed: java.lang.Throwable: Rethrown from here
+		at com.intellij.platform.ijent.spi.IjentSessionMediatorUtils.createProcessScope$lambda$1(IjentSessionMediatorUtils.kt:71)
+		at kotlinx.coroutines.InvokeOnCompletion.invoke(JobSupport.kt:1550)
+		at kotlinx.coroutines.JobSupport.notifyCompletion(JobSupport.kt:1653)
+		at kotlinx.coroutines.JobSupport.completeStateFinalization(JobSupport.kt:323)
+		at kotlinx.coroutines.JobSupport.finalizeFinishingState(JobSupport.kt:240)
+		at kotlinx.coroutines.JobSupport.continueCompleting(JobSupport.kt:993)
+		at kotlinx.coroutines.JobSupport.access$continueCompleting(JobSupport.kt:25)
+		at kotlinx.coroutines.JobSupport$ChildCompletion.invoke(JobSupport.kt:1284)
+		at kotlinx.coroutines.JobSupport.notifyCompletion(JobSupport.kt:1653)
+		at kotlinx.coroutines.JobSupport.completeStateFinalization(JobSupport.kt:323)
+		at kotlinx.coroutines.JobSupport.finalizeFinishingState(JobSupport.kt:240)
+		at kotlinx.coroutines.JobSupport.tryMakeCompletingSlowPath(JobSupport.kt:953)
+		at kotlinx.coroutines.JobSupport.tryMakeCompleting(JobSupport.kt:901)
+		at kotlinx.coroutines.JobSupport.makeCompletingOnce$kotlinx_coroutines_core(JobSupport.kt:866)
+		at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:99)
+		at kotlinx.coroutines.debug.internal.DebugProbesImpl$CoroutineOwner.resumeWith(DebugProbesImpl.kt:555)
+		at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:47)
+		at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:98)
+		... 3 more
+	Suppressed: kotlinx.coroutines.internal.DiagnosticCoroutineContextException: [Kernel@mtjamnf8sclq93niafcn, Rete(abortOnError=false, commands=capacity=2147483647,data=[onReceive], reteState=kotlinx.coroutines.flow.StateFlowImpl@358ee631, dbSource=ReteDbSource(reteState=kotlinx.coroutines.flow.StateFlowImpl@358ee631)), DbSourceContextElement(kernel Kernel@mtjamnf8sclq93niafcn), ComponentManager(ApplicationImpl@1748763745), com.intellij.codeWithMe.ClientIdContextElementPrecursor@70371930, CoroutineName(com.intellij.platform.ide.impl.wsl.ProductionWslIjentManager), StandaloneCoroutine{Cancelling}@29b76538, Dispatchers.Default]

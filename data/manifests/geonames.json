@@ -1,0 +1,24 @@
+{
+  "source": "geonames",
+  "url": "https://download.geonames.org/export/dump/cities15000.zip",
+  "retrievedAt": "2026-10-10",
+  "revision": "2026-10-10-cities15000",
+  "sha256": "9339ac426943c265eb7fdfd5350ae351a5584b4d4271ed58f071ddc432982aeb",
+  "license": "CC BY 4.0 (GeoNames); attribution and transformation notice in data/manifests/licenses/geonames-cc-by.txt",
+  "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+  "transformVersion": "reference-import-v1",
+  "hashTarget": "downloaded cities15000.zip (upstream GeoNames artifact)",
+  "recordCount": 7059,
+  "rejectedCount": 27097,
+  "rejectedReport": [
+    {
+      "reason": "out_of_scope_country",
+      "count": 25561
+    },
+    {
+      "reason": "partial_admission_city_excluded",
+      "count": 1536
+    }
+  ],
+  "attribution": "Contains data from GeoNames (https://www.geonames.org/), licensed under CC BY 4.0."
+}

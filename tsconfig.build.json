@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/domain" },
+    { "path": "packages/data" },
+    { "path": "packages/ai" },
+    { "path": "packages/persistence" },
+    { "path": "packages/workflow" },
+    { "path": "apps/worker" }
+  ]
+}

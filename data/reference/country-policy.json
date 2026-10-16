@@ -1,0 +1,67 @@
+{
+  "policyVersion": "reference-policy-v1",
+  "reviewedOn": "2026-10-10",
+  "description": "Admission manifest for European geographic reference data. Admission is explicit and manifest-driven; never inferred from a source continent field.",
+  "admittedCountryKeys": [
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE",
+    "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+    "GB", "CH", "NO", "IS", "LI", "AL", "BA", "ME", "MK", "RS", "MD", "UA", "BY",
+    "AD", "MC", "SM", "VA", "XK"
+  ],
+  "extensions": [
+    {
+      "countryKey": "XK",
+      "note": "Application/source extension for Kosovo. Not a claim that XK is an assigned ISO 3166-1 alpha-2 code, and not a political judgment."
+    }
+  ],
+  "partialAdmission": [
+    {
+      "countryKey": "TR",
+      "note": "Only reviewed European-region entries are admitted. Asian-side SAW is excluded under the initial geographic policy, which is a documented limitation rather than a claim that SAW is invalid.",
+      "cityNames": ["Istanbul"],
+      "airportIata": ["IST"]
+    },
+    {
+      "countryKey": "RU",
+      "note": "Only reviewed European-region entries are admitted; all other Russian cities and airports are excluded from the initial scope.",
+      "cityNames": ["Moscow", "Saint Petersburg", "Kaliningrad"],
+      "airportIata": ["SVO", "DME", "VKO", "LED", "KGD"]
+    }
+  ],
+  "islandExceptions": [
+    { "name": "Azores", "countryKey": "PT", "note": "Admitted as a European-country island travel exception." },
+    { "name": "Madeira", "countryKey": "PT", "note": "Admitted as a European-country island travel exception." },
+    { "name": "Canary Islands", "countryKey": "ES", "note": "Admitted as a European-country island travel exception." }
+  ],
+  "excludedCountryKeys": ["GE", "AM", "AZ", "KZ"],
+  "curatedCities": [
+    {
+      "cityKey": "rome",
+      "name": "Rome",
+      "countryKey": "IT",
+      "center": { "lat": 41.9028, "lon": 12.4964 },
+      "envelopeRadiusKm": 16
+    },
+    {
+      "cityKey": "paris",
+      "name": "Paris",
+      "countryKey": "FR",
+      "center": { "lat": 48.8566, "lon": 2.3522 },
+      "envelopeRadiusKm": 14
+    },
+    {
+      "cityKey": "barcelona",
+      "name": "Barcelona",
+      "countryKey": "ES",
+      "center": { "lat": 41.3874, "lon": 2.1686 },
+      "envelopeRadiusKm": 12
+    }
+  ],
+  "curatedDirectPairs": [
+    ["PRG", "FCO"],
+    ["PRG", "CIA"],
+    ["PRG", "CDG"],
+    ["PRG", "ORY"],
+    ["PRG", "BCN"]
+  ]
+}

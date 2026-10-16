@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.next/
+out/
+coverage/
+playwright-report/
+test-results/
+apps/web/public/voice-vad/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.turbo/

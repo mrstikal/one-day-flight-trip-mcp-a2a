@@ -1,0 +1,7 @@
+{"id":"ground-corridor:prg-ceske-budejovice","kind":"ground_corridor","originRef":"airport:PRG","destinationRef":"geonames:3077916","minutes":180,"details":"Reviewed road/rail connected corridor. Conservative 180-minute ground estimate including access; not a current timetable.","evidenceRefs":["reviewed:ground-corridor:prg-cb"]}
+{"id":"island-exception:bcn-pmi","kind":"island_exception","originRef":"airport:BCN","destinationRef":"airport:PMI","details":"Sea separation with no fixed road/rail link; reviewed plausible air connection despite ~202 km great-circle distance.","evidenceRefs":["reviewed:island:bcn-pmi"]}
+{"id":"curated-direct:PRG-FCO","kind":"curated_direct","originRef":"airport:PRG","destinationRef":"airport:FCO","evidenceRefs":["reviewed:curated-direct-pair"]}
+{"id":"curated-direct:PRG-CIA","kind":"curated_direct","originRef":"airport:PRG","destinationRef":"airport:CIA","evidenceRefs":["reviewed:curated-direct-pair"]}
+{"id":"curated-direct:PRG-CDG","kind":"curated_direct","originRef":"airport:PRG","destinationRef":"airport:CDG","evidenceRefs":["reviewed:curated-direct-pair"]}
+{"id":"curated-direct:PRG-ORY","kind":"curated_direct","originRef":"airport:PRG","destinationRef":"airport:ORY","evidenceRefs":["reviewed:curated-direct-pair"]}
+{"id":"curated-direct:PRG-BCN","kind":"curated_direct","originRef":"airport:PRG","destinationRef":"airport:BCN","evidenceRefs":["reviewed:curated-direct-pair"]}

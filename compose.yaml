@@ -1,0 +1,25 @@
+name: odft
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: odft-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: odft
+      POSTGRES_PASSWORD: odft_local_password
+      POSTGRES_DB: odft
+    ports:
+      - "127.0.0.1:5442:5432"
+    volumes:
+      - odft-postgres-data:/var/lib/postgresql/data
+      - ./scripts/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odft -d odft"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  odft-postgres-data:

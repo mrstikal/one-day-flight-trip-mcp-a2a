@@ -1,0 +1,26 @@
+{
+  "name": "@odft/data",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b tsconfig.json"
+  },
+  "dependencies": {
+    "@faker-js/faker": "10.6.0",
+    "@js-temporal/polyfill": "0.5.1",
+    "@odft/contracts": "*",
+    "@odft/domain": "*",
+    "geo-tz": "8.1.9",
+    "zod": "4.6.5"
+  }
+}

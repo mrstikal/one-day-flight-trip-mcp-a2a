@@ -1,0 +1,15 @@
+{
+  "source": "tz-boundary-odbl",
+  "url": "https://github.com/evansiroky/timezone-boundary-builder",
+  "retrievedAt": "2026-10-10",
+  "revision": "paired-with-geo-tz-8.1.9",
+  "sha256": "cbcce83ac9b0ac9264c9938675764e55560a801eeb0aacf554809a9672d3c575",
+  "license": "ODbL v1.0 (boundary data). Not redistributed; only derived zone lookups and this notice are committed.",
+  "licenseUrl": "https://opendatacommons.org/licenses/odbl/1-0/",
+  "transformVersion": "reference-import-v1",
+  "hashTarget": "data/manifests/licenses/odbl-timezone.txt (committed license notice)",
+  "recordCount": 0,
+  "rejectedCount": 0,
+  "rejectedReport": [],
+  "attribution": "Contains data derived from OpenStreetMap contributors and timezone-boundary-builder, licensed under ODbL."
+}

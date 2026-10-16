@@ -1,0 +1,13 @@
+Wikidata curated landmarks — attribution and license notice
+===========================================================
+
+Source: Wikidata (https://www.wikidata.org/), reviewed entity labels and P625
+coordinates.
+Retrieved: 2026-10-10 (see data/manifests/wikidata-landmarks.json for SHA-256)
+
+License: Creative Commons CC0 1.0 Universal (public domain dedication)
+License deed: https://creativecommons.org/publicdomain/zero/1.0/
+
+Source IDs (QIDs) and entity URLs are retained for every landmark. Entity
+identity and coordinates were verified against the reviewed city envelope;
+no QID was guessed.

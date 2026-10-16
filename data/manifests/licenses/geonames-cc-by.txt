@@ -1,0 +1,19 @@
+GeoNames reference data — attribution and license notice
+========================================================
+
+Source: GeoNames export (https://download.geonames.org/export/dump/)
+Files used: cities15000.zip, countryInfo.txt
+Retrieved: 2026-10-10 (see data/manifests/geonames.json for the SHA-256)
+
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+License deed: https://creativecommons.org/licenses/by/4.0/
+Full legal code: https://creativecommons.org/licenses/by/4.0/legalcode
+
+Required attribution:
+  "Contains data from GeoNames (https://www.geonames.org/), licensed under
+   CC BY 4.0."
+
+Transformation notice:
+  The upstream files were filtered to the admitted European reference scope,
+  projected to the columns used by this application, and enriched with a
+  normalized search key. No upstream names or coordinates were invented.

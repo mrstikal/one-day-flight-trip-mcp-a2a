@@ -1,0 +1,60 @@
+{
+  "name": "odft",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Travel Planner - one-day flight trip planner (demo application)",
+  "engines": {
+    "node": ">=24.0.0 <25.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "setup:env": "tsx scripts/setup-local-env.ts",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "reference:import": "tsx scripts/import-reference.ts",
+    "reference:load": "tsx scripts/reference-load.ts",
+    "checkpointer:setup": "tsx scripts/checkpointer-setup.ts",
+    "ai:validate-models": "tsx scripts/ai-validate-models.ts",
+    "voice:validate-models": "tsx scripts/voice-validate-models.ts",
+    "dev": "npm run build:packages && concurrently -k -n packages,web,worker -c blue,green,magenta \"npm:dev:packages\" \"npm:dev:web\" \"npm:dev:worker\"",
+    "dev:packages": "tsc -b tsconfig.build.json --watch --preserveWatchOutput",
+    "dev:web": "npm run dev -w @odft/web",
+    "dev:worker": "npm run dev -w @odft/worker",
+    "build:packages": "tsc -b tsconfig.build.json",
+    "build:web": "npm run build -w @odft/web",
+    "build:worker": "npm run build -w @odft/worker",
+    "build": "npm run build:packages && npm run build:web && npm run build:worker && npm run verify:build",
+    "verify:build": "tsx scripts/verify-build.ts",
+    "typecheck": "tsc -b tsconfig.build.json --pretty false && tsc -p apps/web/tsconfig.json --noEmit && tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "playwright test",
+    "clean": "tsc -b tsconfig.build.json --clean"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@playwright/test": "1.64.0",
+    "@types/node": "24.19.2",
+    "concurrently": "10.0.6",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.0",
+    "globals": "17.13.0",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.1",
+    "vite": "8.3.4",
+    "vitest": "5.0.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true,
+    "unrs-resolver@1.12.2": true
+  }
+}

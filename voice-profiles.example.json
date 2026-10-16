@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "pricingVersion": "unverified",
+  "stt": {
+    "provider": "openrouter",
+    "model": "openai/whisper-large-v3-turbo",
+    "endpointProviderId": "groq",
+    "timeoutMs": 20000,
+    "maxCallCostUsd": "0.02"
+  },
+  "tts": {
+    "provider": "openrouter",
+    "model": "elevenlabs/eleven-v4-turbo",
+    "voice": "george",
+    "responseFormat": "mp3",
+    "timeoutMs": 20000,
+    "maxCallCostUsd": "0.05"
+  },
+  "limits": {
+    "maxRecordingSeconds": 60,
+    "maxRequestAudioBytes": 2097152,
+    "maxResponseAudioBytes": 8388608,
+    "maxTranscriptCharacters": 2000,
+    "maxReplyCharacters": 2000,
+    "maxCallsPerTrip": 60,
+    "maxCostUsdPerTrip": "1.00"
+  }
+}

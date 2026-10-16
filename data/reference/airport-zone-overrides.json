@@ -1,0 +1,5 @@
+{
+  "policyVersion": "reference-policy-v1",
+  "description": "Reviewed airport IANA-zone overrides applied on top of import-time geo-tz evidence. Each override records a reason and is used only when geo-tz is unknown, ambiguous, or returns an Etc/GMT placeholder.",
+  "overrides": []
+}

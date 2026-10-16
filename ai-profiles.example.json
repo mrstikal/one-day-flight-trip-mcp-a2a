@@ -1,0 +1,60 @@
+{
+  "intent": {
+    "provider": "openrouter",
+    "model": "openai/gpt-6-luna",
+    "timeoutMs": 20000,
+    "maxInputTokens": 6000,
+    "maxOutputTokens": 1024,
+    "maxAttempts": 2,
+    "maxCallCostUsd": "0.05",
+    "inputPriceUsdPerMillion": "0.9",
+    "outputPriceUsdPerMillion": "1.5",
+    "requestPriceUsd": "0.01",
+    "pricingVersion": "unverified",
+    "allowedEndpointProviderIds": ["openai"]
+  },
+  "recommendation": {
+    "provider": "openrouter",
+    "model": "openai/gpt-6-luna",
+    "timeoutMs": 20000,
+    "maxInputTokens": 6000,
+    "maxOutputTokens": 1024,
+    "maxAttempts": 2,
+    "maxCallCostUsd": "0.05",
+    "inputPriceUsdPerMillion": "0.9",
+    "outputPriceUsdPerMillion": "1.5",
+    "requestPriceUsd": "0.01",
+    "pricingVersion": "unverified",
+    "allowedEndpointProviderIds": ["openai"]
+  },
+  "planner": {
+    "provider": "openrouter",
+    "model": "openai/gpt-6-luna",
+    "reasoningEffort": "low",
+    "timeoutMs": 30000,
+    "maxInputTokens": 6000,
+    "maxOutputTokens": 6144,
+    "maxAttempts": 2,
+    "maxCallCostUsd": "0.20",
+    "inputPriceUsdPerMillion": "0.9",
+    "outputPriceUsdPerMillion": "1.5",
+    "requestPriceUsd": "0.01",
+    "pricingVersion": "unverified",
+    "allowedEndpointProviderIds": ["openai"]
+  },
+  "reviewer": {
+    "provider": "openrouter",
+    "model": "openai/gpt-6-luna",
+    "reasoningEffort": "low",
+    "timeoutMs": 20000,
+    "maxInputTokens": 6000,
+    "maxOutputTokens": 2048,
+    "maxAttempts": 2,
+    "maxCallCostUsd": "0.05",
+    "inputPriceUsdPerMillion": "0.9",
+    "outputPriceUsdPerMillion": "1.5",
+    "requestPriceUsd": "0.01",
+    "pricingVersion": "unverified",
+    "allowedEndpointProviderIds": ["openai"]
+  }
+}

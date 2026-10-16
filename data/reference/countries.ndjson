@@ -1,0 +1,47 @@
+{"countryKey":"AD","name":"Andorra","admitted":true,"extension":false}
+{"countryKey":"AL","name":"Albania","admitted":true,"extension":false}
+{"countryKey":"AT","name":"Austria","admitted":true,"extension":false}
+{"countryKey":"BA","name":"Bosnia and Herzegovina","admitted":true,"extension":false}
+{"countryKey":"BE","name":"Belgium","admitted":true,"extension":false}
+{"countryKey":"BG","name":"Bulgaria","admitted":true,"extension":false}
+{"countryKey":"BY","name":"Belarus","admitted":true,"extension":false}
+{"countryKey":"CH","name":"Switzerland","admitted":true,"extension":false}
+{"countryKey":"CY","name":"Cyprus","admitted":true,"extension":false}
+{"countryKey":"CZ","name":"Czechia","admitted":true,"extension":false}
+{"countryKey":"DE","name":"Germany","admitted":true,"extension":false}
+{"countryKey":"DK","name":"Denmark","admitted":true,"extension":false}
+{"countryKey":"EE","name":"Estonia","admitted":true,"extension":false}
+{"countryKey":"ES","name":"Spain","admitted":true,"extension":false}
+{"countryKey":"FI","name":"Finland","admitted":true,"extension":false}
+{"countryKey":"FR","name":"France","admitted":true,"extension":false}
+{"countryKey":"GB","name":"United Kingdom","admitted":true,"extension":false}
+{"countryKey":"GR","name":"Greece","admitted":true,"extension":false}
+{"countryKey":"HR","name":"Croatia","admitted":true,"extension":false}
+{"countryKey":"HU","name":"Hungary","admitted":true,"extension":false}
+{"countryKey":"IE","name":"Ireland","admitted":true,"extension":false}
+{"countryKey":"IS","name":"Iceland","admitted":true,"extension":false}
+{"countryKey":"IT","name":"Italy","admitted":true,"extension":false}
+{"countryKey":"LI","name":"Liechtenstein","admitted":true,"extension":false}
+{"countryKey":"LT","name":"Lithuania","admitted":true,"extension":false}
+{"countryKey":"LU","name":"Luxembourg","admitted":true,"extension":false}
+{"countryKey":"LV","name":"Latvia","admitted":true,"extension":false}
+{"countryKey":"MC","name":"Monaco","admitted":true,"extension":false}
+{"countryKey":"MD","name":"Moldova","admitted":true,"extension":false}
+{"countryKey":"ME","name":"Montenegro","admitted":true,"extension":false}
+{"countryKey":"MK","name":"North Macedonia","admitted":true,"extension":false}
+{"countryKey":"MT","name":"Malta","admitted":true,"extension":false}
+{"countryKey":"NL","name":"The Netherlands","admitted":true,"extension":false}
+{"countryKey":"NO","name":"Norway","admitted":true,"extension":false}
+{"countryKey":"PL","name":"Poland","admitted":true,"extension":false}
+{"countryKey":"PT","name":"Portugal","admitted":true,"extension":false}
+{"countryKey":"RO","name":"Romania","admitted":true,"extension":false}
+{"countryKey":"RS","name":"Serbia","admitted":true,"extension":false}
+{"countryKey":"RU","name":"Russia","admitted":true,"extension":false,"policyNote":"Only reviewed European-region entries are admitted; all other Russian cities and airports are excluded from the initial scope."}
+{"countryKey":"SE","name":"Sweden","admitted":true,"extension":false}
+{"countryKey":"SI","name":"Slovenia","admitted":true,"extension":false}
+{"countryKey":"SK","name":"Slovakia","admitted":true,"extension":false}
+{"countryKey":"SM","name":"San Marino","admitted":true,"extension":false}
+{"countryKey":"TR","name":"Turkey","admitted":true,"extension":false,"policyNote":"Only reviewed European-region entries are admitted. Asian-side SAW is excluded under the initial geographic policy, which is a documented limitation rather than a claim that SAW is invalid."}
+{"countryKey":"UA","name":"Ukraine","admitted":true,"extension":false}
+{"countryKey":"VA","name":"Vatican","admitted":true,"extension":false}
+{"countryKey":"XK","name":"Kosovo","admitted":true,"extension":true,"policyNote":"Application/source extension for Kosovo. Not a claim that XK is an assigned ISO 3166-1 alpha-2 code, and not a political judgment."}
