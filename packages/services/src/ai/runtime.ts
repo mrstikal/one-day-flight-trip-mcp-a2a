@@ -3,6 +3,7 @@ import {
   AdapterError,
   buildCompactContext,
   fixtureFlightRecommendation,
+  fixturePlanner,
   flightRecommendationContextSchema,
   RECOMMENDATION_V2_PROMPT_VERSION,
   RECOMMENDATION_V2_SYSTEM_PROMPT,
@@ -770,6 +771,159 @@ export interface DelegatedFlightRankingDeps {
   readonly paidAdapter?: LLMAdapter;
   /** Test/governance hook: profile whose prices drive the worst-case reservation. */
   readonly paidProfile?: RoleProfile;
+}
+
+/**
+ * Phase 08: paid-path wiring of the City Guide itinerary skill. The planner
+ * profile drives the delegated reservation; the adapter is shared with the
+ * recommendation role (the role is selected per request).
+ */
+export interface DelegatedItineraryDeps {
+  readonly paidAdapter?: LLMAdapter;
+  readonly paidPlannerProfile?: RoleProfile;
+  readonly paidReviewerProfile?: RoleProfile;
+}
+
+export interface DelegatedPlannerResult {
+  readonly output: PlannerOutput;
+  readonly mode: "fixture" | "openrouter";
+}
+
+/** Candidate membership of one planner output: only supplied meal/activity ids. */
+function validPlannerOutput(output: PlannerOutput, allowed: readonly string[]): boolean {
+  const allowedSet = new Set(allowed);
+  for (const stop of output.stops) {
+    if (stop.kind !== "meal" && stop.kind !== "activity") {
+      continue;
+    }
+    if (!allowedSet.has(stop.refId)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Phase 08 delegated planner. Fixture mode is deterministic and free; the paid
+ * path reserves exactly one transport attempt through the restricted delegated
+ * ledger, validates candidate membership BEFORE settling, and refuses an
+ * invented id instead of silently repairing it.
+ */
+export async function planDelegatedItinerary(
+  pool: Pool,
+  config: ServerConfig,
+  deps: DelegatedItineraryDeps,
+  input: {
+    readonly authority: DelegatedAuthority;
+    /** Attempt scope, e.g. `itinerary:1` (one reservation per attempt). */
+    readonly effectScope: string;
+    readonly signal?: AbortSignal;
+    readonly limits: DelegatedRankingLimits;
+    readonly context: PlannerContext;
+    /** Candidate ids the model output may reference. */
+    readonly allowedIds: readonly string[];
+  },
+): Promise<DelegatedPlannerResult> {
+  if (config.aiMode !== "openrouter" && !deps.paidAdapter) {
+    const output = plannerOutputSchema.parse(fixturePlanner(input.context));
+    if (!validPlannerOutput(output, input.allowedIds)) {
+      throw new DelegatedCallError(
+        "INVALID_ARTIFACT",
+        "the fixture planner referenced a candidate outside the supplied context",
+      );
+    }
+    return { output, mode: "fixture" };
+  }
+  const profile = deps.paidPlannerProfile;
+  if (!profile) {
+    throw new AdapterError("AI_NOT_CONFIGURED", "no delegated planner profile is configured", false);
+  }
+  const worst = worstCaseCostUsd(profile, {
+    inputTokens: profile.maxInputTokens,
+    outputTokens: profile.maxOutputTokens,
+  });
+  const reserved = await reserveDelegatedCall(pool, {
+    agentIdentity: input.authority.agentIdentity,
+    delegationId: input.authority.delegationId,
+    taskId: input.authority.taskId,
+    traceId: input.authority.traceId,
+    effectScope: input.effectScope,
+    role: "planner",
+    model: profile.model,
+    provider: profile.provider,
+    promptVersion: plannerRole.promptVersion,
+    mode: "openrouter",
+    pricingVersion: profile.pricingVersion,
+    reservedTokens: profile.maxInputTokens + profile.maxOutputTokens,
+    reservedCostUsd: formatUsd(worst),
+    maxCallCostUsd: input.limits.maxCallCostUsd,
+    maxCallsPerTrip: input.limits.maxCallsPerTrip,
+    maxCostUsdPerTrip: input.limits.maxCostUsdPerTrip,
+    maxAttemptsPerScope: input.limits.maxAttemptsPerScope,
+    taskMaxCostUsd: input.limits.taskMaxCostUsd,
+  });
+  if (!reserved.ok) {
+    throw new DelegatedCallError(reserved.code, reserved.message);
+  }
+  const startedAt = Date.now();
+  let callId: string | undefined = reserved.callId;
+  try {
+    const adapter = deps.paidAdapter;
+    if (!adapter) {
+      throw new AdapterError("AI_UNSUPPORTED", "no paid adapter configured", false);
+    }
+    const response = await adapter.generateObject({
+      role: "planner",
+      promptVersion: plannerRole.promptVersion,
+      operationId: input.authority.taskId,
+      effectScope: input.effectScope,
+      systemPrompt: plannerRole.systemPrompt,
+      context: input.context,
+      outputSchema: plannerOutputSchema,
+      signal: input.signal ?? new AbortController().signal,
+    });
+    const parsed = plannerOutputSchema.parse(response.value);
+    const accepted = validPlannerOutput(parsed, input.allowedIds);
+    const settled = await settleDelegatedCall(pool, {
+      agentIdentity: input.authority.agentIdentity,
+      callId,
+      inputTokens: response.inputTokens ?? 0,
+      outputTokens: response.outputTokens ?? 0,
+      cachedInputTokens: response.cachedInputTokens ?? 0,
+      reasoningOutputTokens: response.reasoningOutputTokens ?? 0,
+      costUsd: response.costUsd ? Number.parseFloat(response.costUsd) : null,
+      costStatus: "actual",
+      latencyMs: response.latencyMs,
+      finishReason: null,
+      attempts: response.attempts,
+      validationStatus: accepted ? "valid" : "invalid",
+      errorCode: accepted ? null : "AI_SCHEMA_INVALID",
+    });
+    callId = undefined;
+    if (!settled) {
+      throw new DelegatedCallError(
+        "STALE_AGENT_RESULT",
+        "the delegated reservation could not be settled (already settled or unknown call id)",
+      );
+    }
+    if (!accepted) {
+      throw new DelegatedCallError(
+        "INVALID_ARTIFACT",
+        "the planner referenced a candidate outside the supplied context",
+      );
+    }
+    return { output: parsed, mode: "openrouter" };
+  } catch (error) {
+    if (callId) {
+      await markDelegatedCallUnknown(pool, {
+        agentIdentity: input.authority.agentIdentity,
+        callId,
+        reason: error instanceof AdapterError ? error.code : "ADAPTER_ERROR",
+        latencyMs: Date.now() - startedAt,
+      });
+    }
+    throw error;
+  }
 }
 
 /**

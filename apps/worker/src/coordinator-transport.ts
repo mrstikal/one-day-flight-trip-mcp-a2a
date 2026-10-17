@@ -27,6 +27,8 @@ export interface CoordinatorTransportConfig {
   readonly flight: CoordinatorAgentBinding;
   readonly accommodation: CoordinatorAgentBinding;
   readonly cityGuide: CoordinatorAgentBinding;
+  /** Phase 08: the same City Guide agent's itinerary skill. */
+  readonly itinerary: CoordinatorAgentBinding;
 }
 
 export function loadCoordinatorTransportConfig(
@@ -38,7 +40,11 @@ export function loadCoordinatorTransportConfig(
   }
   const registry = trustedRegistrySchema.parse(JSON.parse(readFileSync(registryPath, "utf8")));
   const binding = (
-    skillId: "flight.recommend.v1" | "accommodation.recommend.v1" | "city-guide.research.v1",
+    skillId:
+      | "flight.recommend.v1"
+      | "accommodation.recommend.v1"
+      | "city-guide.research.v1"
+      | "itinerary.propose.v1",
   ): CoordinatorAgentBinding => {
     const entry = registry.agents.find((agent) =>
       (agent.requiredSkills as readonly string[]).includes(skillId),
@@ -64,6 +70,7 @@ export function loadCoordinatorTransportConfig(
     flight: binding("flight.recommend.v1"),
     accommodation: binding("accommodation.recommend.v1"),
     cityGuide: binding("city-guide.research.v1"),
+    itinerary: binding("itinerary.propose.v1"),
   };
 }
 

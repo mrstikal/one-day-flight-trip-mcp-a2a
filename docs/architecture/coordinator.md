@@ -84,3 +84,53 @@ trips never change engine, and the two engines cannot claim each other's work.
 - The isolated integration suites are `tests/integration/coordinator/*`; the
   engine-dispatch proof walks `admission.test.ts` (a coordinator operation is
   invisible to the `langgraph` claim filter).
+
+## Phase 08: itinerary, selective replanning, chat and voice parity
+
+- **City Guide itinerary skill** (`itinerary.propose.v1`): the coordinator sends
+  the compact planner role context plus the deterministic MCP Itinerary Tools
+  context in `queryContext.itinerary` (the agent never reads trip tables). The
+  agent reads candidate facts from the authorized frozen snapshot, runs ONE
+  delegated planner call, rejects an id the MCP tools did not return, and
+  preflights the proposal with `validate_itinerary`. The proposal is
+  planner-compatible stops only; assembly, validation, persistence and the
+  review policy stay coordinator-authoritative (`packages/services/src/travel/
+  itinerary.ts`).
+- **Bounded attempt loop**: one task = one application planning attempt.
+  `packages/workflow/src/coordinator/itinerary.ts` owns the three-attempt bound.
+  An invalid draft or a `revise` review becomes feedback for the next attempt;
+  at the bound the run hands the current version to approval or opens the
+  existing conflict decision. The agent cannot start an internal loop.
+- **Local acceptance**: the full `ItineraryProposalV1` is re-validated in the
+  coordinator, candidate membership is checked against the locally loaded
+  planning data, and an invented id is rejected before any draft is stored.
+- **Selective replanning**: typed commands are applied in one deterministic
+  batch (`packages/workflow/src/routing/command-order.ts`), then
+  `resolveCommandRouting` chooses the affected domains. Only those domains are
+  re-delegated; unaffected artifacts, selections and confirmed reservations are
+  untouched. A completed scoped research pass resumes at its recorded
+  `researchTarget` (program choices, hotel choice or itinerary plan).
+- **Modification takeover**: when a later command operation takes over a parked
+  run, the previous operation's outstanding delegations are revoked and its
+  run data (delegation ids, question queue, attempt counter, feedback and
+  fingerprints) is cleared before any new work. The pending decision itself is
+  retired when the new operation publishes a decision or completes; a failed
+  run cancels it. A decision operation is a continuation (for example an answer
+  to a specialist question) and never revokes its delegations or clears its
+  run data.
+- **Chat**: `interpreting` runs the intent role for `{kind:"chat"}` payloads,
+  applies the validated command batch, opens a bounded clarification when the
+  request is ambiguous, and persists the assistant wording inside the SAME
+  fenced transaction that parks/completes the operation. An unsupported
+  interpretation re-publishes the interrupted decision (when its answer does
+  not depend on the superseded operation's state) instead of completing the run
+  and leaving an unanswerable pending decision.
+- **Route changes**: `set_route` is previewed first; when a confirmed
+  reservation would be cancelled, the coordinator parks
+  `route_change_confirmation` with the exact public preview in
+  `option_payload` (never a selection-proposal FK) and the deferred commands in
+  run data. Nothing is cancelled before the confirmation; accepting it commits
+  the route change and restarts Stage A/B and flight research.
+- **Voice parity**: voice transcription still feeds the same chat admission
+  path, so it uses the same typed commands, authorization, invalidation and
+  attempt bounds as text. No voice-specific business rules exist.

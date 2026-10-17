@@ -13,6 +13,7 @@ import { buildCityGuideAgentCard } from "./card.js";
 import { createCityGuideExecutor } from "./executor.js";
 import { CITY_GUIDE_AGENT_IDENTITY, type CityGuideAgentConfig } from "./config.js";
 import type { ServerConfig } from "@odft/persistence";
+import type { DelegatedItineraryDeps } from "@odft/services";
 
 /**
  * Phase 06 City Guide Agent HTTP surface: durable admission middleware, official
@@ -26,6 +27,7 @@ export function createCityGuideAgentApp(input: {
   admission: DurableMessageAdmission;
   telemetry: ProtocolTelemetryWriter;
   mcp: Parameters<typeof createCityGuideExecutor>[0]["mcp"];
+  itineraryDeps: DelegatedItineraryDeps;
 }): express.Express {
   const app = express();
   app.get("/health", (_request, response) => {
@@ -53,6 +55,7 @@ export function createCityGuideAgentApp(input: {
       pool: input.pool,
       mcp: input.mcp,
       protocol: input.config.protocol,
+      itineraryDeps: input.itineraryDeps,
     }),
   });
   return app;

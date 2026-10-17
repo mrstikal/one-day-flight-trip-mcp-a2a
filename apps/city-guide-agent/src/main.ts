@@ -8,6 +8,7 @@ import {
   ProtocolTelemetryWriter,
   ServiceInstanceLock,
 } from "@odft/protocols";
+import { loadItineraryDeps } from "./ai.js";
 import { createCityGuideAgentApp } from "./app.js";
 import { CITY_GUIDE_AGENT_IDENTITY, loadCityGuideAgentConfig } from "./config.js";
 import { loadLocalEnv } from "./load-env.js";
@@ -23,6 +24,8 @@ loadLocalEnv();
 
 const config = loadCityGuideAgentConfig();
 const serverConfig = parseServerConfig(process.env);
+// Fail fast when AI_MODE=openrouter is misconfigured (planner/reviewer profiles).
+const itineraryDeps = await loadItineraryDeps(config, serverConfig);
 const pool = new Pool({ connectionString: config.databaseUrl, max: 6 });
 const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
 const admission = new DurableMessageAdmission(db, {
@@ -47,6 +50,7 @@ const app = createCityGuideAgentApp({
   admission,
   telemetry,
   mcp,
+  itineraryDeps,
 });
 const server = app.listen(config.port, config.host, () => {
   process.stdout.write(

@@ -6,6 +6,7 @@ import { travelPorts } from "../travel/runtime.js";
 import { resolveCommandRouting, routingRefs } from "../routing/invalidation-matrix.js";
 import { routeByNextWork, routeForCommandType } from "../routing/next-work-target.js";
 import { stageRouteChangeIfImpactful } from "./stage-route-change.js";
+import { orderCommandsForApplication } from "../routing/command-order.js";
 
 /**
  * Phase 08 intent pipeline (07-conversation-and-intents.md sections 1-5).
@@ -25,26 +26,7 @@ function isRoutingCommand(command: DomainCommand): boolean {
   return (ROUTING_COMMANDS as readonly string[]).includes(command.type);
 }
 
-/**
- * Deterministic application order: the commands that can be refused (route change
- * after a confirmed reservation, program selection) run first, so a refusal never
- * leaves earlier preference writes behind. The batch itself is one transaction.
- */
-export function orderCommandsForApplication(
-  commands: readonly DomainCommand[],
-): DomainCommand[] {
-  const rank = (command: DomainCommand): number => {
-    if (command.type === "set_route") return 0;
-    if (command.type === "set_program") return 1;
-    if (command.type === "propose_selection") return 2;
-    if (command.type === "set_simulation") return 3;
-    return 4;
-  };
-  return [...commands]
-    .map((command, index) => ({ command, index }))
-    .sort((a, b) => rank(a.command) - rank(b.command) || a.index - b.index)
-    .map((entry) => entry.command);
-}
+export { orderCommandsForApplication };
 
 function routingFor(commands: readonly DomainCommand[]): {
   commandType: string;

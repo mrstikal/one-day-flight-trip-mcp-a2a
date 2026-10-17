@@ -10,6 +10,7 @@ import { DEFAULT_PROTOCOL_TIMEOUTS, trustedRegistrySchema, type ProtocolConfig, 
 
 export const CITY_GUIDE_AGENT_IDENTITY = "city-guide-agent";
 export const CITY_GUIDE_SKILL_ID = "city-guide.research.v1";
+export const ITINERARY_SKILL_ID = "itinerary.propose.v1";
 
 const envSchema = z
   .object({
@@ -20,6 +21,8 @@ const envSchema = z
     mcpRegistryPath: z.string().min(1).nullable().default(null),
     selfTokenRef: z.string().min(1).default("ODFT_AGENT_TOKEN_CITY_GUIDE"),
     stepDelayMs: z.number().int().min(0).max(60000).default(0),
+    aiMode: z.enum(["fixture", "openrouter"]).default("fixture"),
+    aiConfigPath: z.string().min(1).nullable().default(null),
   })
   .strict();
 
@@ -32,6 +35,8 @@ export interface CityGuideAgentConfig {
   readonly mcpRegistryPath: string | null;
   /** Test-only delay between work steps (parallel-window observation). */
   readonly stepDelayMs: number;
+  readonly aiMode: "fixture" | "openrouter";
+  readonly aiConfigPath: string | null;
   readonly inbound: TrustedRegistry;
   /** Client-side config used to reach the MCP endpoints (Phase 04). */
   readonly protocol: ProtocolConfig;
@@ -55,6 +60,8 @@ export function loadCityGuideAgentConfig(env: Record<string, string | undefined>
     mcpRegistryPath: env["ODFT_CITY_GUIDE_AGENT_MCP_REGISTRY_PATH"] ?? null,
     selfTokenRef: env["ODFT_CITY_GUIDE_AGENT_TOKEN_REF"] ?? "ODFT_AGENT_TOKEN_CITY_GUIDE",
     stepDelayMs: envNumber(env, "ODFT_CITY_GUIDE_AGENT_STEP_DELAY_MS", 0),
+    aiMode: env.AI_MODE === "openrouter" ? "openrouter" : "fixture",
+    aiConfigPath: env.AI_CONFIG_PATH ?? null,
   });
   if (!parsed.databaseUrl) {
     throw new Error("DATABASE_URL is required for the city-guide-agent");
@@ -72,6 +79,8 @@ export function loadCityGuideAgentConfig(env: Record<string, string | undefined>
     registryPath: parsed.registryPath,
     mcpRegistryPath: parsed.mcpRegistryPath,
     stepDelayMs: parsed.stepDelayMs,
+    aiMode: parsed.aiMode,
+    aiConfigPath: parsed.aiConfigPath,
     inbound,
     protocol: {
       selfAgentIdentity: CITY_GUIDE_AGENT_IDENTITY,

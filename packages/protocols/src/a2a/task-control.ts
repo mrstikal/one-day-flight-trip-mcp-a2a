@@ -53,6 +53,18 @@ export const TASK_LIMITS: Readonly<Record<string, TaskLimits>> = {
     maxTaskCostUsd: 0.1,
     maxInputs: 2,
   },
+  /**
+   * Phase 08: one application planning attempt. The planner role's ceiling is
+   * 0.20 USD and the deterministic preflight is free, so 0.25 covers exactly
+   * one paid planner send plus its reservation headroom.
+   */
+  "itinerary.propose.v1": {
+    activeTimeMs: 120_000,
+    mcpInvocations: 6,
+    llmAttempts: 4,
+    maxTaskCostUsd: 0.25,
+    maxInputs: 2,
+  },
 };
 
 export class TaskLimitError extends Error {

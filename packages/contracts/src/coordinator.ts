@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { delegationDomainSchema, researchDomainSchema, serviceLevelSchema } from "./enums.js";
+import { researchSearchIntentSchema } from "./preferences.js";
+import { domainCommandSchema } from "./commands.js";
 import {
   fingerprintSchema,
   instantSchema,
@@ -99,6 +101,22 @@ export const coordinatorRunDataSchema = z
     drainPending: z.boolean().default(false),
     planningAttempt: z.number().int().min(0).max(3).default(0),
     feedbackIds: z.array(nonEmptyStringSchema).max(8).default([]),
+    /** Phase 08: bounded reviewer/validator feedback text for the next attempt. */
+    feedback: z.array(z.string().min(1).max(300)).max(10).default([]),
+    /** Phase 08: the itinerary delegation this run is currently waiting on. */
+    itineraryDelegationId: uuidSchema.nullable().default(null),
+    /** Phase 08: persisted draft/review target of the current attempt. */
+    itineraryId: uuidSchema.nullable().default(null),
+    /** Phase 08: previous review fingerprint handed to the reviewer. */
+    itineraryReviewFingerprint: fingerprintSchema.nullable().default(null),
+    /** Phase 08: where a completed scoped research pass resumes. */
+    researchTarget: z.enum(["program_choices", "hotel_choice", "plan"]).nullable().default(null),
+    /** Phase 08: operation-scoped alternative search intent. */
+    searchIntent: researchSearchIntentSchema.nullable().default(null),
+    /** Phase 08: assistant wording committed with the next resting result. */
+    assistantMessage: z.string().max(2000).nullable().default(null),
+    /** Phase 08: deferred commands of a staged route-change confirmation. */
+    routeChangeCommands: z.array(domainCommandSchema).max(8).default([]),
   })
   .strict();
 export type CoordinatorRunData = z.infer<typeof coordinatorRunDataSchema>;

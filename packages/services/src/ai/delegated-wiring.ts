@@ -6,7 +6,7 @@ import {
 } from "@odft/ai";
 import type { RoleProfile } from "@odft/contracts";
 import type { ServerConfig } from "@odft/persistence";
-import type { DelegatedFlightRankingDeps } from "./runtime.js";
+import type { DelegatedFlightRankingDeps, DelegatedItineraryDeps } from "./runtime.js";
 
 /**
  * Phase 06 shared paid-path wiring for delegated specialists.
@@ -57,6 +57,56 @@ export async function loadDelegatedRankingDeps(
       apiKey: serverConfig.openrouterApiKey ?? "",
       manifest,
       profiles: { ...loaded.profiles, recommendation: delegatedProfile },
+    }),
+  };
+}
+
+/**
+ * Phase 08 City Guide itinerary paid-path wiring: planner (and reviewer, kept
+ * available for agent-local review) profiles with exactly one transport attempt
+ * per delegated reservation. Fixture mode stays free and needs no profile.
+ */
+export async function loadDelegatedItineraryDeps(
+  config: { readonly aiMode: "fixture" | "openrouter"; readonly aiConfigPath: string | null },
+  serverConfig: ServerConfig,
+): Promise<DelegatedItineraryDeps> {
+  if (config.aiMode !== "openrouter") {
+    return {};
+  }
+  const loaded = loadRoleProfiles({
+    mode: "openrouter",
+    configPath: config.aiConfigPath ?? serverConfig.aiConfigPath,
+  });
+  if (!loaded.profiles) {
+    throw new Error(
+      "AI_MODE=openrouter requires AI_CONFIG_PATH with validated planner and reviewer profiles",
+    );
+  }
+  const planner = loaded.profiles.planner;
+  const reviewer = loaded.profiles.reviewer;
+  if (!planner || !reviewer) {
+    throw new Error("the AI profile config has no planner/reviewer profile for the itinerary skill");
+  }
+  const plannerProfile: RoleProfile = { ...planner, maxAttempts: 1 };
+  const reviewerProfile: RoleProfile = { ...reviewer, maxAttempts: 1 };
+  const configPath = config.aiConfigPath ?? serverConfig.aiConfigPath;
+  const manifest = await loadCapabilityManifest({
+    cachePath: configPath
+      ? `${resolveAiConfigPath(configPath)}.capabilities.json`
+      : ".ai/capabilities.json",
+    models: Object.values(loaded.profiles).map((entry) => entry.model),
+  });
+  return {
+    paidPlannerProfile: plannerProfile,
+    paidReviewerProfile: reviewerProfile,
+    paidAdapter: new OpenRouterAdapter({
+      apiKey: serverConfig.openrouterApiKey ?? "",
+      manifest,
+      profiles: {
+        ...loaded.profiles,
+        planner: plannerProfile,
+        reviewer: reviewerProfile,
+      },
     }),
   };
 }

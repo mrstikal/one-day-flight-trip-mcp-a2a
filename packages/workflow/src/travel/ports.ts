@@ -3,6 +3,7 @@ import type {
   DeclinedBookingResult,
   DomainCommand,
   IntentResult,
+  ItineraryStop,
   Meal,
   MealSelections,
   ProposalResult,
@@ -17,6 +18,7 @@ import type {
 import type {
   ItineraryApprovalResult as ServiceItineraryApprovalResult,
   ItineraryPlanResult as ServiceItineraryPlanResult,
+  ItineraryPreparedTask as ServiceItineraryPreparedTask,
   ItineraryReviewResult as ServiceItineraryReviewResult,
   LogisticsResult as ServiceLogisticsResult,
   MaterializedFlights as ServiceMaterializedFlights,
@@ -184,6 +186,25 @@ export interface TravelPorts {
     commands: readonly DomainCommand[];
   }): Promise<{ cancelledReservationIds: string[] }>;
 
+  /**
+   * Phase 08: prepare one delegated itinerary attempt (planner context + MCP
+   * tool context). No AI call happens in the coordinator.
+   */
+  prepareItineraryTask(input: {
+    tripId: string;
+    attempt: number;
+    feedback: readonly string[];
+  }): Promise<ServiceItineraryPreparedTask>;
+  /**
+   * Phase 08: deterministically accept a City Guide proposal (membership,
+   * opt-in, normalization, assembly, validation, draft persistence).
+   */
+  acceptItineraryProposal(input: {
+    tripId: string;
+    operationId: string;
+    attempt: number;
+    stops: readonly ItineraryStop[];
+  }): Promise<TravelItineraryPlanResult>;
   /**
    * Phase 10: run one bounded planning attempt (planner role or fixture, then
    * deterministic assembly + validation + immutable draft persistence).

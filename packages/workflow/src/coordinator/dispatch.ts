@@ -1,9 +1,16 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import {
+  domainCommandSchema,
+  chatCommandPayloadSchema,
   tripPreferencesSchema,
   type CoordinatorRunData,
+  type DomainCommand,
+  type Meal,
+  type MealSelections,
   type ResearchDomain,
+  type ResearchSearchIntent,
   type TripPreferences,
+  type TripRecord,
 } from "@odft/contracts";
 import { fingerprint } from "@odft/domain";
 import {
@@ -13,15 +20,23 @@ import {
   finalizeWaiting,
   getActiveCoordinatorRun,
   getAgentDelegation,
+  getPendingDecisionForTrip,
   getProposal,
   getTrip,
+  insertConversationMessage,
   insertCoordinatorRun,
+  listLatestRecommendationArtifacts,
   loadDecision,
   updateCoordinatorRun,
   type ClaimedOperation,
   type CoordinatorRunRecord,
 } from "@odft/persistence";
 import type { TravelPorts } from "../travel/ports.js";
+import { orderCommandsForApplication } from "../routing/command-order.js";
+import {
+  resolveCommandRouting,
+  routingRefs,
+} from "../routing/invalidation-matrix.js";
 import {
   acceptArtifact,
   buildFlightTaskRequest,
@@ -37,6 +52,11 @@ import {
   type CoordinatorRunDataInput,
   type CoordinatorTransitionResult,
 } from "./state.js";
+import {
+  pollItineraryAttempt,
+  startItineraryAttempt,
+  type ItineraryLoopDeps,
+} from "./itinerary.js";
 
 /**
  * Phase 07 coordinator dispatcher: runs one claimed coordinator operation
@@ -62,6 +82,8 @@ export interface CoordinatorDispatchDeps {
     readonly flight: CoordinatorAgentBinding;
     readonly accommodation?: CoordinatorAgentBinding;
     readonly cityGuide?: CoordinatorAgentBinding;
+    /** Phase 08: City Guide itinerary skill binding (same agent, second skill). */
+    readonly itinerary?: CoordinatorAgentBinding;
   };
   /** Bounded wait for a delivered delegation task (ms). */
   readonly delegationWaitMs?: number;
@@ -126,6 +148,7 @@ async function reuseOrCreateResearchDelegation(
     inputFingerprint: string;
     domains: readonly (ResearchDomain | "flights")[];
     objective: "preserve_level" | "cheaper" | null;
+    levelOverride?: string | null;
     taskData: Record<string, unknown>;
   },
 ): Promise<{ delegationId: string; taskData: unknown }> {
@@ -168,6 +191,7 @@ async function reuseOrCreateResearchDelegation(
     allowRouteValidation: false,
     allowItinerary: false,
     objective: input.objective,
+    levelOverride: input.levelOverride ?? null,
     taskData: input.taskData,
     deadlineAt: new Date(Date.now() + 600_000).toISOString(),
   });
@@ -357,6 +381,816 @@ async function acceptedArtifactPayload(
   return undefined;
 }
 
+/** Phase 08: the accommodation/city scopes a targeted refresh may dispatch. */
+interface ScopedResearchSpec {
+  readonly hotel: boolean;
+  readonly cityDomains: readonly ResearchDomain[];
+  readonly objective: "preserve_level" | "cheaper" | null;
+  readonly levelOverride: string | null;
+  readonly searchIntent: ResearchSearchIntent | null;
+  readonly target: "program_choices" | "hotel_choice" | "plan";
+}
+
+interface ProgramCommandValues {
+  readonly mealSelections: MealSelections;
+  readonly selfArrangedMeals: readonly Meal[];
+  readonly preferredActivityIds: readonly string[];
+  readonly activitiesSelfArranged: boolean;
+}
+
+/** Map the coordinator deps onto the itinerary loop's narrow dependency set. */
+function itineraryLoop(deps: CoordinatorDispatchDeps): ItineraryLoopDeps {
+  return {
+    pool: deps.pool,
+    ports: deps.ports,
+    transport: deps.transport,
+    binding: deps.agents.itinerary,
+    logger: deps.logger,
+    delegationWaitMs: deps.delegationWaitMs,
+  };
+}
+
+/** Park the meal/activity program choices from the persisted City Guide result. */
+async function openProgramChoices(
+  deps: CoordinatorDispatchDeps,
+  claim: ClaimedOperation,
+  data: CoordinatorRunData,
+): Promise<CoordinatorTransitionResult> {
+  // The newest artifact PER DOMAIN is the source of truth: a scoped refresh
+  // replaces only its affected domain, so unaffected meal/activity rankings
+  // must survive (never read only the newest City Guide task artifact).
+  const artifacts = await listLatestRecommendationArtifacts(deps.pool, claim.tripId);
+  const byService = new Map(artifacts.map((artifact) => [artifact.serviceKey, artifact.rankedOfferIds]));
+  const mealIds = ["breakfast", "lunch", "dinner"].flatMap(
+    (meal) => byService.get(meal) ?? [],
+  );
+  // Recommendation artifacts use the activity service key (`activities`);
+  // the research domain is `attractions`.
+  const activityIds = byService.get("activities") ?? [];
+  if (mealIds.length === 0) {
+    return {
+      kind: "fail",
+      runData: { ...data },
+      code: "MCP_UNAVAILABLE",
+      reason: "the program choices need usable City Guide meal outcomes",
+    };
+  }
+  return {
+    kind: "wait",
+    step: "awaiting_user",
+    waitReason: "program_choices",
+    runData: { ...data, itineraryDelegationId: null },
+    fingerprint: contentHash({ mealIds, activityIds }),
+    allowedOptionIds: activityIds,
+    allowedOfferIds: mealIds,
+    optionPayload: { rankedMeals: mealIds, rankedActivities: activityIds },
+  };
+}
+
+/** Park the hotel choice from the persisted accommodation result. */
+async function openHotelChoice(
+  deps: CoordinatorDispatchDeps,
+  claim: ClaimedOperation,
+  data: CoordinatorRunData,
+): Promise<CoordinatorTransitionResult> {
+  const artifacts = await listLatestRecommendationArtifacts(deps.pool, claim.tripId);
+  const ranked =
+    artifacts.find((artifact) => artifact.serviceKey === "hotel")?.rankedOfferIds ?? [];
+  if (ranked.length === 0) {
+    return {
+      kind: "fail",
+      runData: { ...data },
+      code: "MCP_UNAVAILABLE",
+      reason: "the hotel choice needs usable accommodation outcomes",
+    };
+  }
+  return {
+    kind: "wait",
+    step: "awaiting_user",
+    waitReason: "hotel_choice",
+    runData: { ...data },
+    fingerprint: contentHash(ranked),
+    allowedOptionIds: [],
+    allowedOfferIds: ranked,
+    optionPayload: { rankedHotelOfferIds: ranked },
+  };
+}
+
+/**
+ * Persist the accepted City Guide outcomes as recommendation artifacts and
+ * research events. Only ranked existing ids are recorded; a failed domain keeps
+ * its explicit unavailable outcome.
+ */
+async function ingestCityArtifact(
+  deps: CoordinatorDispatchDeps,
+  claim: ClaimedOperation,
+  data: CoordinatorRunData,
+  value: {
+    outcomes?: {
+      domain?: string;
+      status?: string;
+      rankedOfferIds?: string[];
+      inputFingerprint?: string | null;
+      simulatedFailure?: boolean;
+      reason?: string | null;
+    }[];
+  },
+): Promise<void> {
+  const outcomes = value.outcomes ?? [];
+  const ranked = outcomes.filter(
+    (outcome) =>
+      outcome.status === "ok" &&
+      typeof outcome.domain === "string" &&
+      Array.isArray(outcome.rankedOfferIds) &&
+      outcome.rankedOfferIds.length > 0 &&
+      typeof outcome.inputFingerprint === "string",
+  );
+  for (const outcome of outcomes) {
+    if (typeof outcome.domain !== "string") {
+      continue;
+    }
+    await deps.ports.recordResearchEvent({
+      tripId: claim.tripId,
+      operationId: claim.operationId,
+      domain: outcome.domain as ResearchDomain,
+      phase: "finished",
+      attempt: 1,
+      durationMs: null,
+      status: outcome.status as never,
+      simulatedFailure: outcome.simulatedFailure ?? false,
+      reason: outcome.reason ?? null,
+      fingerprint: outcome.inputFingerprint ?? null,
+    });
+  }
+  if (ranked.length > 0) {
+    await deps.ports.rankRecommendations({
+      tripId: claim.tripId,
+      operationId: claim.operationId,
+      domains: ranked.map((outcome) => ({
+        domain: outcome.domain as ResearchDomain,
+        artifactId: `coordinator:${outcome.domain}`,
+        inputFingerprint: outcome.inputFingerprint as string,
+        offerIds: outcome.rankedOfferIds as string[],
+      })),
+      searchIntent: data.searchIntent,
+    });
+  }
+}
+
+/** Persist the accepted accommodation ranking as the hotel artifact. */
+async function ingestHotelArtifact(
+  deps: CoordinatorDispatchDeps,
+  claim: ClaimedOperation,
+  delegationId: string,
+  rankedIds: readonly string[],
+): Promise<void> {
+  const delegation = await getAgentDelegation(deps.pool, delegationId);
+  if (!delegation) {
+    return;
+  }
+  await deps.ports.recordResearchEvent({
+    tripId: claim.tripId,
+    operationId: claim.operationId,
+    domain: "hotel",
+    phase: "finished",
+    attempt: 1,
+    durationMs: null,
+    status: "ok",
+    simulatedFailure: false,
+    reason: null,
+    fingerprint: delegation.inputFingerprint,
+  });
+  await deps.ports.rankRecommendations({
+    tripId: claim.tripId,
+    operationId: claim.operationId,
+    domains: [
+      {
+        domain: "hotel",
+        artifactId: "coordinator:hotel",
+        inputFingerprint: delegation.inputFingerprint,
+        offerIds: [...rankedIds],
+      },
+    ],
+    searchIntent: null,
+  });
+}
+
+/**
+ * Dispatch only the domains a command invalidated. The frozen snapshot is
+ * extended once (idempotent), Stage B is re-approved, and unaffected artifacts
+ * stay untouched; the target tells the researching step where to resume.
+ */
+async function dispatchScopedResearch(
+  deps: CoordinatorDispatchDeps,
+  claim: ClaimedOperation,
+  trip: TripRecord,
+  data: CoordinatorRunData,
+  spec: ScopedResearchSpec,
+): Promise<CoordinatorTransitionResult> {
+  const accommodation = deps.agents.accommodation;
+  const cityGuide = deps.agents.cityGuide;
+  if ((spec.hotel && !accommodation) || (spec.cityDomains.length > 0 && !cityGuide)) {
+    return {
+      kind: "fail",
+      runData: { ...data },
+      code: "COORDINATOR_AGENTS_MISSING",
+      reason: "the trusted registry has no specialist binding for the affected domains",
+    };
+  }
+  const ensured = await deps.ports.ensureDomains(claim.tripId);
+  const schedule = await deps.ports.validateSchedules({
+    tripId: claim.tripId,
+    snapshotId: ensured.snapshotId,
+  });
+  if (schedule.status !== "VALID") {
+    return {
+      kind: "fail",
+      runData: { ...data },
+      code: "NO_VALID_SCHEDULE",
+      reason: "the extended snapshot has no valid flight schedule",
+    };
+  }
+  const inputs = await deps.ports.loadResearchInputs(
+    claim.tripId,
+    claim.operationId,
+    spec.searchIntent,
+  );
+  const binding = await deps.pool.query<{
+    scenario_key: string;
+    route_fingerprint: string | null;
+    schedule_fingerprint: string | null;
+  }>(
+    `SELECT s.scenario_key,
+            rv.fingerprint AS route_fingerprint,
+            sv.fingerprint AS schedule_fingerprint
+       FROM odft_app.scenario_snapshots s
+       LEFT JOIN odft_app.trips t ON t.id = s.trip_id
+       LEFT JOIN odft_app.route_validations rv ON rv.id = t.current_route_validation_id
+       LEFT JOIN odft_app.schedule_validations sv ON sv.id = t.current_schedule_validation_id
+      WHERE s.id = $1`,
+    [ensured.snapshotId],
+  );
+  const bindingRow = binding.rows[0];
+  if (!bindingRow?.route_fingerprint || !bindingRow.schedule_fingerprint) {
+    return {
+      kind: "fail",
+      runData: { ...data },
+      code: "ROUTE_INVALIDATED",
+      reason: "the extended snapshot has no persisted route/schedule approval",
+    };
+  }
+  const progress = await deps.ports.loadProgress(claim.tripId);
+  const selected = Object.values(progress.selectionOfferIds).filter(
+    (offerId): offerId is string => typeof offerId === "string",
+  );
+  const confirmed = await deps.pool.query<{ offer_id: string }>(
+    `SELECT offer_id FROM odft_app.reservations
+      WHERE trip_id = $1 AND status = 'confirmed'`,
+    [claim.tripId],
+  );
+  const hotelFingerprint = inputs.fingerprints.hotel;
+  const cityFingerprint =
+    spec.cityDomains.length > 0 ? inputs.fingerprints[spec.cityDomains[0] as ResearchDomain] : undefined;
+  if ((spec.hotel && !hotelFingerprint) || (spec.cityDomains.length > 0 && !cityFingerprint)) {
+    return {
+      kind: "fail",
+      runData: { ...data },
+      code: "STALE_SNAPSHOT",
+      reason: "the affected domains have no approved snapshot fingerprint",
+    };
+  }
+  const base = {
+    schemaVersion: 1 as const,
+    tripId: claim.tripId,
+    operationId: claim.operationId,
+    acceptedRevision: claim.acceptedRevision,
+    traceId: newTraceId(),
+    snapshot: {
+      snapshotId: ensured.snapshotId,
+      scenarioKey: bindingRow.scenario_key,
+      routeApprovalFingerprint: bindingRow.route_fingerprint,
+      scheduleApprovalFingerprint: bindingRow.schedule_fingerprint,
+      domainFingerprints: inputs.fingerprints,
+    },
+    inputFingerprint: hotelFingerprint ?? cityFingerprint ?? "",
+    travelVariant: trip.travelVariant,
+    adults: trip.adults,
+    sightseeingDate: trip.sightseeingDate,
+    effectiveLevel: trip.preferences.defaultServiceLevel,
+    selectedOfferIds: [...new Set(selected)],
+    confirmedOfferIds: confirmed.rows.map((row) => row.offer_id),
+    preservationConstraints: [],
+    searchObjective: spec.objective ?? ("preserve_level" as const),
+    queryContext: {
+      domainInputFingerprints: inputs.fingerprints,
+      ...(spec.searchIntent ? { searchIntent: spec.searchIntent } : {}),
+    },
+    deadlineAt: new Date(Date.now() + 600_000).toISOString(),
+    limits: { activeTimeMs: 90_000, mcpInvocations: 8, llmTransportAttempts: 2, maxTaskCostUsd: 0.1 },
+    preferences: trip.preferences,
+    continuation: null,
+  };
+  const delegationIds: string[] = [];
+  const pendingDeliveries: {
+    delegationId: string;
+    agentIdentity: string;
+    taskData: Record<string, unknown>;
+  }[] = [];
+  if (spec.hotel && accommodation) {
+    const delegation = await reuseOrCreateResearchDelegation(deps, claim, {
+      skillId: accommodation.skillId,
+      agentIdentity: accommodation.agentIdentity,
+      endpointUrl: accommodation.endpointUrl,
+      snapshotId: ensured.snapshotId,
+      inputFingerprint: hotelFingerprint as string,
+      domains: ["hotel"],
+      objective: spec.objective ?? "preserve_level",
+      levelOverride: spec.levelOverride,
+      taskData: {
+        ...base,
+        skillId: accommodation.skillId,
+        requestedDomains: ["hotel"],
+        delegationId: "",
+        inputFingerprint: hotelFingerprint as string,
+        searchObjective: spec.objective ?? "preserve_level",
+      },
+    });
+    delegationIds.push(delegation.delegationId);
+    pendingDeliveries.push({
+      delegationId: delegation.delegationId,
+      agentIdentity: accommodation.agentIdentity,
+      taskData: delegation.taskData as Record<string, unknown>,
+    });
+    await deps.ports.recordResearchEvent({
+      tripId: claim.tripId,
+      operationId: claim.operationId,
+      domain: "hotel",
+      phase: "started",
+      attempt: 1,
+      durationMs: null,
+      status: null,
+      simulatedFailure: false,
+      reason: null,
+      fingerprint: null,
+    });
+  }
+  if (spec.cityDomains.length > 0 && cityGuide) {
+    const delegation = await reuseOrCreateResearchDelegation(deps, claim, {
+      skillId: cityGuide.skillId,
+      agentIdentity: cityGuide.agentIdentity,
+      endpointUrl: cityGuide.endpointUrl,
+      snapshotId: ensured.snapshotId,
+      inputFingerprint: cityFingerprint as string,
+      domains: [...spec.cityDomains],
+      objective: null,
+      levelOverride: null,
+      taskData: {
+        ...base,
+        skillId: cityGuide.skillId,
+        requestedDomains: [...spec.cityDomains],
+        delegationId: "",
+        inputFingerprint: cityFingerprint as string,
+      },
+    });
+    delegationIds.push(delegation.delegationId);
+    pendingDeliveries.push({
+      delegationId: delegation.delegationId,
+      agentIdentity: cityGuide.agentIdentity,
+      taskData: delegation.taskData as Record<string, unknown>,
+    });
+    for (const domain of spec.cityDomains) {
+      await deps.ports.recordResearchEvent({
+        tripId: claim.tripId,
+        operationId: claim.operationId,
+        domain,
+        phase: "started",
+        attempt: 1,
+        durationMs: null,
+        status: null,
+        simulatedFailure: false,
+        reason: null,
+        fingerprint: null,
+      });
+    }
+  }
+  if (delegationIds.length === 0) {
+    return {
+      kind: "fail",
+      runData: { ...data },
+      code: "NO_AFFECTED_DOMAIN",
+      reason: "the command resolved no researchable affected domain",
+    };
+  }
+  const deliveries = await Promise.all(
+    pendingDeliveries.map((entry) =>
+      deliverDelegation(deps.pool, deps.transport, {
+        delegationId: entry.delegationId,
+        agentIdentity: entry.agentIdentity,
+        data: entry.taskData,
+      }),
+    ),
+  );
+  for (const [index, delivered] of deliveries.entries()) {
+    if (!delivered.delivered) {
+      deps.logger?.({
+        level: "warn",
+        component: "coordinator",
+        message: "scoped research delegation delivery failed",
+        reason: delivered.reason,
+        operationId: claim.operationId,
+      });
+      void index;
+    }
+  }
+  return {
+    kind: "continue",
+    step: "researching",
+    runData: {
+      ...data,
+      delegationIds,
+      researchTarget: spec.target,
+      searchIntent: spec.searchIntent,
+      planningAttempt: 0,
+      feedback: [],
+      itineraryDelegationId: null,
+      itineraryId: null,
+      itineraryReviewFingerprint: null,
+      questionQueue: [],
+      drainPending: false,
+    },
+  };
+}
+
+/**
+ * Apply a program (decision or typed command), stage a confirmed-meal
+ * replacement, run the deterministic logistics check, then start the bounded
+ * itinerary attempt. A logistics conflict opens a typed recovery decision and
+ * never edits a reservation.
+ */
+async function applyProgramAndPlan(
+  deps: CoordinatorDispatchDeps,
+  claim: ClaimedOperation,
+  trip: TripRecord,
+  data: CoordinatorRunData,
+  program: ProgramCommandValues,
+  assistantMessage: string | null,
+): Promise<CoordinatorTransitionResult> {
+  const applied = await deps.ports.applyProgram({
+    tripId: claim.tripId,
+    operationId: claim.operationId,
+    mealSelections: program.mealSelections,
+    selfArrangedMeals: [...program.selfArrangedMeals],
+    preferredActivityIds: [...program.preferredActivityIds],
+    activitiesSelfArranged: program.activitiesSelfArranged,
+  });
+  if (applied.replacementStaged && applied.replacementProposalId) {
+    const proposal = await getProposal(
+      deps.pool,
+      claim.tripId,
+      applied.replacementProposalId,
+    );
+    if (!proposal) {
+      return {
+        kind: "fail",
+        runData: { ...data },
+        code: "STALE_DECISION",
+        reason: "the staged meal replacement proposal is missing",
+      };
+    }
+    return {
+      kind: "wait",
+      step: "awaiting_user",
+      waitReason: "replacement_confirmation",
+      runData: { ...data, assistantMessage },
+      fingerprint: proposal.sourceFingerprint,
+      allowedOptionIds: [],
+      allowedOfferIds: [proposal.offerId],
+      proposalId: proposal.id,
+      optionPayload: { service: proposal.serviceKey, offerId: proposal.offerId },
+    };
+  }
+  const logistics = await deps.ports.validateSelectedLogistics({ tripId: claim.tripId });
+  if (logistics.status === "conflict") {
+    return {
+      kind: "wait",
+      step: "awaiting_user",
+      waitReason: "recovery",
+      runData: { ...data, assistantMessage },
+      fingerprint: contentHash({
+        kind: "logistics_conflict",
+        tripId: claim.tripId,
+        operationId: claim.operationId,
+        reason: logistics.reason,
+      }),
+      allowedOptionIds: ["change_hotel", "change_meals"],
+      optionPayload: {
+        question: logistics.reason ?? "the selected hotel/meals conflict with the flight times",
+        options: [
+          { id: "change_hotel", label: "Choose another hotel", commands: [], reopen: "hotel_choice" },
+          { id: "change_meals", label: "Adjust the meals", commands: [], reopen: "program_choices" },
+        ],
+      },
+    };
+  }
+  const started = await startItineraryAttempt(
+    itineraryLoop(deps),
+    claim,
+    trip,
+    {
+      ...data,
+      planningAttempt: 0,
+      feedback: [],
+      itineraryId: null,
+      itineraryReviewFingerprint: null,
+      assistantMessage,
+    },
+    [],
+  );
+  return started;
+}
+
+/**
+ * Apply one admitted command batch with route-change staging and the
+ * invalidation matrix. Unaffected domains are never re-researched and no
+ * preference is mutated outside the batch's own fields.
+ */
+async function applyCommandBatch(
+  deps: CoordinatorDispatchDeps,
+  claim: ClaimedOperation,
+  trip: TripRecord,
+  data: CoordinatorRunData,
+  commands: readonly DomainCommand[],
+  assistantMessage: string | null,
+): Promise<CoordinatorTransitionResult> {
+  if (commands.length === 0) {
+    return resolveProgressAfterBatch(deps, claim, trip, data, assistantMessage);
+  }
+  const ordered = orderCommandsForApplication(commands);
+  const routeCommands = ordered.filter((command) => command.type === "set_route");
+  if (routeCommands.length > 0) {
+    const preview = await deps.ports.runEffect(
+      "coordinator_apply_commands",
+      "route_change_preview",
+      () =>
+        deps.ports.previewRouteChange({
+          tripId: claim.tripId,
+          operationId: claim.operationId,
+          commands: ordered,
+        }),
+    );
+    if (preview.affectedReservations.length > 0) {
+      return {
+        kind: "wait",
+        step: "awaiting_user",
+        waitReason: "route_change_confirmation",
+        runData: { ...data, assistantMessage, routeChangeCommands: [...ordered] },
+        fingerprint: fingerprint({
+          kind: "route_change_confirmation",
+          tripId: claim.tripId,
+          operationId: claim.operationId,
+          proposalId: preview.proposalId,
+          affectedReservationIds: preview.affectedReservations.map((entry) => entry.id).sort(),
+        }),
+        allowedOptionIds: [],
+        allowedOfferIds: [],
+        // Route previews are not selection proposals; the preview id lives in
+        // the option payload (the decision FK must stay null).
+        // The persisted decision payload must be the exact public preview:
+        // commitRouteChange re-validates it against the stored preview.
+        optionPayload: preview,
+      };
+    }
+  }
+  await deps.ports.runEffect(
+    "coordinator_apply_commands",
+    `batch:${contentHash(ordered)}`,
+    () =>
+      deps.ports.applyCommands({
+        tripId: claim.tripId,
+        operationId: claim.operationId,
+        commands: ordered,
+      }),
+  );
+
+  const program = ordered.find((command) => command.type === "set_program");
+  if (program && program.type === "set_program") {
+    return applyProgramAndPlan(
+      deps,
+      claim,
+      trip,
+      data,
+      {
+        mealSelections: program.mealOfferIds,
+        selfArrangedMeals: program.selfArrangedMeals,
+        preferredActivityIds: program.preferredActivityIds,
+        activitiesSelfArranged: program.activitiesSelfArranged,
+      },
+      assistantMessage,
+    );
+  }
+  const build = ordered.find((command) => command.type === "build_itinerary");
+  if (build) {
+    const progress = await deps.ports.loadProgress(claim.tripId);
+    if (!progress.programApplied) {
+      return openProgramChoices(deps, claim, data);
+    }
+    return startItineraryAttempt(
+      itineraryLoop(deps),
+      claim,
+      trip,
+      {
+        ...data,
+        planningAttempt: 0,
+        feedback: [],
+        itineraryId: null,
+        itineraryReviewFingerprint: null,
+        assistantMessage,
+      },
+      [],
+    );
+  }
+  return routeAfterCommands(deps, claim, trip, data, ordered, assistantMessage);
+}
+
+/** Resolve the invalidation matrix for an applied batch and pick the next step. */
+async function routeAfterCommands(
+  deps: CoordinatorDispatchDeps,
+  claim: ClaimedOperation,
+  trip: TripRecord,
+  data: CoordinatorRunData,
+  commands: readonly DomainCommand[],
+  assistantMessage: string | null,
+): Promise<CoordinatorTransitionResult> {
+  const progress = await deps.ports.loadProgress(claim.tripId);
+  const routing = resolveCommandRouting({
+    commands,
+    refs: routingRefs({
+      preferences: trip.preferences,
+      confirmedServices: progress.confirmedServices,
+      selectedServices: progress.selectedServices,
+      hasConfirmedFlight: progress.flightConfirmed,
+      programApplied: progress.programApplied,
+    }),
+  });
+  const findAlternatives = commands.find((command) => command.type === "find_alternatives");
+  const searchIntent =
+    findAlternatives && findAlternatives.type === "find_alternatives"
+      ? {
+          target: findAlternatives.target,
+          objective: findAlternatives.objective,
+          level: findAlternatives.level ?? null,
+        }
+      : null;
+  const resolution = routing.resolution;
+  if (resolution.routeChange) {
+    return {
+      kind: "continue",
+      step: "validating_route",
+      runData: {
+        ...data,
+        assistantMessage,
+        planningAttempt: 0,
+        feedback: [],
+        itineraryDelegationId: null,
+        itineraryId: null,
+        itineraryReviewFingerprint: null,
+      },
+    };
+  }
+  if (resolution.nextDecisionKind === "flight_choice") {
+    return {
+      kind: "continue",
+      step: "validating_route",
+      runData: { ...data, assistantMessage },
+    };
+  }
+  const target: "program_choices" | "hotel_choice" | "plan" | null =
+    resolution.nextDecisionKind === "program_choices"
+      ? "program_choices"
+      : resolution.nextDecisionKind === "hotel_choice"
+        ? "hotel_choice"
+        : resolution.itineraryAction === "propose"
+          ? "plan"
+          : null;
+  if (resolution.affectedDomains.length > 0 && target !== null) {
+    const hotel = resolution.affectedDomains.includes("hotel");
+    const cityDomains = resolution.affectedDomains.filter(
+      (domain): domain is ResearchDomain => domain !== "hotel",
+    );
+    return dispatchScopedResearch(deps, claim, trip, { ...data, assistantMessage }, {
+      hotel,
+      cityDomains,
+      objective:
+        findAlternatives?.type === "find_alternatives" && findAlternatives.objective === "cheaper"
+          ? "cheaper"
+          : "preserve_level",
+      levelOverride:
+        findAlternatives?.type === "find_alternatives" && findAlternatives.level
+          ? findAlternatives.level
+          : null,
+      searchIntent,
+      target,
+    });
+  }
+  if (resolution.progressDecision) {
+    return resolveProgressAfterBatch(deps, claim, trip, { ...data, assistantMessage }, assistantMessage);
+  }
+  if (resolution.itineraryAction === "propose") {
+    if (!progress.programApplied) {
+      return openProgramChoices(deps, claim, data);
+    }
+    return startItineraryAttempt(
+      itineraryLoop(deps),
+      claim,
+      trip,
+      {
+        ...data,
+        planningAttempt: 0,
+        feedback: [],
+        itineraryId: null,
+        itineraryReviewFingerprint: null,
+        assistantMessage,
+      },
+      [],
+    );
+  }
+  if (resolution.itineraryAction === "validate") {
+    const logistics = await deps.ports.validateSelectedLogistics({ tripId: claim.tripId });
+    if (logistics.status === "conflict") {
+      return {
+        kind: "wait",
+        step: "awaiting_user",
+        waitReason: "recovery",
+        runData: { ...data, assistantMessage },
+        fingerprint: contentHash({
+          kind: "logistics_conflict",
+          tripId: claim.tripId,
+          operationId: claim.operationId,
+          reason: logistics.reason,
+        }),
+        allowedOptionIds: ["change_hotel", "change_meals"],
+        optionPayload: {
+          question: logistics.reason ?? "the selected hotel/meals conflict with the flight times",
+          options: [
+            { id: "change_hotel", label: "Choose another hotel", commands: [], reopen: "hotel_choice" },
+            { id: "change_meals", label: "Adjust the meals", commands: [], reopen: "program_choices" },
+          ],
+        },
+      };
+    }
+    // A budget change before the program is applied only needs the dependent
+    // logistics check; the program choices are the next user step.
+    if (!progress.programApplied) {
+      return openProgramChoices(deps, claim, { ...data, assistantMessage });
+    }
+  }
+  return {
+    kind: "complete",
+    runData: { ...data, assistantMessage },
+    result: { appliedCount: commands.length },
+    summary: "Your changes were applied. No confirmed reservation was changed.",
+    workflowStatus: "ready",
+  };
+}
+
+/** Re-open the progress-derived decision after an empty/no-op command batch. */
+async function resolveProgressAfterBatch(
+  deps: CoordinatorDispatchDeps,
+  claim: ClaimedOperation,
+  trip: TripRecord,
+  data: CoordinatorRunData,
+  assistantMessage: string | null,
+): Promise<CoordinatorTransitionResult> {
+  const progress = await deps.ports.loadProgress(claim.tripId);
+  if (progress.programApplied) {
+    return openProgramChoices(deps, claim, { ...data, assistantMessage });
+  }
+  if (progress.hotelConfirmed || progress.selectedServices.includes("hotel")) {
+    return openProgramChoices(deps, claim, { ...data, assistantMessage });
+  }
+  if (progress.flightConfirmed || progress.selectedServices.includes("flights")) {
+    const hotel = await openHotelChoice(deps, claim, { ...data, assistantMessage });
+    if (hotel.kind !== "fail") {
+      return hotel;
+    }
+    return dispatchScopedResearch(deps, claim, trip, { ...data, assistantMessage }, {
+      hotel: true,
+      cityDomains: [],
+      objective: "preserve_level",
+      levelOverride: null,
+      searchIntent: null,
+      target: "hotel_choice",
+    });
+  }
+  return {
+    kind: "complete",
+    runData: { ...data, assistantMessage },
+    result: { appliedCount: 0 },
+    summary: "No change was requested. The trip inputs are unchanged.",
+    workflowStatus: "ready",
+  };
+}
+
 /** One step handler: pure orchestration over the injected ports/transport. */
 async function runStep(context: StepContext): Promise<CoordinatorTransitionResult> {
   const { deps, claim, run } = context;
@@ -375,14 +1209,154 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
         // awaiting_user cursor is replaced by the new step.
         return { kind: "continue", step: "planning", runData: runDataWith(data, {}) };
       }
-      // Free-text/command operations (chat) are Phase 08 parity work; the
-      // coordinator fails them safely instead of guessing.
-      return {
-        kind: "fail",
-        runData: runDataWith(data, {}),
-        code: "COORDINATOR_UNSUPPORTED_OPERATION",
-        reason: "this coordinator version does not accept free-text operations yet",
-      };
+      const trip = await getTrip(deps.pool, context.tripId);
+      if (!trip) {
+        return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+      }
+      const payload = await deps.ports.loadOperationPayload(claim.operationId);
+      const typed = domainCommandSchema.safeParse(payload);
+      if (typed.success) {
+        return applyCommandBatch(deps, claim, trip, data, [typed.data], null);
+      }
+      const chat = chatCommandPayloadSchema.safeParse(payload);
+      if (!chat.success) {
+        return {
+          kind: "fail",
+          runData: runDataWith(data, {}),
+          code: "COORDINATOR_UNSUPPORTED_OPERATION",
+          reason: "the command operation payload is neither a typed command nor a chat message",
+        };
+      }
+      const interpreted = await deps.ports.interpretIntent({
+        tripId: claim.tripId,
+        operationId: claim.operationId,
+        message: chat.data.message,
+      });
+      if (interpreted.result.kind === "unsupported") {
+        // An unsupported chat changes nothing: re-publish the interrupted
+        // decision (if any) so the user can still answer it. A completed run
+        // would leave that decision unanswerable.
+        const pending = await getPendingDecisionForTrip(deps.pool, claim.tripId);
+        const preserved = pending ? await loadDecision(deps.pool, pending.id) : undefined;
+        // Only decision kinds whose answer does not depend on the superseded
+        // operation's run data or delegations are safe to re-publish. A route
+        // confirmation lost its deferred commands and an agent_input lost its
+        // revoked continuation task on takeover; the fallback completes the
+        // run, which cancels those (now unanswerable) decisions.
+        const safeToPreserve = new Set([
+          "flight_choice",
+          "hotel_choice",
+          "program_choices",
+          "booking_confirmation",
+          "replacement_confirmation",
+          "itinerary_approval",
+          "clarification",
+          "recovery",
+        ]);
+        if (
+          preserved &&
+          preserved.engine === "coordinator-v1" &&
+          safeToPreserve.has(preserved.kind)
+        ) {
+          return {
+            kind: "wait",
+            step: "awaiting_user",
+            waitReason: preserved.kind,
+            runData: runDataWith(data, {
+              assistantMessage: interpreted.result.explanation.slice(0, 2000),
+            }),
+            fingerprint: preserved.sourceFingerprint,
+            allowedOptionIds: preserved.allowedOptionIds ?? [],
+            allowedOfferIds: preserved.allowedOfferIds ?? [],
+            ...(preserved.proposalId ? { proposalId: preserved.proposalId } : {}),
+            ...(preserved.optionPayload !== undefined
+              ? { optionPayload: preserved.optionPayload as Record<string, unknown> }
+              : {}),
+          };
+        }
+        return {
+          kind: "complete",
+          runData: runDataWith(data, {
+            assistantMessage: interpreted.result.explanation.slice(0, 2000),
+          }),
+          result: { intentStatus: "unsupported" },
+          summary: "I could not interpret that request; the graphical controls remain available.",
+          workflowStatus: "ready",
+        };
+      }
+      if (interpreted.result.kind === "clarification") {
+        return {
+          kind: "wait",
+          step: "awaiting_user",
+          waitReason: "clarification",
+          runData: runDataWith(data, {}),
+          fingerprint: fingerprint({
+            kind: "clarification",
+            tripId: claim.tripId,
+            operationId: claim.operationId,
+            question: interpreted.result.question,
+            options: interpreted.result.options.map((option) => option.id),
+          }),
+          allowedOptionIds: interpreted.result.options.map((option) => option.id),
+          allowedOfferIds: [],
+          optionPayload: {
+            question: interpreted.result.question,
+            options: interpreted.result.options,
+            requestedCommands: interpreted.result.requestedCommands,
+            preserve: interpreted.result.preserve,
+          },
+        };
+      }
+      // More than one command that continues in its own stage cannot all run in
+      // one pass: ask which one to do first instead of silently dropping the
+      // others (graph parity).
+      const routingCommands = interpreted.result.commands.filter(
+        (command) => command.type === "set_program" || command.type === "propose_selection",
+      );
+      if (routingCommands.length > 1) {
+        const others = interpreted.result.commands.filter(
+          (command) => command.type !== "set_program" && command.type !== "propose_selection",
+        );
+        const options = routingCommands.slice(0, 4).map((command, index) => ({
+          id: `opt_${index + 1}`,
+          label:
+            command.type === "set_program"
+              ? "Apply the selected meals and activities first"
+              : `Start the ${command.type === "propose_selection" ? command.service : "service"} selection first`,
+          commands: [...others, command],
+        }));
+        if (options.length >= 2) {
+          return {
+            kind: "wait",
+            step: "awaiting_user",
+            waitReason: "clarification",
+            runData: runDataWith(data, {}),
+            fingerprint: fingerprint({
+              kind: "clarification",
+              tripId: claim.tripId,
+              operationId: claim.operationId,
+              question: "multiple_steps",
+              options: options.map((option) => option.id),
+            }),
+            allowedOptionIds: options.map((option) => option.id),
+            allowedOfferIds: [],
+            optionPayload: {
+              question: "This request contains several steps. Which one should I start with?",
+              options,
+              requestedCommands: interpreted.result.commands,
+              preserve: interpreted.result.preserve,
+            },
+          };
+        }
+      }
+      return applyCommandBatch(
+        deps,
+        claim,
+        trip,
+        data,
+        interpreted.result.commands,
+        `Applied: ${interpreted.result.interpretation}. No confirmed reservation was changed.`,
+      );
     }
     case "validating_route": {
       const route = await deps.ports.evaluateRoute(context.tripId);
@@ -548,6 +1522,24 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
       return { kind: "continue", step: "researching", runData: next };
     }
     case "planning": {
+      // Phase 08: a started itinerary delegation is polled until it settles.
+      // The approval/conflict wait clears the binding, so a later decision
+      // operation falls through to the decision handler below.
+      if (data.itineraryDelegationId) {
+        const trip = await getTrip(deps.pool, context.tripId);
+        if (!trip) {
+          return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+        }
+        return pollItineraryAttempt(itineraryLoop(deps), claim, trip, data);
+      }
+      if (claim.kind !== "decision") {
+        return {
+          kind: "fail",
+          runData: runDataWith(data, {}),
+          code: "COORDINATOR_STEP_UNSUPPORTED",
+          reason: "the planning step needs a decision operation",
+        };
+      }
       // Booking/program stage of a decision operation: the accepted response is
       // re-validated against the engine-bound pending decision, then staged.
       const payload = (await deps.ports.loadOperationPayload(claim.operationId)) as {
@@ -856,6 +1848,209 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           optionPayload: { rankedMeals: mealIds, rankedActivities: activityIds },
         };
       }
+      if (decision.kind === "program_choices") {
+        if (payload.response.action !== "submit_program") {
+          return {
+            kind: "fail",
+            runData: runDataWith(data, {}),
+            code: "STALE_DECISION",
+            reason: "the program decision only accepts submit_program",
+          };
+        }
+        const response = payload.response as {
+          mealOfferIds: MealSelections;
+          selfArrangedMeals: Meal[];
+          preferredActivityIds: string[];
+          activitiesSelfArranged?: boolean;
+        };
+        const allowedMeals = new Set(decision.allowedOfferIds);
+        if (allowedMeals.size > 0) {
+          for (const meal of ["breakfast", "lunch", "dinner"] as const) {
+            const offerId = response.mealOfferIds[meal];
+            if (offerId !== null && !allowedMeals.has(offerId)) {
+              return {
+                kind: "fail",
+                runData: runDataWith(data, {}),
+                code: "STALE_DECISION",
+                reason: `the ${meal} offer is no longer among the offered choices`,
+              };
+            }
+          }
+        }
+        const allowedActivities = new Set(decision.allowedOptionIds);
+        if (allowedActivities.size > 0) {
+          for (const activityId of response.preferredActivityIds) {
+            if (!allowedActivities.has(activityId)) {
+              return {
+                kind: "fail",
+                runData: runDataWith(data, {}),
+                code: "STALE_DECISION",
+                reason: "an activity is no longer among the offered choices",
+              };
+            }
+          }
+        }
+        const trip = await getTrip(deps.pool, context.tripId);
+        if (!trip) {
+          return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+        }
+        return applyProgramAndPlan(
+          deps,
+          claim,
+          trip,
+          data,
+          {
+            mealSelections: response.mealOfferIds,
+            selfArrangedMeals: response.selfArrangedMeals,
+            preferredActivityIds: response.preferredActivityIds,
+            activitiesSelfArranged: response.activitiesSelfArranged ?? false,
+          },
+          null,
+        );
+      }
+      if (decision.kind === "itinerary_approval") {
+        if (payload.response.action !== "approve_itinerary") {
+          return {
+            kind: "fail",
+            runData: runDataWith(data, {}),
+            code: "STALE_DECISION",
+            reason: "the itinerary decision only accepts approve_itinerary",
+          };
+        }
+        const itineraryId = (payload.response as { itineraryId?: string }).itineraryId;
+        const bound = (decision.optionPayload as { itineraryId?: string } | null)?.itineraryId;
+        if (!itineraryId || (bound && bound !== itineraryId)) {
+          return {
+            kind: "fail",
+            runData: runDataWith(data, {}),
+            code: "STALE_DECISION",
+            reason: "the approved itinerary is not the version this decision was opened for",
+          };
+        }
+        const approved = await deps.ports.approveItinerary({
+          tripId: context.tripId,
+          operationId: claim.operationId,
+          decisionId: decision.id,
+          acceptedRevision: claim.acceptedRevision,
+          itineraryId,
+        });
+        return {
+          kind: "complete",
+          runData: runDataWith(data, { itineraryId: approved.itineraryId }),
+          result: { itineraryId: approved.itineraryId, version: approved.version },
+          summary: "Your itinerary is approved and saved.",
+          workflowStatus: "ready",
+        };
+      }
+      if (decision.kind === "route_change_confirmation") {
+        if (payload.response.action !== "confirm_route_change") {
+          return {
+            kind: "fail",
+            runData: runDataWith(data, {}),
+            code: "STALE_DECISION",
+            reason: "the route change decision only accepts confirm_route_change",
+          };
+        }
+        const response = payload.response as {
+          proposalId?: string;
+          affectedReservationIds?: string[];
+        };
+        const optionPayload = decision.optionPayload as {
+          proposalId?: string;
+          affectedReservations?: { id: string }[];
+        } | null;
+        const expected = [...(optionPayload?.affectedReservations ?? []).map((entry) => entry.id)].sort();
+        const given = [...(response.affectedReservationIds ?? [])].sort();
+        if (
+          !optionPayload?.proposalId ||
+          response.proposalId !== optionPayload.proposalId ||
+          expected.length !== given.length ||
+          expected.some((id, index) => id !== given[index])
+        ) {
+          return {
+            kind: "fail",
+            runData: runDataWith(data, {}),
+            code: "STALE_DECISION",
+            reason: "the confirmed route change no longer matches its impact preview",
+          };
+        }
+        await deps.ports.commitRouteChange({
+          tripId: context.tripId,
+          operationId: claim.operationId,
+          decisionId: decision.id,
+          acceptedRevision: claim.acceptedRevision,
+          proposalId: optionPayload.proposalId,
+          affectedReservationIds: expected,
+          commands: data.routeChangeCommands,
+        });
+        return {
+          kind: "continue",
+          step: "validating_route",
+          runData: runDataWith(data, {
+            planningAttempt: 0,
+            feedback: [],
+            itineraryDelegationId: null,
+            itineraryId: null,
+            itineraryReviewFingerprint: null,
+          }),
+        };
+      }
+      if (decision.kind === "clarification" || decision.kind === "recovery") {
+        if (payload.response.action !== "choose_option") {
+          return {
+            kind: "fail",
+            runData: runDataWith(data, {}),
+            code: "STALE_DECISION",
+            reason: "a clarification/recovery decision only accepts choose_option",
+          };
+        }
+        const optionId = (payload.response as { optionId?: string }).optionId;
+        if (!optionId || !(decision.allowedOptionIds ?? []).includes(optionId)) {
+          return {
+            kind: "fail",
+            runData: runDataWith(data, {}),
+            code: "STALE_DECISION",
+            reason: "the chosen option is no longer offered",
+          };
+        }
+        const optionPayload = decision.optionPayload as {
+          options?: { id: string; label?: string; commands?: DomainCommand[]; reopen?: string }[];
+        } | null;
+        const option = optionPayload?.options?.find((entry) => entry.id === optionId);
+        if (!option) {
+          return {
+            kind: "fail",
+            runData: runDataWith(data, {}),
+            code: "STALE_DECISION",
+            reason: "the chosen option has no stored commands",
+          };
+        }
+        if (option.reopen === "hotel_choice") {
+          return openHotelChoice(deps, claim, data);
+        }
+        if (option.reopen === "program_choices") {
+          return openProgramChoices(deps, claim, data);
+        }
+        if (option.commands && option.commands.length > 0) {
+          const trip = await getTrip(deps.pool, context.tripId);
+          if (!trip) {
+            return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+          }
+          return applyCommandBatch(
+            deps,
+            claim,
+            trip,
+            data,
+            option.commands,
+            `Applied: ${option.label ?? option.id}.`,
+          );
+        }
+        const trip = await getTrip(deps.pool, context.tripId);
+        if (!trip) {
+          return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+        }
+        return resolveProgressAfterBatch(deps, claim, trip, data, null);
+      }
       return {
         kind: "fail",
         runData: runDataWith(data, {}),
@@ -875,6 +2070,16 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
       const waitMs = deps.delegationWaitMs ?? DEFAULT_DELEGATION_WAIT_MS;
       const startedAt = Date.now();
       let hotel: { payloadHash: string; rankedIds: string[] } | null = null;
+      let city: {
+        outcomes?: {
+          domain?: string;
+          status?: string;
+          rankedOfferIds?: string[];
+          inputFingerprint?: string | null;
+          simulatedFailure?: boolean;
+          reason?: string | null;
+        }[];
+      } | null = null;
       const queue = [...(data.questionQueue ?? [])];
       for (;;) {
         // `drained` is true while every submitted sibling is terminal OR
@@ -893,6 +2098,11 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               reason: "a persisted delegation is missing",
             };
           }
+          // Phase 08: a later user operation revoked the superseded delegation;
+          // its eventual artifact must never be applied to this revision.
+          if (delegation.status === "revoked") {
+            continue;
+          }
           if (delegation.status === "completed") {
             // Accepted earlier (hash on the delegation row). Re-derive the
             // accommodation outcome so a later pass can still park the hotel
@@ -906,6 +2116,30 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
                   payloadHash: delegation.acceptedArtifactHash ?? contentHash(payload),
                   rankedIds: payload.rankedHotelOfferIds as string[],
                 };
+                await ingestHotelArtifact(
+                  deps,
+                  claim,
+                  delegationId,
+                  hotel.rankedIds,
+                );
+              }
+            }
+            if (delegation.skillId === "city-guide.research.v1" && !city) {
+              const payload = (await acceptedArtifactPayload(deps, delegationId)) as
+                | {
+                    outcomes?: {
+                      domain?: string;
+                      status?: string;
+                      rankedOfferIds?: string[];
+                      inputFingerprint?: string | null;
+                      simulatedFailure?: boolean;
+                      reason?: string | null;
+                    }[];
+                  }
+                | undefined;
+              if (payload?.outcomes) {
+                city = payload;
+                await ingestCityArtifact(deps, claim, data, payload);
               }
             }
             continue;
@@ -931,7 +2165,9 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               kind: "fail",
               runData: runDataWith(data, {}),
               code: "AGENT_FAILED",
-              reason: `the ${delegation.skillId} specialist ${task.state} the task`,
+              reason: `the ${delegation.skillId} specialist ${task.state} the task${
+                task.failureCode ? `: ${task.failureCode}` : ""
+              }`,
             };
           }
           if (task.state === "input_required") {
@@ -1015,6 +2251,14 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           const value = accepted.value as {
             rankedCombinationIds?: unknown;
             rankedHotelOfferIds?: unknown;
+            outcomes?: {
+              domain?: string;
+              status?: string;
+              rankedOfferIds?: string[];
+              inputFingerprint?: string | null;
+              simulatedFailure?: boolean;
+              reason?: string | null;
+            }[];
           };
           await deps.pool.query(
             `UPDATE odft_app.agent_delegations
@@ -1054,6 +2298,19 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               };
             }
             hotel = { payloadHash: accepted.payloadHash, rankedIds: ranked as string[] };
+            await ingestHotelArtifact(deps, claim, delegationId, hotel.rankedIds);
+          }
+          if (delegation.skillId === "city-guide.research.v1") {
+            if (!value.outcomes) {
+              return {
+                kind: "fail",
+                runData: runDataWith(data, {}),
+                code: "STALE_AGENT_RESULT",
+                reason: "the city-guide artifact carries no domain outcomes",
+              };
+            }
+            city = value;
+            await ingestCityArtifact(deps, claim, data, value);
           }
           void acceptedArtifactId;
         }
@@ -1107,6 +2364,16 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             };
           }
         }
+        if (data.researchTarget === "plan" && drained && queue.length === 0) {
+          const trip = await getTrip(deps.pool, context.tripId);
+          if (!trip) {
+            return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+          }
+          return startItineraryAttempt(itineraryLoop(deps), claim, trip, data, []);
+        }
+        if (data.researchTarget === "program_choices" && drained && queue.length === 0) {
+          return openProgramChoices(deps, claim, data);
+        }
         if (hotel) {
           return {
             kind: "wait",
@@ -1149,6 +2416,75 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
   }
 }
 
+/**
+ * Phase 08: a command that completes without publishing a new decision retires
+ * the interrupted decision (graph parity). The unsupported-chat path either
+ * re-publishes a still-answerable decision as a wait or lets this cancellation
+ * retire the kinds whose answer state did not survive the takeover.
+ */
+async function cancelPendingCoordinatorDecisions(
+  client: Pick<PoolClient, "query">,
+  claim: ClaimedOperation,
+  runId: string,
+): Promise<void> {
+  await client.query(
+    `UPDATE odft_app.pending_decisions
+        SET status = 'cancelled', resolved_at = now()
+      WHERE trip_id = $1 AND status = 'pending' AND engine = 'coordinator-v1'
+        AND coordinator_run_id = $2`,
+    [claim.tripId, runId],
+  );
+}
+
+/**
+ * Phase 08: commit assistant wording with the SAME fenced transaction that
+ * parks/completes the operation, keyed by the operation id so a crash replay
+ * cannot append a second bubble. A failed operation never reaches this helper.
+ */
+async function appendAssistantMessage(
+  client: Pick<PoolClient, "query">,
+  claim: ClaimedOperation,
+  runData: CoordinatorRunDataInput,
+): Promise<void> {
+  const content = runData.assistantMessage;
+  if (!content) {
+    return;
+  }
+  await insertConversationMessage(client as PoolClient, {
+    tripId: claim.tripId,
+    role: "assistant",
+    content: content.slice(0, 2000),
+    interpretation: { kind: "commands" },
+    operationId: claim.operationId,
+    requestId: claim.operationId,
+    fence: {
+      operationId: claim.operationId,
+      tripId: claim.tripId,
+      fencingToken: claim.fencingToken,
+    },
+  });
+}
+
+/**
+ * Phase 08: retire a superseded operation's outstanding delegations and pending
+ * decision before a later operation takes over the cursor. Both writes are
+ * idempotent; a late artifact is refused by the delegation binding anyway, but
+ * revoking makes the staleness explicit in the audit trail.
+ */
+async function revokeSupersededCoordinatorWork(
+  pool: Pool,
+  run: CoordinatorRunRecord,
+): Promise<void> {
+  await pool.query(
+    `UPDATE odft_app.agent_delegations
+        SET status = 'revoked', revoked_at = now(),
+            revoke_reason = 'superseded by a later operation', updated_at = now()
+      WHERE trip_id = $1 AND originating_operation_id = $2
+        AND status IN ('pending', 'dispatched', 'working', 'input_required')`,
+    [run.tripId, run.operationId],
+  );
+}
+
 /** Run one claimed coordinator operation to its next resting point. */
 export async function runCoordinatorOperation(
   deps: CoordinatorDispatchDeps,
@@ -1164,9 +2500,12 @@ export async function runCoordinatorOperation(
   }
   let run = await getActiveCoordinatorRun(deps.pool, claim.tripId);
   if (!run) {
-    if (claim.kind !== "creation") {
+    if (claim.kind === "decision") {
+      // A decision always answers a decision owned by an active run.
       throw new Error(`no active coordinator run for operation ${claim.operationId}`);
     }
+    // A new command/creation operation starts a fresh run (e.g. a modification
+    // after the previous run completed).
     run = await insertCoordinatorRun(deps.pool, {
       tripId: claim.tripId,
       operationId: claim.operationId,
@@ -1175,6 +2514,14 @@ export async function runCoordinatorOperation(
       runData: initialCoordinatorRunData(claim.tripId),
     });
   } else if (run.operationId !== claim.operationId) {
+    // A later operation takes over a parked cursor. Supersede the old
+    // operation's outstanding work FIRST: its late artifacts must never apply to
+    // this revision (Phase 08 selective replanning).
+    if (claim.kind !== "decision") {
+      // A decision is a continuation (e.g. an answer to a specialist question),
+      // not a new user revision: its delegations and decision must survive.
+      await revokeSupersededCoordinatorWork(deps.pool, run);
+    }
     // The run was parked; the decision operation takes over the cursor and
     // re-enters at `interpreting` (a decision op routes into the planning
     // stage). `running` rows must not carry a wait reason (schema constraint).
@@ -1184,7 +2531,30 @@ export async function runCoordinatorOperation(
       step: "interpreting",
       waitReason: null,
       status: "running",
-      runData: run.runData,
+      runData: {
+        ...run.runData,
+        itineraryDelegationId: null,
+        researchTarget: null,
+        assistantMessage: null,
+        // A command is a new user revision: no delegation/queue/fingerprint of
+        // the previous revision may leak into the new pass. A decision is a
+        // continuation and keeps its specialist bindings.
+        ...(claim.kind !== "decision"
+          ? {
+              delegationIds: [],
+              questionQueue: [],
+              searchIntent: null,
+              acceptedArtifacts: {},
+              expectedFingerprints: {},
+              drainPending: false,
+              routeChangeCommands: [],
+              planningAttempt: 0,
+              feedback: [],
+              itineraryId: null,
+              itineraryReviewFingerprint: null,
+            }
+          : {}),
+      },
     });
   }
 
@@ -1257,6 +2627,7 @@ export async function runCoordinatorOperation(
             status: "waiting",
             runData: result.runData,
           });
+          await appendAssistantMessage(client, claim, result.runData);
         },
       });
       if (!committed) {
@@ -1275,6 +2646,12 @@ export async function runCoordinatorOperation(
         summary: result.summary,
         workflowStatus: result.workflowStatus,
         extraWrites: async (client) => {
+          await appendAssistantMessage(client, claim, result.runData);
+          if (claim.kind !== "decision") {
+            // A command that completes without a new decision retires the
+            // interrupted one; a decision operation is answering it instead.
+            await cancelPendingCoordinatorDecisions(client, claim, current.id);
+          }
           await updateCoordinatorRun(client, {
             runId: current.id,
             step: "completed",
@@ -1292,6 +2669,9 @@ export async function runCoordinatorOperation(
         message: result.reason,
         exhausted: true,
         extraWrites: async (client) => {
+          // A failed run cannot answer a pending decision; retire it so the UI
+          // never offers a dead decision.
+          await cancelPendingCoordinatorDecisions(client, claim, current.id);
           await updateCoordinatorRun(client, {
             runId: current.id,
             step: "failed",

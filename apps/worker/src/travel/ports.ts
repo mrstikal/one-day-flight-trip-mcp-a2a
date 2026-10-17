@@ -30,6 +30,8 @@ export function createTravelPortsFactory(
     readonly wikidataDiscovery?: boolean;
     readonly discoveryFetch?: typeof fetch;
     readonly onDiscoveryLog?: LandmarkDiscoveryOptions["logger"];
+    /** AI mode label for the itinerary attempt event (worker-owned config). */
+    readonly aiMode?: "fixture" | "openrouter";
   } = {},
 ): (ctx: OperationFencingContext, signal?: AbortSignal) => TravelPorts {
   const insertFencedEvent = createFencedEventWriter(pool);
@@ -96,6 +98,12 @@ export function createTravelPortsFactory(
       rankRecommendations: (input) => researchService.rankRecommendations(input),
       recordResearchEvent: (event) => researchService.recordResearchEvent(event),
 
+      prepareItineraryTask: (input) => itineraryService.prepareItineraryTask(input),
+      acceptItineraryProposal: (input) =>
+        itineraryService.acceptItineraryProposal({
+          ...input,
+          mode: options.aiMode ?? "fixture",
+        }),
       planItinerary: (input) => itineraryService.planItinerary(input),
       reviewItinerary: (input) => itineraryService.reviewItinerary(input),
       approveItinerary: (input) => itineraryService.approveItinerary(input),

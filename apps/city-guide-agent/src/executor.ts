@@ -1,15 +1,21 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import { TaskState, type Artifact } from "@a2a-js/sdk";
+import { TaskState, type Artifact, type Message, type Task } from "@a2a-js/sdk";
 import type { AgentExecutor, ExecutionEventBus, RequestContext } from "@a2a-js/sdk/server";
 import { rankDeterministically } from "@odft/domain";
 import {
   agentTaskRequestSchema,
   cityGuideRecommendationsSchema,
+  itineraryProposalSchema,
+  itineraryTaskContextSchema,
+  type AgentTaskRequest,
   type CityGuideDomainOutcome,
   type CityGuideRecommendations,
+  type ItineraryProposal,
   type ResearchDomain,
 } from "@odft/contracts";
+import { plannerContextSchema } from "@odft/ai";
+import { planDelegatedItinerary, type DelegatedItineraryDeps } from "@odft/services";
 import {
   assertAuthorityCovers,
   claimDelegationTask,
@@ -26,15 +32,19 @@ import {
   dataPart,
   dataPartOf,
   DurableMessageAdmission,
+  limitsForSkill,
   McpClient,
+  McpClientError,
   safeFailureCode,
   type ProtocolConfig,
   type TaskClock,
+  type TaskSession,
 } from "@odft/protocols";
 import type { ServerConfig } from "@odft/persistence";
 import {
   CITY_GUIDE_AGENT_IDENTITY,
   CITY_GUIDE_SKILL_ID,
+  ITINERARY_SKILL_ID,
   type CityGuideAgentConfig,
 } from "./config.js";
 
@@ -52,6 +62,7 @@ export interface CityGuideAgentRuntime {
   readonly pool: Pool;
   readonly mcp: McpClient;
   readonly protocol: ProtocolConfig;
+  readonly itineraryDeps: DelegatedItineraryDeps;
 }
 
 /** Meal/activity/event domains this service researches (never hotel/flights). */
@@ -203,6 +214,294 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
     };
   };
 
+  /**
+   * Phase 08 itinerary skill: one application planning attempt. Candidate facts
+   * and the deterministic preflight come from the authorized MCP tools; the
+   * planner is a single delegated call. The coordinator remains authoritative
+   * for assembly, validation and the review decision policy.
+   */
+  const runItinerary = async (input: {
+    data: AgentTaskRequest;
+    task: Task;
+    message: Message;
+    session: TaskSession;
+    eventBus: ExecutionEventBus;
+    startedAtMs: number;
+  }): Promise<void> => {
+    const { data, task, session } = input;
+    const parsedContext = itineraryTaskContextSchema.safeParse(data.queryContext.itinerary);
+    if (!parsedContext.success) {
+      const issue = parsedContext.error.issues[0];
+      await session.publishFailure(
+        "INVALID_ARTIFACT",
+        `the itinerary task context is missing or malformed: ${
+          issue ? `${issue.path.join(".")}: ${issue.message}` : "unknown issue"
+        }`.slice(0, 300),
+      );
+      return;
+    }
+    const context = parsedContext.data;
+    const plannerContext = plannerContextSchema.safeParse(context.plannerContext);
+    if (!plannerContext.success) {
+      await session.publishFailure(
+        "INVALID_ARTIFACT",
+        "the itinerary planner context does not match the planner role contract",
+      );
+      return;
+    }
+
+    let authority = await loadDelegatedAuthority(runtime.pool, {
+      agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
+      delegationId: data.delegationId,
+    });
+    if (!authority.taskId) {
+      await claimDelegationTask(runtime.pool, {
+        delegationId: authority.delegationId,
+        agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
+        taskId: task.id,
+      });
+      authority = await loadDelegatedAuthority(runtime.pool, {
+        agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
+        delegationId: data.delegationId,
+      });
+    }
+    assertAuthorityCovers(authority, {
+      snapshotId: data.snapshot.snapshotId,
+      taskId: task.id,
+    });
+    if (!authority.scope.allowItinerary) {
+      await session.publishFailure(
+        "DELEGATION_REVOKED",
+        "the delegation does not allow itinerary work",
+      );
+      return;
+    }
+
+    const clock = await createTaskClock({
+      pool: runtime.pool,
+      agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
+      taskId: task.id,
+      skillId: ITINERARY_SKILL_ID,
+      startedAtMs: input.startedAtMs,
+    });
+    clock.assertNow({ mcpInvocation: true });
+    session.publishStatus(TaskState.TASK_STATE_WORKING, "MCP discovery: itinerary candidates");
+
+    const structured = <T>(result: { isError?: boolean; structuredContent?: unknown }): T => {
+      if (result.isError || result.structuredContent === undefined) {
+        throw new McpClientError("MCP_UNAVAILABLE", "the MCP tool returned no usable result");
+      }
+      return result.structuredContent as T;
+    };
+
+    await countedToolCall({
+      mcp: runtime.mcp,
+      pool: runtime.pool,
+      agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
+      taskId: task.id,
+      clock,
+      service: "odft-travel-data",
+      name: "get_scenario_metadata",
+      arguments: { delegationId: authority.delegationId, snapshotId: authority.snapshotId },
+    });
+
+    // Candidate/reference facts come from the authorized frozen snapshot. The
+    // planner's membership is enforced against the compact planner context by
+    // the delegated planner runtime; the MCP page check only proves the domain
+    // is available for the deterministic preflight.
+    const assertPageOk = (page: { providerStatus?: string }): void => {
+      if (page.providerStatus !== "ok") {
+        throw new McpClientError("MCP_UNAVAILABLE", "a candidate domain is unavailable on the snapshot");
+      }
+    };
+    assertPageOk(
+      structured(
+        await countedToolCall({
+          mcp: runtime.mcp,
+          pool: runtime.pool,
+          agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
+          taskId: task.id,
+          clock,
+          service: "odft-travel-data",
+          name: "search_attractions",
+          arguments: { delegationId: authority.delegationId, snapshotId: authority.snapshotId, pageSize: 50 },
+        }),
+      ),
+    );
+    for (const meal of ["breakfast", "lunch", "dinner"] as const) {
+      if (context.toolContext.mealSelections[meal] === null) {
+        continue;
+      }
+      assertPageOk(
+        structured(
+          await countedToolCall({
+            mcp: runtime.mcp,
+            pool: runtime.pool,
+            agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
+            taskId: task.id,
+            clock,
+            service: "odft-travel-data",
+            name: "search_restaurants",
+            arguments: {
+              delegationId: authority.delegationId,
+              snapshotId: authority.snapshotId,
+              meal,
+              pageSize: 50,
+            },
+          }),
+        ),
+      );
+    }
+
+    clock.assertNow({ llmAttempt: true });
+    const taskLimits = limitsForSkill(ITINERARY_SKILL_ID);
+    const planned = await planDelegatedItinerary(
+      runtime.pool,
+      runtime.serverConfig,
+      runtime.itineraryDeps,
+      {
+        authority: {
+          kind: "delegation",
+          delegationId: authority.delegationId,
+          agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
+          skillId: ITINERARY_SKILL_ID,
+          taskId: task.id,
+          traceId: data.traceId,
+        },
+        effectScope: `itinerary:${context.attempt}`,
+        signal: AbortSignal.timeout(Math.max(1, clock.deadlineMs - Date.now())),
+        limits: {
+          // The role ceiling is stricter than the task ceiling; the delegated
+          // reservation must never exceed the planner profile's call cap.
+          maxCallCostUsd: runtime.itineraryDeps.paidPlannerProfile?.maxCallCostUsd ?? "0.20",
+          maxCallsPerTrip: runtime.serverConfig.maxLlmCallsPerTrip,
+          maxCostUsdPerTrip: String(runtime.serverConfig.maxLlmCostUsdPerTrip),
+          maxAttemptsPerScope: 2,
+          taskMaxCostUsd: String(taskLimits.maxTaskCostUsd),
+        },
+        context: plannerContext.data,
+        allowedIds: plannerContext.data.candidates.map((candidate) => candidate.id),
+      },
+    );
+
+    session.publishStatus(TaskState.TASK_STATE_WORKING, "MCP preflight: validate itinerary");
+    const preflight = structured<{
+      status: "valid" | "invalid";
+      errors: { code: string; message: string }[];
+      warnings: { code: string; message: string }[];
+    }>(
+      await countedToolCall({
+        mcp: runtime.mcp,
+        pool: runtime.pool,
+        agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
+        taskId: task.id,
+        clock,
+        service: "odft-itinerary-tools",
+        name: "validate_itinerary",
+        arguments: {
+          delegationId: authority.delegationId,
+          snapshotId: authority.snapshotId,
+          context: context.toolContext,
+          stops: planned.output.stops.map((stop) => ({
+            kind: stop.kind,
+            refId: stop.kind === "meal" || stop.kind === "activity" ? stop.refId : null,
+            startMinute: stop.startMinute,
+            durationMinutes: stop.durationMinutes,
+          })),
+        },
+      }),
+    );
+
+    if (await session.cancellationRequested()) {
+      await session.publishCancelled();
+      return;
+    }
+
+    const candidateById = new Map(
+      plannerContext.data.candidates.map((candidate) => [candidate.id, candidate]),
+    );
+    const mealRefs: { breakfast: string | null; lunch: string | null; dinner: string | null } = {
+      breakfast: null,
+      lunch: null,
+      dinner: null,
+    };
+    for (const stop of planned.output.stops) {
+      if (stop.kind !== "meal" || !stop.refId) {
+        continue;
+      }
+      const candidate = candidateById.get(stop.refId);
+      if (candidate?.kind === "meal" && candidate.meal) {
+        mealRefs[candidate.meal] = stop.refId;
+      }
+    }
+    const findings = [...preflight.errors, ...preflight.warnings]
+      .slice(0, 16)
+      .map((finding) => ({
+        code: finding.code,
+        explanation: finding.message.slice(0, 400),
+        offerIds: [],
+      }));
+    const artifact: ItineraryProposal = itineraryProposalSchema.parse({
+      correlation: {
+        schemaVersion: 1,
+        skillId: ITINERARY_SKILL_ID,
+        tripId: data.tripId,
+        operationId: data.operationId,
+        acceptedRevision: data.acceptedRevision,
+        delegationId: authority.delegationId,
+        traceId: `trace-${task.id}`,
+        snapshotId: authority.snapshotId,
+        scenarioKey: data.snapshot.scenarioKey,
+        inputFingerprint: data.inputFingerprint,
+        domainFingerprints: data.snapshot.domainFingerprints,
+      },
+      attempt: context.attempt,
+      candidateIds: plannerContext.data.candidates.map((candidate) => candidate.id),
+      stops: planned.output.stops.map((stop) => ({
+        kind: stop.kind,
+        refId: stop.kind === "meal" || stop.kind === "activity" ? stop.refId : null,
+        startMinute: stop.startMinute,
+        durationMinutes: stop.durationMinutes,
+      })),
+      mealRefs,
+      review: {
+        verdict: preflight.status === "valid" ? "acceptable" : "conflict",
+        issueCount: preflight.errors.length + preflight.warnings.length,
+        findings,
+      },
+    });
+    session.publishArtifact({
+      artifactId: randomUUID(),
+      name: "itinerary-proposal",
+      description: "Planner-compatible sightseeing day over the delegated frozen snapshot",
+      parts: [
+        dataPart(artifact, "application/vnd.odft.itinerary-proposal.v1+json"),
+        {
+          content: {
+            $case: "text",
+            value: `stops:${artifact.stops.length} preflight:${preflight.status}`,
+          },
+          mediaType: "text/plain",
+          filename: "",
+          metadata: {},
+        },
+      ],
+      metadata: undefined,
+      extensions: [],
+    });
+    await runtime.admission.markSettled({
+      messageId: input.message.messageId,
+      taskId: task.id,
+      state: "completed",
+    });
+    session.publishStatus(TaskState.TASK_STATE_COMPLETED, "city guide itinerary proposal completed", {
+      stops: artifact.stops.length,
+      preflight: preflight.status,
+      mode: planned.mode,
+    });
+    input.eventBus.finished();
+  };
+
   return {
     async execute(requestContext: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
       const message = requestContext.userMessage;
@@ -231,11 +530,19 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
       await runtime.admission.markWorking(task.id);
       try {
         const request = agentTaskRequestSchema.safeParse(dataPartOf(message));
-        if (!request.success || request.data.skillId !== CITY_GUIDE_SKILL_ID) {
+        if (!request.success) {
           await session.publishFailure("INVALID_ARTIFACT", "the task request is not a valid city guide request");
           return;
         }
         const data = request.data;
+        if (data.skillId === ITINERARY_SKILL_ID) {
+          await runItinerary({ data, task, message, session, eventBus, startedAtMs: startedAt });
+          return;
+        }
+        if (data.skillId !== CITY_GUIDE_SKILL_ID) {
+          await session.publishFailure("INVALID_ARTIFACT", "the task request is not a valid city guide request");
+          return;
+        }
         // Preserve the EXACT requested domains (order + duplicates removed):
         // domains outside this skill become explicit `unsupported` outcomes,
         // they are never dropped from the artifact.

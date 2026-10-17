@@ -5,6 +5,7 @@ import {
   buildItineraryConflictDecision,
   computeItinerarySourceFingerprint,
   ensureTransferAllowance,
+  fingerprint,
   localMinuteOfInstant,
   paceMealDuration,
   proposedStopWindow,
@@ -40,10 +41,16 @@ import type {
   TripPreferences,
   TripRecord,
 } from "@odft/contracts";
+import {
+  itineraryToolContextSchema,
+  type ItineraryStop,
+  type ItineraryToolContext,
+} from "@odft/contracts";
 import type { RouteMode } from "@odft/data";
 import {
   enforceOptInVisits,
   plannerContextSchema,
+  plannerOutputSchema,
   reviewerContextSchema,
   type PlannerContext,
   type PlannerOutput,
@@ -360,6 +367,39 @@ function itinerarySource(data: ItineraryPlanningData): ItinerarySourceFingerprin
 }
 
 /**
+ * Phase 08: the deterministic MCP Itinerary Tools context of one attempt. It
+ * mirrors the persisted inputs the planner sees (confirmed meals lock their
+ * windows) so the agent's preflight and the coordinator's assembly agree.
+ */
+function buildItineraryToolContext(data: ItineraryPlanningData): ItineraryToolContext {
+  if (!data.flightOfferId) {
+    throw new ItineraryPersistenceError(
+      "CONFLICT",
+      "the itinerary needs a confirmed or selected flight before planning can start",
+    );
+  }
+  return itineraryToolContextSchema.parse({
+    adults: data.trip.adults,
+    sightseeingDate: data.trip.sightseeingDate,
+    travelVariant: data.trip.travelVariant,
+    preferences: data.trip.preferences,
+    flightOfferId: data.flightOfferId,
+    hotelOfferId: data.hotelOfferId,
+    destinationAirportId: data.destinationAirportId,
+    mealSelections: {
+      breakfast: data.confirmedMeals.breakfast ?? data.selectedMeals.breakfast,
+      lunch: data.confirmedMeals.lunch ?? data.selectedMeals.lunch,
+      dinner: data.confirmedMeals.dinner ?? data.selectedMeals.dinner,
+    },
+    confirmedMealIds: [...data.confirmedMealIds],
+    selfArrangedMeals: [...data.selfArrangedMeals],
+    selfArrangedActivities: data.selfArrangedActivities,
+    preferredActivityIds: [...data.preferredActivityIds],
+    dinnerExcludedReason: data.dinnerExcludedReason,
+  });
+}
+
+/**
  * Phase 10: the planner proposes the selection and order, but the required room
  * between consecutive located stops (route estimate plus pace buffer) is domain
  * arithmetic. A live planner reliably leaves some back-to-back pairs, which the
@@ -519,7 +559,43 @@ export interface TravelItineraryServiceDeps {
   readonly signal?: AbortSignal;
 }
 
+export interface ItineraryPreparedTask {
+  /** Compact planner role context sent to the City Guide agent. */
+  readonly context: PlannerContext;
+  /** Deterministic MCP Itinerary Tools preflight context. */
+  readonly toolContext: ItineraryToolContext;
+  /** Persisted-input fingerprint that binds an approval to this draft. */
+  readonly sourceFingerprint: string;
+  /** Attempt/fingerprint scope of the delegated task. */
+  readonly inputFingerprint: string;
+  readonly snapshotId: string;
+  readonly departureMinuteRaw: number;
+  /** Destination IANA zone of the persisted planning data. */
+  readonly zone: string;
+}
+
 export interface TravelItineraryService {
+  /**
+   * Phase 08: prepare one application planning attempt for delegation to the
+   * City Guide `itinerary.propose.v1` skill (no AI call happens here).
+   */
+  prepareItineraryTask(input: {
+    tripId: string;
+    attempt: number;
+    feedback: readonly string[];
+  }): Promise<ItineraryPreparedTask>;
+  /**
+   * Phase 08: deterministically accept an agent proposal (membership, opt-in,
+   * normalization, assembly, validation, draft persistence). The reviewer role
+   * stays coordinator-authoritative so the existing review policy is unchanged.
+   */
+  acceptItineraryProposal(input: {
+    tripId: string;
+    operationId: string;
+    attempt: number;
+    stops: readonly ItineraryStop[];
+    mode: "fixture" | "openrouter";
+  }): Promise<ItineraryPlanResult>;
   /**
    * Phase 10: run one bounded planning attempt (planner role or fixture, then
    * deterministic assembly + validation + immutable draft persistence).
@@ -556,214 +632,356 @@ export function createTravelItineraryService(
 ): TravelItineraryService {
   const { pool, ai, authority, writeEvent, signal } = deps;
 
-  return {
-    async planItinerary(input) {
-      const data = await loadItineraryPlanningData(pool, input.tripId);
-      const departureInstant = returnDepartureInstant(data);
-      // The plan is built around the confirmed flight or, for a declined booking
-      // ("I don't want to book"), the persisted selection: either way the return
-      // window, the airport buffer, and the flight/hotel costs are all included.
-      if (!data.flightOfferId || !departureInstant) {
+  /**
+   * Phase 08: load and validate the inputs of one application planning attempt.
+   * The returned planner context is sent to the City Guide agent; the tool
+   * context is the exact deterministic MCP preflight input.
+   */
+  const prepareTask = async (input: {
+    tripId: string;
+    attempt: number;
+    feedback: readonly string[];
+  }): Promise<{
+    context: PlannerContext;
+    toolContext: ItineraryToolContext;
+    sourceFingerprint: string;
+    inputFingerprint: string;
+    snapshotId: string;
+    departureMinuteRaw: number;
+    zone: string;
+  }> => {
+    const data = await loadItineraryPlanningData(pool, input.tripId);
+    const departureInstant = returnDepartureInstant(data);
+    // The plan is built around the confirmed flight or, for a declined booking
+    // ("I don't want to book"), the persisted selection: either way the return
+    // window, the airport buffer, and the flight/hotel costs are all included.
+    if (!data.flightOfferId || !departureInstant) {
+      throw new ItineraryPersistenceError(
+        "CONFLICT",
+        "the itinerary needs a confirmed or selected flight before planning can start",
+      );
+    }
+    const departureMinuteRaw = localMinuteOfInstant(
+      departureInstant,
+      data.trip.sightseeingDate,
+      data.zone,
+    );
+    const context = buildPlannerContext(data, input.feedback, departureMinuteRaw);
+    const sourceFingerprint = computeItinerarySourceFingerprint(itinerarySource(data));
+    await writeEvent({
+      type: "itinerary.attempt_started",
+      payload: { attempt: input.attempt, candidateCount: context.candidates.length },
+    });
+    return {
+      context,
+      toolContext: buildItineraryToolContext(data),
+      sourceFingerprint,
+      inputFingerprint: fingerprint({
+        kind: "itinerary_task",
+        tripId: input.tripId,
+        sourceFingerprint,
+        attempt: input.attempt,
+        feedback: [...input.feedback],
+      }),
+      snapshotId: data.snapshotId,
+      departureMinuteRaw,
+      zone: data.zone,
+    };
+  };
+
+  /**
+   * Phase 08: deterministic acceptance of a planner-compatible proposal. This
+   * is the SAME assembly/validation/persistence path as `planItinerary`; only
+   * the planner call happened in the City Guide agent. An invented candidate id
+   * is rejected before any draft is stored.
+   */
+  const acceptProposal = async (input: {
+    tripId: string;
+    operationId: string;
+    attempt: number;
+    stops: readonly ItineraryStop[];
+    mode: "fixture" | "openrouter";
+  }): Promise<ItineraryPlanResult> => {
+    const data = await loadItineraryPlanningData(pool, input.tripId);
+    const departureInstant = returnDepartureInstant(data);
+    if (!data.flightOfferId || !departureInstant) {
+      throw new ItineraryPersistenceError(
+        "CONFLICT",
+        "the itinerary needs a confirmed or selected flight before planning can start",
+      );
+    }
+    const allowed = new Set([
+      ...selectedMealOffers(data).map((meal) => meal.id),
+      ...activityCandidates(data).map((activity) => activity.id),
+    ]);
+    for (const stop of input.stops) {
+      if (stop.kind !== "meal" && stop.kind !== "activity") {
+        continue;
+      }
+      if (!stop.refId || !allowed.has(stop.refId)) {
         throw new ItineraryPersistenceError(
-          "CONFLICT",
-          "the itinerary needs a confirmed or selected flight before planning can start",
+          "INVALID_ARTIFACT",
+          `the proposal references candidate ${stop.refId ?? "(none)"} outside the supplied context`,
         );
       }
-      const departureMinuteRaw = localMinuteOfInstant(
-        departureInstant,
-        data.trip.sightseeingDate,
-        data.zone,
+    }
+    const output = plannerOutputSchema.parse({
+      // The assembly inserts its own routed transfers; a model-supplied transfer
+      // block would double-count them.
+      stops: input.stops
+        .filter((stop) => stop.kind !== "transfer")
+        .map((stop) =>
+          stop.kind === "meal" || stop.kind === "activity"
+            ? {
+                kind: stop.kind,
+                refId: stop.refId as string,
+                startMinute: stop.startMinute,
+                durationMinutes: Math.min(180, stop.durationMinutes),
+              }
+            : {
+                kind: stop.kind,
+                startMinute: stop.startMinute,
+                durationMinutes: Math.min(180, stop.durationMinutes),
+              },
+        ),
+      explanation: "City Guide itinerary proposal",
+      compromises: [],
+    });
+    return finalizeAttempt({
+      tripId: input.tripId,
+      operationId: input.operationId,
+      attempt: input.attempt,
+      output,
+      mode: input.mode,
+    });
+  };
+
+  /**
+   * Shared deterministic tail of one planning attempt: opt-in filtering,
+   * schedule normalization, deliberate Scenario-E injection, assembly,
+   * validation, immutable draft persistence and the persisted outcome event.
+   */
+  const finalizeAttempt = async (input: {
+    tripId: string;
+    operationId: string;
+    attempt: number;
+    output: PlannerOutput | null;
+    mode: "fixture" | "openrouter";
+    rejectionReason?: string;
+  }): Promise<ItineraryPlanResult> => {
+    const data = await loadItineraryPlanningData(pool, input.tripId);
+    const departureInstant = returnDepartureInstant(data);
+    if (!data.flightOfferId || !departureInstant) {
+      throw new ItineraryPersistenceError(
+        "CONFLICT",
+        "the itinerary needs a confirmed or selected flight before planning can start",
       );
-      const context = buildPlannerContext(data, input.feedback, departureMinuteRaw);
-      await writeEvent({
-        type: "itinerary.attempt_started",
-        payload: { attempt: input.attempt, candidateCount: context.candidates.length },
+    }
+
+    // Scenario E: the persisted first-attempt overlay injects one labeled
+    // overlap after parsing and records its outcome (idempotent per operation).
+    const overlay = await loadOverlay(pool, input.tripId, "itinerary", input.operationId);
+    const overlayArmed = overlay !== null && overlay.mode === "invalid_itinerary";
+    const injectedBefore = overlayArmed && (overlay?.counters["attempts"] ?? 0) >= 1;
+    let output = input.output;
+    let simulatedFailure = false;
+    let simulatedFailureNote: string | null = null;
+    let injectedThisAttempt = false;
+    const activities = activityCandidates(data);
+    // Visits are OPT-IN (2026-10-14): strip any activity the user did not pin
+    // and that no stored tag minimum needs — the live model reliably adds
+    // opportunistic extras despite the planner-v2 instruction.
+    if (output) {
+      output = enforceOptInVisits(output, {
+        preferredActivityIds: data.preferredActivityIds,
+        minimumActivityCounts: data.trip.preferences.minimumActivityCounts,
+        candidates: activities,
       });
+    }
+    // Phase 10: the transfer room between consecutive located stops is domain
+    // arithmetic, not model arithmetic; widen the planner's packed pairs before
+    // the (deliberate) fault injection and validation so the bounded loop fails
+    // only on genuine conflicts.
+    if (output) {
+      output = normalizePlannerSchedule(output, data);
+    }
+    if (output && overlayArmed && !injectedBefore) {
+      const injected = injectFirstAttemptOverlap(output);
+      injectedThisAttempt = injected !== output;
+      output = injected;
+      simulatedFailure = injectedThisAttempt;
+      if (injectedThisAttempt) {
+        simulatedFailureNote =
+          "Simulated failure: this draft contains an injected first-attempt overlap; the bounded loop re-plans it.";
+      }
+    } else if (injectedBefore && input.attempt > 1) {
+      // The repaired draft still carries the labeled fault so the timeline can
+      // show that the injected corruption was detected and repaired.
+      simulatedFailure = true;
+      simulatedFailureNote =
+        "Simulated failure: the first planning attempt included an injected overlap; it was repaired within the bounded loop.";
+    }
+
+    const source = itinerarySource(data);
+    const assembly = assembleItinerary(
+      buildItineraryAssemblyInput(data, {
+        proposal: output ?? { stops: [] },
+        seedScope: `${input.operationId}:${input.attempt}`,
+        simulatedFailure,
+        departureInstant,
+      }),
+    );
+
+    const rejectionIssue: ItineraryIssue | null =
+      output === null
+        ? {
+            severity: "error",
+            code: "invalid_proposal",
+            message: input.rejectionReason
+              ? `${INVALID_PROPOSAL_LABEL} ${input.rejectionReason}`.slice(0, 400)
+              : INVALID_PROPOSAL_LABEL,
+            eventIds: [],
+            simulatedFailure: false,
+          }
+        : null;
+
+    const validation = validateItinerary({
+      events: rejectionIssue ? [] : assembly.events,
+      assemblyIssues: rejectionIssue ? [...assembly.issues, rejectionIssue] : assembly.issues,
+      costs: assembly.costs,
+      walkingKm: assembly.walkingKm,
+      pace: data.trip.preferences.activityPace,
+      minimumActivityCounts: data.trip.preferences.minimumActivityCounts,
+      preferredActivityIds: data.preferredActivityIds,
+      budgetMinor: data.trip.preferences.maxBudgetMinor ?? null,
+      dinnerExcludedReason: data.dinnerExcludedReason,
+      dinnerSelected:
+        (data.confirmedMeals.dinner ?? data.selectedMeals.dinner) !== null,
+      simulatedFailure,
+      source,
+      preferredActivities: preferredActivityNames(data),
+    });
+
+    let persisted: { id: string; version: number } | null = null;
+    if (!rejectionIssue) {
+      persisted = await persistItineraryDraft(
+        pool,
+        {
+          tripId: input.tripId,
+          operationId: input.operationId,
+          attempt: input.attempt,
+          sightseeingDate: data.trip.sightseeingDate,
+          zone: data.zone,
+          adults: data.trip.adults,
+          pace: data.trip.preferences.activityPace,
+          travelVariant: data.trip.travelVariant,
+          events: [...assembly.events],
+          validation,
+          costs: assembly.costs,
+          review: null,
+          simulatedFailure,
+          simulatedFailureNote,
+        },
+        fencingContextFor(authority, input.operationId, input.tripId),
+      );
+    }
+
+    // Replay consistency: `persistItineraryDraft` returns the STORED version
+    // when the attempt's effect already committed, so the graph state and the
+    // review step must read the stored validation — never the freshly computed
+    // one, which could differ from the persisted draft after a crash replay.
+    const stored = persisted ? await loadItineraryById(pool, persisted.id) : undefined;
+    const effectiveValidation = stored?.validation ?? validation;
+    const effectiveSimulatedFailure = stored?.simulatedFailure ?? simulatedFailure;
+    const effectiveSimulatedFailureNote = stored?.simulatedFailureNote ?? simulatedFailureNote;
+    const effectiveBudgetConflict = effectiveValidation.errors.some(
+      (error) => error.code === "budget_exceeded",
+    );
+    const effectiveConflictDecision =
+      effectiveValidation.status === "invalid"
+        ? buildItineraryConflictDecision({
+            errors: effectiveValidation.errors,
+            metrics: effectiveValidation.metrics,
+            pace: data.trip.preferences.activityPace,
+            minimumActivityCounts: data.trip.preferences.minimumActivityCounts,
+            review: null,
+          })
+        : null;
+
+    // The fault outcome is recorded only after the corrupted draft committed:
+    // a crash before persistence leaves the injection unrecorded, so the next
+    // attempt injects once more instead of claiming a corruption that never
+    // reached the timeline (still exactly one injection per operation bound).
+    if (injectedThisAttempt) {
+      await recordFaultOutcome(
+        pool,
+        {
+          tripId: input.tripId,
+          operationId: input.operationId,
+          domain: "itinerary",
+          fault: "invalid_itinerary",
+          outcome: "unavailable",
+          attempt: 1,
+          reason: "injected first-attempt overlap",
+        },
+        fencingContextFor(authority, input.operationId, input.tripId),
+      );
+    }
+
+    await writeEvent({
+      type: "itinerary.attempt_finished",
+      payload: {
+        attempt: input.attempt,
+        status: effectiveValidation.status,
+        errorCodes: effectiveValidation.errors.map((error) => error.code),
+        warningCodes: effectiveValidation.warnings.map((warning) => warning.code),
+        simulatedFailure: effectiveSimulatedFailure,
+        mode: input.mode,
+      },
+    });
+
+    return {
+      itineraryId: persisted?.id ?? null,
+      version: persisted?.version ?? null,
+      status: effectiveValidation.status,
+      errors: effectiveValidation.errors,
+      warnings: effectiveValidation.warnings,
+      metrics: effectiveValidation.metrics,
+      budgetConflict: effectiveBudgetConflict,
+      conflictDecision: effectiveConflictDecision,
+      simulatedFailure: effectiveSimulatedFailure,
+      simulatedFailureNote: effectiveSimulatedFailureNote,
+      mode: input.mode,
+    };
+  };
+
+  return {
+    async prepareItineraryTask(input) {
+      return prepareTask(input);
+    },
+
+    async acceptItineraryProposal(input) {
+      return acceptProposal(input);
+    },
+
+    async planItinerary(input) {
+      const prepared = await prepareTask(input);
       const planned = await ai.plan({
         tripId: input.tripId,
         operationId: input.operationId,
         fencingToken: authority.fencingToken,
         attempt: input.attempt,
-        context,
+        context: prepared.context,
         ...(signal ? { signal } : {}),
       });
-
-      // Scenario E: the persisted first-attempt overlay injects one labeled
-      // overlap after parsing and records its outcome (idempotent per operation).
-      const overlay = await loadOverlay(pool, input.tripId, "itinerary", input.operationId);
-      const overlayArmed = overlay !== null && overlay.mode === "invalid_itinerary";
-      const injectedBefore = overlayArmed && (overlay?.counters["attempts"] ?? 0) >= 1;
-      let output = planned.kind === "planned" ? planned.output : null;
-      let simulatedFailure = false;
-      let simulatedFailureNote: string | null = null;
-      let injectedThisAttempt = false;
-      const activities = activityCandidates(data);
-      // Visits are OPT-IN (2026-10-14): strip any activity the user did not pin
-      // and that no stored tag minimum needs — the live model reliably adds
-      // opportunistic extras despite the planner-v2 instruction.
-      if (output) {
-        output = enforceOptInVisits(output, {
-          preferredActivityIds: data.preferredActivityIds,
-          minimumActivityCounts: data.trip.preferences.minimumActivityCounts,
-          candidates: activities,
-        });
-      }
-      // Phase 10: the transfer room between consecutive located stops is domain
-      // arithmetic, not model arithmetic; widen the planner's packed pairs before
-      // the (deliberate) fault injection and validation so the bounded loop fails
-      // only on genuine conflicts.
-      if (output) {
-        output = normalizePlannerSchedule(output, data);
-      }
-      if (output && overlayArmed && !injectedBefore) {
-        const injected = injectFirstAttemptOverlap(output);
-        injectedThisAttempt = injected !== output;
-        output = injected;
-        simulatedFailure = injectedThisAttempt;
-        if (injectedThisAttempt) {
-          simulatedFailureNote =
-            "Simulated failure: this draft contains an injected first-attempt overlap; the bounded loop re-plans it.";
-        }
-      } else if (injectedBefore && input.attempt > 1) {
-        // The repaired draft still carries the labeled fault so the timeline can
-        // show that the injected corruption was detected and repaired.
-        simulatedFailure = true;
-        simulatedFailureNote =
-          "Simulated failure: the first planning attempt included an injected overlap; it was repaired within the bounded loop.";
-      }
-
-      const source = itinerarySource(data);
-      const assembly = assembleItinerary(
-        buildItineraryAssemblyInput(data, {
-          proposal: output ?? { stops: [] },
-          seedScope: `${input.operationId}:${input.attempt}`,
-          simulatedFailure,
-          departureInstant,
-        }),
-      );
-
-      const rejectionIssue: ItineraryIssue | null =
-        output === null
-          ? {
-              severity: "error",
-              code: "invalid_proposal",
-              message:
-                planned.kind === "rejected"
-                  ? `${INVALID_PROPOSAL_LABEL} ${planned.reason}`.slice(0, 400)
-                  : INVALID_PROPOSAL_LABEL,
-              eventIds: [],
-              simulatedFailure: false,
-            }
-          : null;
-
-      const validation = validateItinerary({
-        events: rejectionIssue ? [] : assembly.events,
-        assemblyIssues: rejectionIssue ? [...assembly.issues, rejectionIssue] : assembly.issues,
-        costs: assembly.costs,
-        walkingKm: assembly.walkingKm,
-        pace: data.trip.preferences.activityPace,
-        minimumActivityCounts: data.trip.preferences.minimumActivityCounts,
-        preferredActivityIds: data.preferredActivityIds,
-        budgetMinor: data.trip.preferences.maxBudgetMinor ?? null,
-        dinnerExcludedReason: data.dinnerExcludedReason,
-        dinnerSelected:
-          (data.confirmedMeals.dinner ?? data.selectedMeals.dinner) !== null,
-        simulatedFailure,
-        source,
-        preferredActivities: preferredActivityNames(data),
-      });
-
-      let persisted: { id: string; version: number } | null = null;
-      if (!rejectionIssue) {
-        persisted = await persistItineraryDraft(
-          pool,
-          {
-            tripId: input.tripId,
-            operationId: input.operationId,
-            attempt: input.attempt,
-            sightseeingDate: data.trip.sightseeingDate,
-            zone: data.zone,
-            adults: data.trip.adults,
-            pace: data.trip.preferences.activityPace,
-            travelVariant: data.trip.travelVariant,
-            events: [...assembly.events],
-            validation,
-            costs: assembly.costs,
-            review: null,
-            simulatedFailure,
-            simulatedFailureNote,
-          },
-          fencingContextFor(authority, input.operationId, input.tripId),
-        );
-      }
-
-      // Replay consistency: `persistItineraryDraft` returns the STORED version
-      // when the attempt's effect already committed, so the graph state and the
-      // review step must read the stored validation — never the freshly computed
-      // one, which could differ from the persisted draft after a crash replay.
-      const stored = persisted ? await loadItineraryById(pool, persisted.id) : undefined;
-      const effectiveValidation = stored?.validation ?? validation;
-      const effectiveSimulatedFailure = stored?.simulatedFailure ?? simulatedFailure;
-      const effectiveSimulatedFailureNote = stored?.simulatedFailureNote ?? simulatedFailureNote;
-      const effectiveBudgetConflict = effectiveValidation.errors.some(
-        (error) => error.code === "budget_exceeded",
-      );
-      const effectiveConflictDecision =
-        effectiveValidation.status === "invalid"
-          ? buildItineraryConflictDecision({
-              errors: effectiveValidation.errors,
-              metrics: effectiveValidation.metrics,
-              pace: data.trip.preferences.activityPace,
-              minimumActivityCounts: data.trip.preferences.minimumActivityCounts,
-              review: null,
-            })
-          : null;
-
-      // The fault outcome is recorded only after the corrupted draft committed:
-      // a crash before persistence leaves the injection unrecorded, so the next
-      // attempt injects once more instead of claiming a corruption that never
-      // reached the timeline (still exactly one injection per operation bound).
-      if (injectedThisAttempt) {
-        await recordFaultOutcome(
-          pool,
-          {
-            tripId: input.tripId,
-            operationId: input.operationId,
-            domain: "itinerary",
-            fault: "invalid_itinerary",
-            outcome: "unavailable",
-            attempt: 1,
-            reason: "injected first-attempt overlap",
-          },
-          fencingContextFor(authority, input.operationId, input.tripId),
-        );
-      }
-
-      await writeEvent({
-        type: "itinerary.attempt_finished",
-        payload: {
-          attempt: input.attempt,
-          status: effectiveValidation.status,
-          errorCodes: effectiveValidation.errors.map((error) => error.code),
-          warningCodes: effectiveValidation.warnings.map((warning) => warning.code),
-          simulatedFailure: effectiveSimulatedFailure,
-          mode: planned.mode,
-        },
-      });
-
-      return {
-        itineraryId: persisted?.id ?? null,
-        version: persisted?.version ?? null,
-        status: effectiveValidation.status,
-        errors: effectiveValidation.errors,
-        warnings: effectiveValidation.warnings,
-        metrics: effectiveValidation.metrics,
-        budgetConflict: effectiveBudgetConflict,
-        conflictDecision: effectiveConflictDecision,
-        simulatedFailure: effectiveSimulatedFailure,
-        simulatedFailureNote: effectiveSimulatedFailureNote,
+      return finalizeAttempt({
+        tripId: input.tripId,
+        operationId: input.operationId,
+        attempt: input.attempt,
+        output: planned.kind === "planned" ? planned.output : null,
         mode: planned.mode,
-      };
+        ...(planned.kind === "rejected" ? { rejectionReason: planned.reason } : {}),
+      });
     },
 
     async reviewItinerary(input) {

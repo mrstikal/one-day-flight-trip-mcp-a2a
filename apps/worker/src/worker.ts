@@ -121,6 +121,7 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
     createTravelPortsFactory(operationsPool, ai, {
       wikidataDiscovery: config.wikidataDiscovery,
       onDiscoveryLog: (record) => logger(record as never),
+      aiMode: config.aiMode,
     });
   const selectInvocation =
     options.chooseInvocation ??
@@ -200,6 +201,7 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
           flight: transportConfig.flight,
           accommodation: transportConfig.accommodation,
           cityGuide: transportConfig.cityGuide,
+          itinerary: transportConfig.itinerary,
         },
         portsFactory: (ctx) => portsFactory(ctx, shutdown.signal) as never,
         logger,

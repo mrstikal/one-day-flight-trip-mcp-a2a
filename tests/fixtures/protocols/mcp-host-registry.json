@@ -20,7 +20,7 @@
       "endpointUrl": "http://127.0.0.1:4323",
       "cardUrl": "http://127.0.0.1:4323/itinerary-tools/mcp",
       "credentialRef": "ODFT_AGENT_TOKEN_CITY_GUIDE",
-      "requiredSkills": ["city-guide.research.v1"]
+      "requiredSkills": ["city-guide.research.v1", "itinerary.propose.v1"]
     }
   ]
 }

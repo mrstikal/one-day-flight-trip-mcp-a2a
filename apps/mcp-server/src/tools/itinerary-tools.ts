@@ -48,7 +48,7 @@ const contextInput = z
     confirmedMealIds: z.array(z.string().min(1).max(160)).max(3).default([]),
     selfArrangedMeals: z.array(z.enum(["breakfast", "lunch", "dinner"])).max(3).default([]),
     selfArrangedActivities: z.boolean().default(false),
-    preferredActivityIds: z.array(z.string().min(1).max(160)).max(8).default([]),
+    preferredActivityIds: z.array(z.string().min(1).max(160)).max(20).default([]),
     dinnerExcludedReason: z.string().max(400).nullable().default(null),
   })
   .strict();
