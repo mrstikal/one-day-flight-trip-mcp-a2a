@@ -13,6 +13,7 @@ import {
   type ErrorEnvelope,
   type ResumeRequest,
   type TripPreferences,
+  type Engine,
 } from "@odft/contracts";
 import { contentHash } from "./hash.js";
 import { insertEvent } from "./events.js";
@@ -37,6 +38,12 @@ export const GRAPH_VERSION = "graph-v0";
 export interface CreateTripOptions {
   readonly sessionId: string;
   readonly input: CreationInput;
+  /**
+   * Phase 07: engine of the NEW trip. Defaults to `langgraph`; existing trips
+   * keep their engine (immutable). Coordinator trips exist only when explicitly
+   * requested (server-controlled test configuration).
+   */
+  readonly engine?: Engine;
 }
 
 export interface CreateTripResult {
@@ -167,6 +174,7 @@ export async function createTrip(
       graphVersion: GRAPH_VERSION,
       creationRequestId: input.creationRequestId,
       creationPayloadHash: payloadHash,
+      engine: options.engine ?? "langgraph",
     });
     const operation = await insertOperation(client, {
       tripId,
@@ -175,6 +183,7 @@ export async function createTrip(
       acceptedRevision: 1,
       kind: "creation",
       payload: input,
+      engine: options.engine ?? "langgraph",
     });
     await insertEvent(client, {
       tripId,
@@ -329,6 +338,9 @@ export async function admitOperation(
       acceptedRevision: newRevision,
       kind: "command",
       payload,
+      // Phase 07: the command operation belongs to the trip's engine (routing
+      // already keys on trips.engine; this keeps the metadata truthful).
+      engine: trip.engine,
     });
     await client.query(
       `UPDATE odft_app.trips SET revision = $2, workflow_status = 'queued', updated_at = now() WHERE id = $1`,
@@ -536,6 +548,9 @@ export async function admitResume(
       acceptedRevision: trip.revision,
       kind: "decision",
       payload: request,
+      // Phase 07: the decision operation belongs to the trip's engine, so the
+      // matching driver claims it.
+      engine: trip.engine,
     });
     await insertEvent(client, {
       tripId,

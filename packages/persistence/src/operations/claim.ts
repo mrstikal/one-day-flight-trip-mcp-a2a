@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import type { Engine } from "@odft/contracts";
 import { lockTrip } from "../trips.js";
 import { acquireCheckpointGate } from "./fencing.js";
 
@@ -38,6 +39,12 @@ export interface ClaimedOperation {
 export interface ClaimOptions {
   readonly workerId: string;
   readonly leaseMs?: number;
+  /**
+   * Phase 07 engine dispatch: when provided, only operations of trips running
+   * the listed engines are eligible (the graph worker never sees coordinator
+   * operations and vice versa). Omitted = no filter (direct test claims).
+   */
+  readonly engines?: readonly Engine[];
 }
 
 interface ClaimRow {
@@ -93,15 +100,19 @@ export async function claimNextOperation(
   try {
     await client.query("BEGIN");
 
+    const engineFilter = options.engines
+      ? `AND trip_id IN (SELECT id FROM odft_app.trips WHERE engine = ANY($2::text[]))`
+      : "";
     const selected = await client.query<{ id: string; trip_id: string }>(
       `SELECT id, trip_id
          FROM odft_app.workflow_operations
         WHERE auto_claims < $1
           AND (status = 'queued' OR (status = 'running' AND lease_expires_at < now()))
+          ${engineFilter}
         ORDER BY created_at ASC, id ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 1`,
-      [MAX_AUTO_CLAIMS_PER_ROUND],
+      options.engines ? [MAX_AUTO_CLAIMS_PER_ROUND, options.engines] : [MAX_AUTO_CLAIMS_PER_ROUND],
     );
     const candidate = selected.rows[0];
     if (!candidate) {
@@ -146,12 +157,18 @@ export async function claimOperationById(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const engineFilter = options.engines
+      ? `AND trip_id IN (SELECT id FROM odft_app.trips WHERE engine = ANY($3::text[]))`
+      : "";
     const selected = await client.query<{ id: string; trip_id: string }>(
       `SELECT id, trip_id FROM odft_app.workflow_operations
         WHERE id = $1 AND auto_claims < $2
           AND (status = 'queued' OR (status = 'running' AND lease_expires_at < now()))
+          ${engineFilter}
         FOR UPDATE SKIP LOCKED`,
-      [operationId, MAX_AUTO_CLAIMS_PER_ROUND],
+      options.engines
+        ? [operationId, MAX_AUTO_CLAIMS_PER_ROUND, options.engines]
+        : [operationId, MAX_AUTO_CLAIMS_PER_ROUND],
     );
     const candidate = selected.rows[0];
     if (!candidate) {

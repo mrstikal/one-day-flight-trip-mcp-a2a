@@ -98,6 +98,8 @@ export interface InsertTripInput {
   readonly graphVersion: string;
   readonly creationRequestId: string;
   readonly creationPayloadHash: string;
+  /** Phase 07: engine of the new trip (default `langgraph`). */
+  readonly engine?: Engine;
 }
 
 export async function insertTrip(client: Queryable, input: InsertTripInput): Promise<void> {
@@ -105,8 +107,8 @@ export async function insertTrip(client: Queryable, input: InsertTripInput): Pro
     `INSERT INTO odft_app.trips
        (id, session_id, revision, user_name, adults, origin_airport_id, destination_city_id,
         destination_country_key, sightseeing_date, travel_variant, preferences, workflow_status,
-        graph_version, creation_request_id, creation_payload_hash)
-     VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, 'queued', $11, $12, $13)`,
+        graph_version, creation_request_id, creation_payload_hash, engine)
+     VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, 'queued', $11, $12, $13, $14)`,
     [
       input.id,
       input.sessionId,
@@ -121,6 +123,7 @@ export async function insertTrip(client: Queryable, input: InsertTripInput): Pro
       input.graphVersion,
       input.creationRequestId,
       input.creationPayloadHash,
+      input.engine ?? "langgraph",
     ],
   );
 }

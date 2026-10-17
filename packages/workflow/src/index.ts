@@ -131,3 +131,7 @@ export type {
   ResearchDomainResult,
   ResearchDomainStatus,
 } from "./state/research-reducer.js";
+
+export * from "./coordinator/state.js";
+export * from "./coordinator/delegations.js";
+export * from "./coordinator/dispatch.js";

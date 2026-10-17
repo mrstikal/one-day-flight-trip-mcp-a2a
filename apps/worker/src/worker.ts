@@ -23,6 +23,8 @@ import {
   type InvocationOperation,
 } from "@odft/workflow";
 import { runClaimLoop } from "./claim.js";
+import { createCoordinatorDriver } from "./coordinator-driver.js";
+import { createA2ADelegationTransport, loadCoordinatorTransportConfig } from "./coordinator-transport.js";
 import { createOperationDriver, type WorkerGraph } from "./driver.js";
 import { createAiService } from "./ai/service.js";
 import { createTravelPortsFactory } from "./travel/ports.js";
@@ -61,6 +63,12 @@ export interface RunWorkerOptions {
   readonly shutdown?: ShutdownController;
   /** Resolve once the worker is ready and claiming (tests). */
   readonly onStarted?: () => void;
+  /**
+   * Phase 07: run the coordinator claim loop for coordinator-engine trips next
+   * to the graph loop. Off by default (`ODFT_COORDINATOR=1` enables it and
+   * requires ODFT_AGENT_REGISTRY_PATH); the graph path stays the default.
+   */
+  readonly coordinator?: boolean;
 }
 
 export async function runWorker(options: RunWorkerOptions): Promise<void> {
@@ -165,17 +173,58 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
       signal: shutdown.signal,
     });
 
-    await runClaimLoop({
-      operationsPool,
-      driver,
-      shutdown,
-      workerId,
-      leaseMs,
-      concurrency,
-      pollIntervalMs,
-      graceMs: options.graceMs ?? 30_000,
-      logger,
-    });
+    const coordinatorEnabled = options.coordinator ?? process.env.ODFT_COORDINATOR === "1";
+    const loops: Promise<void>[] = [
+      runClaimLoop({
+        operationsPool,
+        driver,
+        shutdown,
+        workerId,
+        leaseMs,
+        concurrency,
+        pollIntervalMs,
+        graceMs: options.graceMs ?? 30_000,
+        logger,
+        // Phase 07 engine dispatch: the graph loop never claims coordinator work.
+        supportedEngines: ["langgraph"],
+      }),
+    ];
+    if (coordinatorEnabled) {
+      const transportConfig = loadCoordinatorTransportConfig(process.env);
+      const coordinatorTransport = createA2ADelegationTransport(transportConfig.config);
+      const coordinatorDriver = createCoordinatorDriver({
+        pool: operationsPool,
+        workerId,
+        transport: coordinatorTransport,
+        agents: {
+          flight: transportConfig.flight,
+          accommodation: transportConfig.accommodation,
+          cityGuide: transportConfig.cityGuide,
+        },
+        portsFactory: (ctx) => portsFactory(ctx, shutdown.signal) as never,
+        logger,
+      });
+      logger({
+        level: "info",
+        component: "worker",
+        message: "coordinator loop enabled",
+      });
+      loops.push(
+        runClaimLoop({
+          operationsPool,
+          driver: coordinatorDriver,
+          shutdown,
+          workerId,
+          leaseMs,
+          concurrency,
+          pollIntervalMs,
+          graceMs: options.graceMs ?? 30_000,
+          logger,
+          supportedEngines: ["coordinator-v1"],
+        }),
+      );
+    }
+    await Promise.all(loops);
   } finally {
     clearInterval(heartbeat);
     await Promise.allSettled([

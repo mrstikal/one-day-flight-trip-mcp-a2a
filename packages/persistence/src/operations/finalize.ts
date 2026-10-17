@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { lockTrip } from "../trips.js";
-import type { DecisionKind } from "@odft/contracts";
+import type { DecisionKind, Engine } from "@odft/contracts";
 import { insertEvent } from "../events.js";
 
 /**
@@ -27,6 +27,15 @@ export interface WaitingSpec {
   readonly allowedOptionIds: readonly string[];
   readonly graphVersion: string;
   readonly createdRevision: number;
+  /** Phase 07: engine binding of the pending decision (default `langgraph`). */
+  readonly engine?: Engine;
+  /** Required when `engine` is `coordinator-v1` (graph ids stay null then). */
+  readonly coordinatorRunId?: string;
+  /**
+   * Phase 07: extra writes executed INSIDE the same fenced transaction (the
+   * coordinator persists its run cursor together with the decision atomically).
+   */
+  readonly extraWrites?: (client: Pick<PoolClient, "query">) => Promise<void>;
   /** Proposal a confirmation decision is bound to (booking/replacement decisions). */
   readonly proposalId?: string;
   /** Offer ids a `choose_offer` response may select. */
@@ -65,6 +74,7 @@ async function transitionOperation(
 }
 
 /** Persist a `waiting` transition together with its pending decision and the trip projection. */
+
 export async function finalizeWaiting(
   pool: Pool,
   fence: FinalizeFence,
@@ -95,7 +105,7 @@ export async function finalizeWaiting(
     await client.query(
       `UPDATE odft_app.pending_decisions
           SET status = 'cancelled', resolved_at = now()
-        WHERE trip_id = $1 AND status = 'pending'
+        WHERE trip_id = $1 AND status = 'pending' AND engine = $7
           AND NOT (
             kind = $2
             AND source_fingerprint = $3
@@ -110,32 +120,36 @@ export async function finalizeWaiting(
         JSON.stringify(spec.allowedOfferIds ?? []),
         JSON.stringify(spec.allowedOptionIds),
         spec.proposalId ?? null,
+        spec.engine ?? "langgraph",
       ],
     );
     // Insert the current decision; an exact replay (same kind, fingerprint, and
     // bound ids) left the row in place above, so this insert is a no-op then.
+    const coordinatorBound = spec.engine === "coordinator-v1";
     await client.query(
       `INSERT INTO odft_app.pending_decisions
-         (id, trip_id, kind, thread_id, graph_version, created_revision, source_fingerprint,
-          proposal_id, allowed_offer_ids, allowed_option_ids, option_payload, payload_hash, status,
-          checkpoint_id, interrupt_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $7, 'pending',
-               $12, $13)
+         (id, trip_id, kind, engine, thread_id, graph_version, coordinator_run_id, created_revision,
+          source_fingerprint, proposal_id, allowed_offer_ids, allowed_option_ids, option_payload,
+          payload_hash, status, checkpoint_id, interrupt_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb,
+               $9, 'pending', $14, $15)
        ON CONFLICT DO NOTHING`,
       [
         randomUUID(),
         fence.tripId,
         spec.kind,
-        fence.tripId,
-        spec.graphVersion,
+        spec.engine ?? "langgraph",
+        coordinatorBound ? null : fence.tripId,
+        coordinatorBound ? null : spec.graphVersion,
+        coordinatorBound ? (spec.coordinatorRunId ?? null) : null,
         spec.createdRevision,
         spec.fingerprint,
         spec.proposalId ?? null,
         JSON.stringify(spec.allowedOfferIds ?? []),
         JSON.stringify(spec.allowedOptionIds),
         JSON.stringify(spec.optionPayload ?? []),
-        spec.checkpointId ?? null,
-        spec.interruptId ?? null,
+        coordinatorBound ? null : (spec.checkpointId ?? null),
+        coordinatorBound ? null : (spec.interruptId ?? null),
       ],
     );
     await client.query(
@@ -148,6 +162,9 @@ export async function finalizeWaiting(
       type: "decision.awaiting",
       payload: { kind: spec.kind },
     });
+    if (spec.extraWrites) {
+      await spec.extraWrites(client);
+    }
     await client.query("COMMIT");
     return true;
   } catch (error) {
@@ -164,6 +181,11 @@ export interface SuccessSpec {
   readonly resolveDecisionId?: string;
   /** Terminal trip projection status; defaults to `ready`. */
   readonly workflowStatus?: "ready" | "blocked";
+  /**
+   * Phase 07: extra writes executed INSIDE the same fenced transaction (the
+   * coordinator persists its run cursor together with the completion).
+   */
+  readonly extraWrites?: (client: Pick<PoolClient, "query">) => Promise<void>;
 }
 
 /** Persist a `succeeded` transition with the trip projection and decision resolution. */
@@ -197,6 +219,9 @@ export async function finalizeSuccess(
         [spec.resolveDecisionId],
       );
     }
+    if (spec.extraWrites) {
+      await spec.extraWrites(client);
+    }
     await insertEvent(client, {
       tripId: fence.tripId,
       operationId: fence.operationId,
@@ -219,6 +244,8 @@ export interface FailureSpec {
   readonly exhausted: boolean;
   /** Diagnostic detail stored on the operation result (never sent to events). */
   readonly message?: string;
+  /** Phase 07: extra writes inside the same fenced transaction (run cursor). */
+  readonly extraWrites?: (client: Pick<PoolClient, "query">) => Promise<void>;
 }
 
 /**
@@ -267,6 +294,9 @@ export async function finalizeFailure(
         await client.query("ROLLBACK");
         return false;
       }
+    }
+    if (spec.extraWrites) {
+      await spec.extraWrites(client);
     }
     await insertEvent(client, {
       tripId: fence.tripId,

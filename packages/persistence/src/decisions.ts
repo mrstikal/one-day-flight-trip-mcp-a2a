@@ -13,6 +13,7 @@ interface DecisionRow {
   source_fingerprint: string;
   allowed_offer_ids: unknown;
   allowed_option_ids?: unknown;
+  option_payload?: unknown;
   engine?: Engine;
   coordinator_run_id?: string | null;
 }
@@ -23,7 +24,7 @@ export async function loadDecision(
 ): Promise<DecisionBindingRecord | undefined> {
   const result = await client.query<DecisionRow>(
     `SELECT id, trip_id, kind, proposal_id, status, source_fingerprint, allowed_offer_ids, allowed_option_ids,
-            engine, coordinator_run_id
+            option_payload, engine, coordinator_run_id
        FROM odft_app.pending_decisions WHERE id = $1`,
     [decisionId],
   );
@@ -42,6 +43,9 @@ export async function loadDecision(
     allowedOptionIds: Array.isArray(row.allowed_option_ids)
       ? (row.allowed_option_ids as string[])
       : [],
+    ...(row.option_payload !== undefined && row.option_payload !== null
+      ? { optionPayload: row.option_payload }
+      : {}),
     ...(row.engine ? { engine: row.engine } : {}),
     ...(row.coordinator_run_id ? { coordinatorRunId: row.coordinator_run_id } : {}),
   };
@@ -134,6 +138,9 @@ export async function getPendingDecisionForTrip(
     allowedOptionIds: Array.isArray(row.allowed_option_ids)
       ? (row.allowed_option_ids as string[])
       : [],
+    ...(row.option_payload !== undefined && row.option_payload !== null
+      ? { optionPayload: row.option_payload }
+      : {}),
     ...(row.engine ? { engine: row.engine } : {}),
     ...(row.coordinator_run_id ? { coordinatorRunId: row.coordinator_run_id } : {}),
   };

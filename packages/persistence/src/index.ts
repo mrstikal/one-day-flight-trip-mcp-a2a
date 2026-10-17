@@ -377,6 +377,7 @@ export {
   getCoordinatorRun,
   insertCoordinatorRun,
   updateCoordinatorRun,
+  type CoordinatorRunDataInput,
   type CoordinatorRunRecord,
   type InsertCoordinatorRunInput,
   type UpdateCoordinatorRunInput,

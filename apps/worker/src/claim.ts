@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import type { Engine } from "@odft/contracts";
 import { claimNextOperation, reapExhaustedOperations, type ClaimedOperation } from "@odft/persistence";
 import type { OperationDriver } from "./driver.js";
 import type { ShutdownController } from "./shutdown.js";
@@ -21,6 +22,12 @@ export interface ClaimLoopOptions {
   readonly pollIntervalMs: number;
   readonly graceMs: number;
   readonly logger: (record: Record<string, unknown>) => void;
+  /**
+   * Phase 07 engine dispatch: the engines this loop is allowed to claim.
+   * Omitted keeps the pre-Phase-07 behavior (any engine) for direct test use;
+   * production workers always pass an explicit set.
+   */
+  readonly supportedEngines?: readonly Engine[];
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -79,6 +86,7 @@ export async function runClaimLoop(options: ClaimLoopOptions): Promise<void> {
       claim = await claimNextOperation(options.operationsPool, {
         workerId: options.workerId,
         leaseMs: options.leaseMs,
+        ...(options.supportedEngines ? { engines: options.supportedEngines } : {}),
       });
     } catch (error) {
       options.logger({
