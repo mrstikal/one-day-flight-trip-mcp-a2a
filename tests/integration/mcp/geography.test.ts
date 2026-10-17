@@ -10,7 +10,7 @@ import {
   mcpConfigFor,
   resetMcpDatabase,
   seedDelegatedSnapshot,
-  setupReadOnlyRole,
+  setupProtocolRoles,
   startMcpHost,
   stopMcpHost,
   waitForHostReady,
@@ -32,7 +32,7 @@ beforeAll(async () => {
   pool = createMcpTestPool();
   pools = createMcpTestWorkerPools();
   await resetMcpDatabase(pool);
-  setupReadOnlyRole();
+  setupProtocolRoles();
   seeded = await seedDelegatedSnapshot(pool, pools);
   host = startMcpHost();
   await waitForHostReady(host);

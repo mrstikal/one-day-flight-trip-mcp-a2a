@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { lockTrip } from "../trips.js";
 import { acquireCheckpointGate } from "./fencing.js";
 
 /**
@@ -195,6 +196,9 @@ export async function reapExhaustedOperations(pool: Pool, options: { limit?: num
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // Section 3.8 order: never lock a batch of operations and then their trips.
+    // Candidate ids are read without locks, then each row is locked trip-first
+    // and re-checked before it is reaped.
     const selected = await client.query<{ id: string; trip_id: string }>(
       `SELECT id, trip_id
          FROM odft_app.workflow_operations
@@ -202,11 +206,24 @@ export async function reapExhaustedOperations(pool: Pool, options: { limit?: num
           AND auto_claims >= $1
           AND lease_expires_at < now()
         ORDER BY lease_expires_at ASC
-        FOR UPDATE SKIP LOCKED
         LIMIT $2`,
       [MAX_AUTO_CLAIMS_PER_ROUND, limit],
     );
-    for (const row of selected.rows) {
+    let reaped = 0;
+    for (const candidate of selected.rows) {
+      await lockTrip(client, candidate.trip_id);
+      const locked = await client.query<{ id: string }>(
+        `SELECT id FROM odft_app.workflow_operations
+          WHERE id = $1 AND status = 'running'
+            AND auto_claims >= $2 AND lease_expires_at < now()
+          FOR UPDATE`,
+        [candidate.id, MAX_AUTO_CLAIMS_PER_ROUND],
+      );
+      const row = locked.rows[0];
+      if (!row) {
+        continue;
+      }
+      reaped += 1;
       await client.query(
         `UPDATE odft_app.workflow_operations
             SET status = 'failed', lease_expires_at = NULL, claimed_by = NULL,
@@ -219,16 +236,16 @@ export async function reapExhaustedOperations(pool: Pool, options: { limit?: num
             SET recovery_required = true, workflow_status = 'failed',
                 last_unfinished_operation_id = $2, updated_at = now()
           WHERE id = $1`,
-        [row.trip_id, row.id],
+        [candidate.trip_id, row.id],
       );
       await client.query(
         `INSERT INTO odft_app.execution_events (trip_id, operation_id, type, payload)
          VALUES ($1, $2, 'operation.failed', $3::jsonb)`,
-        [row.trip_id, row.id, JSON.stringify({ code: "CLAIM_BUDGET_EXHAUSTED" })],
+        [candidate.trip_id, row.id, JSON.stringify({ code: "CLAIM_BUDGET_EXHAUSTED" })],
       );
     }
     await client.query("COMMIT");
-    return selected.rows.length;
+    return reaped;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

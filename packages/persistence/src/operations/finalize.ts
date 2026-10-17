@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { lockTrip } from "../trips.js";
 import type { DecisionKind } from "@odft/contracts";
 import { insertEvent } from "../events.js";
 
@@ -38,6 +39,16 @@ export interface WaitingSpec {
   readonly interruptId?: string | null;
 }
 
+/**
+ * Acquire the trip row lock BEFORE touching the operation row (Section 3.8
+ * order: trip -> operation -> delegation -> counters). Control/cancellation
+ * paths lock the trip first; an operation-before-trip finalizer would ABBA
+ * against them.
+ */
+async function lockTripRow(client: Pick<PoolClient, "query">, tripId: string): Promise<void> {
+  await lockTrip(client, tripId);
+}
+
 async function transitionOperation(
   client: Pick<PoolClient, "query">,
   fence: FinalizeFence,
@@ -62,6 +73,7 @@ export async function finalizeWaiting(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await lockTripRow(client, fence.tripId);
     const committed = await transitionOperation(
       client,
       fence,
@@ -163,6 +175,7 @@ export async function finalizeSuccess(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await lockTripRow(client, fence.tripId);
     const committed = await transitionOperation(
       client,
       fence,
@@ -220,6 +233,7 @@ export async function finalizeFailure(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await lockTripRow(client, fence.tripId);
     if (spec.exhausted) {
       const committed = await transitionOperation(
         client,
@@ -288,6 +302,7 @@ export async function finalizeConflict(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await lockTripRow(client, fence.tripId);
     const committed = await transitionOperation(
       client,
       fence,

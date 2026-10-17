@@ -149,9 +149,11 @@ export {
 
 export {
   plannerContextSchema,
+  flightRecommendationContextSchema,
   recommendationContextSchema,
   reviewerContextSchema,
   type PlannerContext,
+  type FlightRecommendationContext,
   type RecommendationContext,
   type ReviewerContext,
 } from "./context/role-contexts.js";
@@ -166,6 +168,7 @@ export {
   FixtureAdapter,
   fixtureIntent,
   fixturePlanner,
+  fixtureFlightRecommendation,
   fixtureRecommendation,
   fixtureReviewer,
   FIXTURE_INVALID_FIRST_ITINERARY,
@@ -196,6 +199,7 @@ export { ROLE_CONTEXT_SCHEMAS, ROLE_CONTRACTS } from "./roles/registry.js";
 export { INTENT_LIMITS, intentRole } from "./roles/intent.js";
 export {
   RECOMMENDATION_LIMITS,
+  flightRecommendationRole,
   recommendationRole,
   recommendationOutputSchema,
   type RecommendationOutput,
@@ -222,6 +226,10 @@ export {
   RECOMMENDATION_PROMPT_VERSION,
   RECOMMENDATION_SYSTEM_PROMPT,
 } from "./prompts/recommendation-v1.js";
+export {
+  RECOMMENDATION_V2_PROMPT_VERSION,
+  RECOMMENDATION_V2_SYSTEM_PROMPT,
+} from "./prompts/recommendation-v2.js";
 export { PLANNER_PROMPT_VERSION, PLANNER_SYSTEM_PROMPT } from "./prompts/planner-v2.js";
 export { REVIEWER_PROMPT_VERSION, REVIEWER_SYSTEM_PROMPT } from "./prompts/reviewer-v2.js";
 export { enforceOptInVisits } from "./opt-in-visits.js";

@@ -55,3 +55,53 @@ export function fencingContextFor(
   }
   return fencingContext(authority);
 }
+
+/**
+ * Phase 05: tagged DELEGATED AI authority of an agent process.
+ *
+ * An agent never receives a coordinator fencing token. Its authority is a
+ * lookup key that is revalidated against the persisted delegation on every
+ * step; the coordinator fence variant above stays reserved for worker paths.
+ */
+export interface DelegatedAuthority {
+  readonly kind: "delegation";
+  readonly delegationId: string;
+  readonly agentIdentity: string;
+  readonly skillId: string;
+  /** Canonical A2A task of the delegation (stable across continuations). */
+  readonly taskId: string;
+  /** Correlation id of the invocation, never a business fingerprint input. */
+  readonly traceId: string;
+}
+
+export function delegationAuthority(input: {
+  delegationId: string;
+  agentIdentity: string;
+  skillId: string;
+  taskId: string;
+  traceId: string;
+}): DelegatedAuthority {
+  return {
+    kind: "delegation",
+    delegationId: input.delegationId,
+    agentIdentity: input.agentIdentity,
+    skillId: input.skillId,
+    taskId: input.taskId,
+    traceId: input.traceId,
+  };
+}
+
+/**
+ * A refused delegated paid-call step, carrying the ledger function's own code
+ * (`DELEGATION_REVOKED`, `INPUT_EXPIRED`, `STALE_AGENT_RESULT`,
+ * `AI_BUDGET_EXCEEDED`, `TASK_BUDGET_EXCEEDED`, ...) so agent callers can report
+ * the real governance reason instead of collapsing it into a generic error.
+ */
+export class DelegatedCallError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "DelegatedCallError";
+    this.code = code;
+  }
+}

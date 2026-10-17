@@ -2,6 +2,11 @@ import type { Pool } from "pg";
 import {
   AdapterError,
   buildCompactContext,
+  fixtureFlightRecommendation,
+  flightRecommendationContextSchema,
+  RECOMMENDATION_V2_PROMPT_VERSION,
+  RECOMMENDATION_V2_SYSTEM_PROMPT,
+  recommendationOutputSchema,
   CAPABILITY_CACHE_TTL_MS,
   DEFAULT_CONTEXT_BUDGET,
   FixtureAdapter,
@@ -24,6 +29,7 @@ import {
   type LLMAdapter,
   type PlannerContext,
   type PlannerOutput,
+  type FlightRecommendationContext,
   type ReviewerContext,
   type ReviewerOutput,
 } from "@odft/ai";
@@ -47,12 +53,16 @@ import {
   getTrip,
   listConversation,
   markCallUnknown,
+  markDelegatedCallUnknown,
   readEffectFenced,
   recordCallResult,
   reserveCall,
+  reserveDelegatedCall,
+  settleDelegatedCall,
   writeEffectFenced,
   type ServerConfig,
 } from "@odft/persistence";
+import { DelegatedCallError, type DelegatedAuthority } from "./authority.js";
 
 /**
  * Governed AI runtime (06-ai-agent-design.md), extracted into the services layer
@@ -681,3 +691,227 @@ export function createAiService(deps: InterpretDeps): AiService {
 }
 
 export type { RoleProfiles };
+
+/* ---- Phase 05: delegated flight ranking (agent authority, no fence) ---------- */
+
+/**
+ * Delegated ranking of schedule-valid flight combinations.
+ *
+ * The agent calls this with its tagged delegated authority; the runtime
+ * revalidates the delegation, builds the flight context, and (for a real
+ * provider) reserves the paid transport attempt through the restricted
+ * delegated ledger before sending it. The delegated adapter is constructed
+ * with a single transport attempt per reservation, so one ledger row always
+ * equals one billable send. The model output must be a permutation/subset of
+ * the supplied combination ids; anything else falls back to the deterministic
+ * order (the caller's initial ranking) without touching the ledger again.
+ */
+
+export interface DelegatedFlightRankingInput {
+  readonly authority: DelegatedAuthority;
+  readonly tradeoff: string;
+  readonly baselineOfferId: string | null;
+  readonly candidates: FlightRecommendationContext["candidates"];
+  /** Attempt scope, e.g. `recommendation:1` (one reservation per attempt). */
+  readonly effectScope: string;
+  /** Hard deadline for the paid attempt (the task's remaining active time). */
+  readonly signal?: AbortSignal;
+  readonly limits: {
+    readonly maxCallCostUsd: string;
+    readonly maxCallsPerTrip: number;
+    readonly maxCostUsdPerTrip: string;
+    readonly maxAttemptsPerScope: number;
+    readonly taskMaxCostUsd: string;
+  };
+}
+
+export interface DelegatedFlightRankingResult {
+  readonly rankedOfferIds: string[];
+  readonly reasons: { offerId: string; explanation: string }[];
+  readonly mode: "fixture" | "openrouter";
+  /** True when the governed output was rejected and the deterministic order kept. */
+  readonly fallbackUsed: boolean;
+}
+
+export interface DelegatedFlightRankingDeps {
+  /** Test/governance hook: forces the paid reservation path with a scripted adapter. */
+  readonly paidAdapter?: LLMAdapter;
+  /** Test/governance hook: profile whose prices drive the worst-case reservation. */
+  readonly paidProfile?: RoleProfile;
+}
+
+/**
+ * Deterministic flight order shared by the agent's initial ranking, the
+ * fixture adapter and the safe fallback: party total, then total travel time,
+ * then combination id. Never model output.
+ */
+export function deterministicFlightOrder(
+  candidates: readonly FlightRecommendationContext["candidates"][number][],
+): string[] {
+  return [...candidates]
+    .sort(
+      (a, b) =>
+        a.partyTotalMinor - b.partyTotalMinor ||
+        a.totalDurationMinutes - b.totalDurationMinutes ||
+        a.id.localeCompare(b.id),
+    )
+    .map((candidate) => candidate.id);
+}
+
+export function createDelegatedFlightRanker(
+  pool: Pool,
+  config: ServerConfig,
+  deps: DelegatedFlightRankingDeps = {},
+): {
+  rank(input: DelegatedFlightRankingInput): Promise<DelegatedFlightRankingResult>;
+} {
+  const fixtureFallback = (input: DelegatedFlightRankingInput): DelegatedFlightRankingResult => {
+    const context = flightRecommendationContextSchema.parse({
+      role: "recommendation",
+      tradeoff: input.tradeoff,
+      target: "flights",
+      baselineOfferId: input.baselineOfferId,
+      candidates: input.candidates,
+    });
+    const ranked = fixtureFlightRecommendation(context);
+    return { ...ranked, mode: "fixture", fallbackUsed: false };
+  };
+
+  const deterministicOrder = (input: DelegatedFlightRankingInput): string[] =>
+    deterministicFlightOrder(input.candidates);
+
+  const validatePermutation = (
+    output: { rankedOfferIds: string[] },
+    allowed: readonly string[],
+  ): boolean => {
+    const allowedSet = new Set(allowed);
+    const seen = new Set<string>();
+    for (const id of output.rankedOfferIds) {
+      if (!allowedSet.has(id) || seen.has(id)) {
+        return false;
+      }
+      seen.add(id);
+    }
+    return output.rankedOfferIds.length > 0;
+  };
+
+  const paidPath = async (input: DelegatedFlightRankingInput): Promise<DelegatedFlightRankingResult> => {
+    const context = flightRecommendationContextSchema.parse({
+      role: "recommendation",
+      tradeoff: input.tradeoff,
+      target: "flights",
+      baselineOfferId: input.baselineOfferId,
+      candidates: input.candidates,
+    });
+    const profile = deps.paidProfile;
+    if (!profile) {
+      throw new AdapterError("AI_NOT_CONFIGURED", "no delegated model profile is configured", false);
+    }
+    const worst = worstCaseCostUsd(profile, {
+      inputTokens: profile.maxInputTokens,
+      outputTokens: profile.maxOutputTokens,
+    });
+    const reserved = await reserveDelegatedCall(pool, {
+      agentIdentity: input.authority.agentIdentity,
+      delegationId: input.authority.delegationId,
+      taskId: input.authority.taskId,
+      traceId: input.authority.traceId,
+      effectScope: input.effectScope,
+      role: "recommendation",
+      model: profile.model,
+      provider: profile.provider,
+      promptVersion: RECOMMENDATION_V2_PROMPT_VERSION,
+      mode: "openrouter",
+      pricingVersion: profile.pricingVersion,
+      reservedTokens: profile.maxInputTokens + profile.maxOutputTokens,
+      reservedCostUsd: formatUsd(worst),
+      maxCallCostUsd: input.limits.maxCallCostUsd,
+      maxCallsPerTrip: input.limits.maxCallsPerTrip,
+      maxCostUsdPerTrip: input.limits.maxCostUsdPerTrip,
+      maxAttemptsPerScope: input.limits.maxAttemptsPerScope,
+      taskMaxCostUsd: input.limits.taskMaxCostUsd,
+    });
+    if (!reserved.ok) {
+      // The ledger function's own code carries the governance reason
+      // (DELEGATION_REVOKED / INPUT_EXPIRED / STALE_AGENT_RESULT /
+      // AI_BUDGET_EXCEEDED / TASK_BUDGET_EXCEEDED / ...). Never collapse it.
+      throw new DelegatedCallError(reserved.code, reserved.message);
+    }
+    const startedAt = Date.now();
+    let callId: string | undefined = reserved.callId;
+    try {
+      const adapter = deps.paidAdapter;
+      if (!adapter) {
+        throw new AdapterError("AI_UNSUPPORTED", "no paid adapter configured", false);
+      }
+      const response = await adapter.generateObject({
+        role: "recommendation",
+        promptVersion: RECOMMENDATION_V2_PROMPT_VERSION,
+        operationId: input.authority.taskId,
+        effectScope: input.effectScope,
+        systemPrompt: RECOMMENDATION_V2_SYSTEM_PROMPT,
+        context,
+        outputSchema: recommendationOutputSchema,
+        signal: input.signal ?? new AbortController().signal,
+      });
+      const parsed = recommendationOutputSchema.parse(response.value);
+      // Validate BEFORE settling so the ledger records the real validation
+      // outcome of this paid call.
+      const validPermutation = validatePermutation(
+        parsed,
+        input.candidates.map((candidate) => candidate.id),
+      );
+      const settled = await settleDelegatedCall(pool, {
+        agentIdentity: input.authority.agentIdentity,
+        callId,
+        inputTokens: response.inputTokens ?? 0,
+        outputTokens: response.outputTokens ?? 0,
+        cachedInputTokens: response.cachedInputTokens ?? 0,
+        reasoningOutputTokens: response.reasoningOutputTokens ?? 0,
+        costUsd: response.costUsd ? Number.parseFloat(response.costUsd) : null,
+        costStatus: "actual",
+        latencyMs: response.latencyMs,
+        finishReason: null,
+        attempts: response.attempts,
+        validationStatus: validPermutation ? "valid" : "invalid",
+        errorCode: validPermutation ? null : "AI_SCHEMA_INVALID",
+      });
+      callId = undefined;
+      if (!settled) {
+        throw new DelegatedCallError(
+          "STALE_AGENT_RESULT",
+          "the delegated reservation could not be settled (already settled or unknown call id)",
+        );
+      }
+      if (!validPermutation) {
+        return {
+          rankedOfferIds: deterministicOrder(input),
+          reasons: [],
+          mode: "openrouter",
+          fallbackUsed: true,
+        };
+      }
+      return { ...parsed, mode: "openrouter", fallbackUsed: false };
+    } catch (error) {
+      if (callId) {
+        await markDelegatedCallUnknown(pool, {
+          agentIdentity: input.authority.agentIdentity,
+          callId,
+          reason: error instanceof AdapterError ? error.code : "ADAPTER_ERROR",
+          latencyMs: Date.now() - startedAt,
+        });
+      }
+      throw error;
+    }
+  };
+
+  return {
+    async rank(input) {
+      // Fixture mode is deterministic and free: no ledger row, no reservation.
+      if (config.aiMode !== "openrouter" && !deps.paidAdapter) {
+        return fixtureFallback(input);
+      }
+      return paidPath(input);
+    },
+  };
+}

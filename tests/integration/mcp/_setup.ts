@@ -1,8 +1,14 @@
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { spawn, type ChildProcess } from "node:child_process";
 import type { Pool } from "pg";
 import { insertAgentDelegation } from "@odft/persistence";
 import { DEFAULT_PROTOCOL_TIMEOUTS, type ProtocolConfig } from "@odft/protocols";
+import {
+  FLIGHT_AGENT_PASSWORD,
+  PROTOCOL_PASSWORD,
+  READONLY_PASSWORD,
+  REPO_ROOT,
+  runProtocolRoleSetup,
+} from "../../fixtures/protocols/roles.js";
 import {
   createGraphTestPool,
   createHarnessTrip,
@@ -18,7 +24,6 @@ import { driveToFlightConfirmed } from "../research/_setup.js";
  * three agent identities, and the spawned MCP host on test ports.
  */
 
-export const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 const TSX = `${REPO_ROOT}/node_modules/.bin/tsx`;
 
 export const MCP_TEST_PORTS = { geography: 4421, travelData: 4422, itineraryTools: 4423 } as const;
@@ -27,8 +32,7 @@ export const AGENT_TOKENS = {
   accommodation: "test-token-accommodation-0123456789",
   cityGuide: "test-token-city-guide-0123456789",
 } as const;
-export const READONLY_PASSWORD = "test-readonly-password-0123456789";
-export const PROTOCOL_PASSWORD = "test-protocol-password-0123456789";
+export { FLIGHT_AGENT_PASSWORD, PROTOCOL_PASSWORD, READONLY_PASSWORD, REPO_ROOT };
 
 export interface SeededSnapshot {
   readonly tripId: string;
@@ -164,22 +168,9 @@ export function readOnlyDatabaseUrl(): string {
   return `postgres://odft_mcp_readonly:${READONLY_PASSWORD}@${base.hostname}:${base.port}${base.pathname}`;
 }
 
-/** Run the documented role setup script against the test database. */
-export function setupReadOnlyRole(): void {
-  execFileSync(
-    TSX,
-    ["scripts/setup-protocol-roles.ts"],
-    {
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        DATABASE_URL: requireTestDatabaseUrl(),
-        ODFT_PROTOCOL_ROLE_PASSWORD: PROTOCOL_PASSWORD,
-        ODFT_MCP_READONLY_PASSWORD: READONLY_PASSWORD,
-      },
-      stdio: "pipe",
-    },
-  );
+/** Run the documented role setup (ALL protocol roles) against the test database. */
+export function setupProtocolRoles(): void {
+  runProtocolRoleSetup(requireTestDatabaseUrl());
 }
 
 export function startMcpHost(env: Record<string, string> = {}): ChildProcess {
@@ -228,8 +219,8 @@ export function waitForHostReady(child: ChildProcess, timeoutMs = 30_000): Promi
   });
 }
 
-export async function stopMcpHost(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) {
+export async function stopMcpHost(child: ChildProcess | undefined): Promise<void> {
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
     return;
   }
   await new Promise<void>((resolve) => {

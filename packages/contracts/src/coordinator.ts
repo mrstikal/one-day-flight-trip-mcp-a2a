@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { researchDomainSchema, serviceLevelSchema } from "./enums.js";
+import { delegationDomainSchema, researchDomainSchema, serviceLevelSchema } from "./enums.js";
 import {
   fingerprintSchema,
   instantSchema,
@@ -191,17 +191,6 @@ export type DecisionEngineBinding = z.infer<typeof decisionEngineBindingSchema>;
  * allowlist, `snapshotId` the frozen snapshot it was granted for; the flags
  * gate the deterministic route-validation and itinerary tools.
  */
-export const delegationDomainSchema = z.enum([
-  "flights",
-  "hotel",
-  "breakfast",
-  "lunch",
-  "dinner",
-  "attractions",
-  "events",
-]);
-export type DelegationDomain = z.infer<typeof delegationDomainSchema>;
-
 export const delegationScopeSchema = z
   .object({
     domains: z.array(delegationDomainSchema).max(7),

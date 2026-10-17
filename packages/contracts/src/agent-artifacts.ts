@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { mealSchema, researchDomainSchema, serviceLevelSchema } from "./enums.js";
+import { delegationDomainSchema, mealSchema, researchDomainSchema, serviceLevelSchema } from "./enums.js";
 import {
   fingerprintSchema,
   instantSchema,
@@ -55,7 +55,7 @@ export const artifactCorrelationSchema = z
     scenarioKey: nonEmptyStringSchema,
     inputFingerprint: fingerprintSchema,
     /** Fingerprints of the inputs the artifact was computed from, per domain. */
-    domainFingerprints: z.partialRecord(researchDomainSchema, fingerprintSchema),
+    domainFingerprints: z.partialRecord(delegationDomainSchema, fingerprintSchema),
   })
   .strict();
 export type ArtifactCorrelation = z.infer<typeof artifactCorrelationSchema>;

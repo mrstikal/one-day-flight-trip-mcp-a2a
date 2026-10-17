@@ -8,6 +8,7 @@ import type {
 import { AdapterError } from "./adapter.js";
 import type {
   PlannerContext,
+  FlightRecommendationContext,
   RecommendationContext,
   ReviewerContext,
 } from "./context/role-contexts.js";
@@ -334,6 +335,32 @@ export function fixtureRecommendation(
   };
 }
 
+/**
+ * Phase 05 deterministic flight ranking: party total, then total duration, then
+ * ID. Always a permutation of the supplied schedule-valid candidates.
+ */
+export function fixtureFlightRecommendation(
+  context: FlightRecommendationContext,
+): { rankedOfferIds: string[]; reasons: { offerId: string; explanation: string }[]; tradeoffs: string[] } {
+  const ranked = [...context.candidates].sort(
+    (a, b) =>
+      a.partyTotalMinor - b.partyTotalMinor ||
+      a.totalDurationMinutes - b.totalDurationMinutes ||
+      a.id.localeCompare(b.id),
+  );
+  return {
+    rankedOfferIds: ranked.map((candidate) => candidate.id),
+    reasons: ranked.slice(0, 5).map((candidate) => ({
+      offerId: candidate.id,
+      explanation: `Fixture ranking: ${candidate.partyTotalMinor} EUR minor units, ${candidate.totalDurationMinutes} travel minutes, ${candidate.stops} stop(s).`,
+    })),
+    tradeoffs:
+      ranked.length > 1
+        ? ["Fixture ranking orders by price, then travel time, then id."]
+        : [],
+  };
+}
+
 /** Invalid first itinerary fixture for the Phase 10 repair test. */
 export const FIXTURE_INVALID_FIRST_ITINERARY = {
   stops: [{ kind: "activity", refId: "invented-activity", startMinute: 100, durationMinutes: 30 }],
@@ -655,9 +682,14 @@ export class FixtureAdapter implements LLMAdapter {
         value = this.scriptedIntents[context.message] ?? fixtureIntent(context.message, context);
         break;
       }
-      case "recommendation":
-        value = fixtureRecommendation(request.context as RecommendationContext);
+      case "recommendation": {
+        const context = request.context as RecommendationContext | FlightRecommendationContext;
+        value =
+          context.target === "flights"
+            ? fixtureFlightRecommendation(context)
+            : fixtureRecommendation(context);
         break;
+      }
       case "planner":
         value = fixturePlanner(request.context as PlannerContext);
         break;

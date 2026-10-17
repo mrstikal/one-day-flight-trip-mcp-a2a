@@ -117,8 +117,8 @@ async function startFixture(
   return child;
 }
 
-async function stopFixture(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) {
+async function stopFixture(child: ChildProcess | undefined): Promise<void> {
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
     return;
   }
   await new Promise<void>((resolve) => {

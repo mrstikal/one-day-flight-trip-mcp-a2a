@@ -59,6 +59,40 @@ const plannerCandidateSchema = z
   })
   .strict();
 
+/**
+ * Phase 05: flight recommendation context. Candidate facts are the minimum the
+ * model needs to explain a ranking (schedule + price); the deterministic
+ * eligibility filter stays authoritative.
+ */
+export const flightRecommendationContextSchema = z
+  .object({
+    role: z.literal("recommendation"),
+    tradeoff: nonEmptyStringSchema,
+    target: z.literal("flights"),
+    baselineOfferId: nonEmptyStringSchema.nullable(),
+    candidates: z
+      .array(
+        z
+          .object({
+            id: nonEmptyStringSchema,
+            partyTotalMinor: z.number().int().min(0),
+            perAdultMinor: z.number().int().min(0),
+            totalDurationMinutes: z.number().int().min(1).max(6000),
+            stops: z.number().int().min(0).max(4),
+            outboundDeparture: nonEmptyStringSchema,
+            outboundArrival: nonEmptyStringSchema,
+            inboundDeparture: nonEmptyStringSchema,
+            inboundArrival: nonEmptyStringSchema,
+            supportedVariants: z.array(z.enum(["one_night", "two_nights"])).min(1),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(20),
+  })
+  .strict();
+export type FlightRecommendationContext = z.infer<typeof flightRecommendationContextSchema>;
+
 export const plannerContextSchema = z
   .object({
     role: z.literal("planner"),

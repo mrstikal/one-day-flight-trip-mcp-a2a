@@ -1,10 +1,17 @@
 import { z } from "zod";
 import { nonEmptyStringSchema } from "@odft/contracts";
-import { recommendationContextSchema } from "../context/role-contexts.js";
+import {
+  flightRecommendationContextSchema,
+  recommendationContextSchema,
+} from "../context/role-contexts.js";
 import {
   RECOMMENDATION_PROMPT_VERSION,
   RECOMMENDATION_SYSTEM_PROMPT,
 } from "../prompts/recommendation-v1.js";
+import {
+  RECOMMENDATION_V2_PROMPT_VERSION,
+  RECOMMENDATION_V2_SYSTEM_PROMPT,
+} from "../prompts/recommendation-v2.js";
 import type { RoleDefaultLimits } from "./limits.js";
 
 /** Recommendation role contract (06-ai-agent-design.md section 5). */
@@ -32,6 +39,15 @@ export const recommendationRole = {
   promptVersion: RECOMMENDATION_PROMPT_VERSION,
   systemPrompt: RECOMMENDATION_SYSTEM_PROMPT,
   contextSchema: recommendationContextSchema,
+  outputSchema: recommendationOutputSchema,
+} as const;
+
+/** Phase 05 flight-ranking role (same output contract, flight context, v2 prompt). */
+export const flightRecommendationRole = {
+  role: "recommendation" as const,
+  promptVersion: RECOMMENDATION_V2_PROMPT_VERSION,
+  systemPrompt: RECOMMENDATION_V2_SYSTEM_PROMPT,
+  contextSchema: flightRecommendationContextSchema,
   outputSchema: recommendationOutputSchema,
 } as const;
 

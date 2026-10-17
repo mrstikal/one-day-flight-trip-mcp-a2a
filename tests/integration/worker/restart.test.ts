@@ -60,8 +60,8 @@ function spawnWorker(): ChildProcess {
   });
 }
 
-async function killWorker(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) {
+async function killWorker(child: ChildProcess | undefined): Promise<void> {
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
     return;
   }
   try {

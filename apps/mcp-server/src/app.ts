@@ -8,6 +8,8 @@ import {
   type DelegationScope,
   type TripRecord,
 } from "@odft/contracts";
+
+export type { DelegationDomain };
 import {
   findActiveDelegationForSnapshot,
   getAgentDelegation,

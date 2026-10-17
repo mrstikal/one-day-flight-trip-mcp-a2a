@@ -3,6 +3,7 @@ import type { AIRole } from "@odft/contracts";
 import { ROLE_CONTEXT_SCHEMAS } from "./roles/registry.js";
 import type { IntentContext } from "./context/compact-context.js";
 import type {
+  FlightRecommendationContext,
   PlannerContext,
   RecommendationContext,
   ReviewerContext,
@@ -18,7 +19,8 @@ import type {
 
 export interface RoleContextMap {
   intent: IntentContext;
-  recommendation: RecommendationContext;
+  /** v1 hotel/meal/activity ranking or the Phase 05 flight ranking context. */
+  recommendation: RecommendationContext | FlightRecommendationContext;
   planner: PlannerContext;
   reviewer: ReviewerContext;
 }

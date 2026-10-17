@@ -95,6 +95,21 @@ export const decisionKindSchema = z.enum([
 export type DecisionKind = z.infer<typeof decisionKindSchema>;
 
 /**
+ * Phase 04/05: domains a delegation can authorize. Includes `flights`, which is
+ * not a research domain but is a delegable scope (flight recommendations).
+ */
+export const delegationDomainSchema = z.enum([
+  "flights",
+  "hotel",
+  "breakfast",
+  "lunch",
+  "dinner",
+  "attractions",
+  "events",
+]);
+export type DelegationDomain = z.infer<typeof delegationDomainSchema>;
+
+/**
  * Phase 03: execution engine of a trip/operation/decision. Existing records
  * default to `langgraph`; `coordinator-v1` is used only by explicitly created
  * migration-test trips until the production default switches (Phase 11).

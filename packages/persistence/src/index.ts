@@ -319,13 +319,18 @@ export {
   getLlmCall,
   listTripLlmCalls,
   markCallUnknown,
+  markDelegatedCallUnknown,
   reconcileUnknownBilling,
   recordCallResult,
+  settleDelegatedCall,
   reserveCall,
+  reserveDelegatedCall,
   type LlmCallRecord,
   type RecordCallResultInput,
   type ReserveCallInput,
   type ReserveCallOutcome,
+  type ReserveDelegatedCallInput,
+  type ReserveDelegatedCallOutcome,
 } from "./llm-calls.js";
 
 /* ---- Voice control: durable voice-call ledger (VOICE_CONTROLL.md section 9) -- */
@@ -412,6 +417,14 @@ export {
   type InboundAdmissionRow,
   type TaskControlRecord,
 } from "./protocol-tasks.js";
+
+export {
+  assertAuthorityCovers,
+  claimDelegationTask,
+  DelegatedAuthorityError,
+  loadDelegatedAuthority,
+  type DelegatedAuthority,
+} from "./delegated-authority.js";
 
 export {
   insertProtocolObservation,

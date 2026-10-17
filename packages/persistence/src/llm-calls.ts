@@ -369,3 +369,137 @@ export async function listTripLlmCalls(
   );
   return result.rows.map(toRecord);
 }
+
+/* ---- Phase 05: delegated (agent) reserve/settle ------------------------------- */
+
+/**
+ * Delegated paid-call governance. The SQL functions validate the
+ * service/delegation/task binding, take locks in Section 3.8's order (trip →
+ * delegation → counters/ledger), enforce the shared per-trip caps AND the
+ * per-task allowance mirrored on `protocol_task_control`, and write the ledger
+ * row with agent/delegation/task/trace correlation. Agent roles hold EXECUTE on
+ * these functions only — never the coordinator's table privileges.
+ */
+
+export interface ReserveDelegatedCallInput {
+  readonly agentIdentity: string;
+  readonly delegationId: string;
+  readonly taskId: string;
+  readonly traceId: string;
+  readonly effectScope: string;
+  readonly role: string;
+  readonly model: string;
+  readonly provider: string;
+  readonly promptVersion: string;
+  readonly mode: string;
+  readonly pricingVersion: string;
+  readonly reservedTokens: number;
+  readonly reservedCostUsd: string;
+  readonly maxCallCostUsd: string;
+  readonly maxCallsPerTrip: number;
+  readonly maxCostUsdPerTrip: string;
+  readonly maxAttemptsPerScope: number;
+  readonly taskMaxCostUsd: string;
+}
+
+export type ReserveDelegatedCallOutcome =
+  | { readonly ok: true; readonly callId: string }
+  | { readonly ok: false; readonly code: string; readonly message: string };
+
+export async function reserveDelegatedCall(
+  pool: Pool,
+  input: ReserveDelegatedCallInput,
+): Promise<ReserveDelegatedCallOutcome> {
+  const result = await pool.query<{ outcome: { ok: boolean; callId?: string; code?: string; message?: string } }>(
+    `SELECT odft_app.reserve_delegated_call(
+        $1::text, $2::uuid, $3::text, $4::text, $5::text, $6::text, $7::text, $8::text, $9::text,
+        $10::text, $11::text, $12::int, $13::numeric, $14::numeric, $15::int, $16::numeric,
+        $17::int, $18::numeric) AS outcome`,
+    [
+      input.agentIdentity,
+      input.delegationId,
+      input.taskId,
+      input.traceId,
+      input.effectScope,
+      input.role,
+      input.model,
+      input.provider,
+      input.promptVersion,
+      input.mode,
+      input.pricingVersion,
+      input.reservedTokens,
+      input.reservedCostUsd,
+      input.maxCallCostUsd,
+      input.maxCallsPerTrip,
+      input.maxCostUsdPerTrip,
+      input.maxAttemptsPerScope,
+      input.taskMaxCostUsd,
+    ],
+  );
+  const outcome = result.rows[0]?.outcome;
+  if (!outcome) {
+    return { ok: false, code: "INTERNAL_ERROR", message: "delegated reservation returned no outcome" };
+  }
+  if (outcome.ok && outcome.callId) {
+    return { ok: true, callId: outcome.callId };
+  }
+  return {
+    ok: false,
+    code: outcome.code ?? "INTERNAL_ERROR",
+    message: outcome.message ?? "delegated reservation refused",
+  };
+}
+
+export async function settleDelegatedCall(
+  pool: Pool,
+  input: {
+    agentIdentity: string;
+    callId: string;
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens: number;
+    reasoningOutputTokens: number;
+    costUsd: number | null;
+    costStatus: string;
+    latencyMs: number;
+    finishReason: string | null;
+    attempts: number;
+    validationStatus: string;
+    errorCode: string | null;
+  },
+): Promise<boolean> {
+  const result = await pool.query<{ settled: boolean }>(
+    `SELECT odft_app.settle_delegated_call(
+        $1::text, $2::uuid, $3::int, $4::int, $5::int, $6::int, $7::numeric, $8::text, $9::int,
+        $10::text, $11::int, $12::text, $13::text) AS settled`,
+    [
+      input.agentIdentity,
+      input.callId,
+      input.inputTokens,
+      input.outputTokens,
+      input.cachedInputTokens,
+      input.reasoningOutputTokens,
+      input.costUsd,
+      input.costStatus,
+      // `llm_calls.latency_ms` has a non-negative CHECK; a backward clock step
+      // must never fail the settlement (same clamp as `recordCallResult`).
+      Math.max(0, Math.round(input.latencyMs)),
+      input.finishReason,
+      input.attempts,
+      input.validationStatus,
+      input.errorCode,
+    ],
+  );
+  return result.rows[0]?.settled === true;
+}
+
+export async function markDelegatedCallUnknown(
+  pool: Pool,
+  input: { agentIdentity: string; callId: string; reason: string; latencyMs: number },
+): Promise<boolean> {
+  const result = await pool.query<{ marked: boolean }>(
+    `SELECT odft_app.mark_delegated_call_unknown($1::text, $2::uuid, $3::text, $4::int) AS marked`,
+    [input.agentIdentity, input.callId, input.reason, Math.max(0, Math.round(input.latencyMs))],
+  );
+  return result.rows[0]?.marked === true;
+}
