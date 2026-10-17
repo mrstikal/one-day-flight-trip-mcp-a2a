@@ -2,20 +2,25 @@ import { Pool } from "pg";
 import { loadLocalEnv } from "./_load-env.js";
 
 /**
- * Phase 03 protocol role setup (plan §3.6, §3.15).
+ * Phase 03 protocol role setup (plan §3.6, §3.15), extended in Phase 06 with the
+ * two research-specialist roles.
  *
- * Idempotently creates the protocol-schema access role and the read-only MCP
- * role, granting only what each surface needs. Passwords come from the
- * environment (`ODFT_PROTOCOL_ROLE_PASSWORD`, `ODFT_MCP_READONLY_PASSWORD`) and
- * are never committed or logged. Runs against the database named by
- * `DATABASE_URL`; refuses non-local hosts unless explicitly allowed.
+ * Idempotently creates the protocol-schema access role, the read-only MCP role
+ * and the three least-privilege agent roles, granting only what each surface
+ * needs. Passwords come from the environment and are never committed or logged.
+ * Runs against the database named by `DATABASE_URL`; refuses non-local hosts
+ * unless explicitly allowed.
  */
 
 loadLocalEnv();
 
 const PROTOCOL_ROLE = "odft_protocol_service";
 const MCP_READONLY_ROLE = "odft_mcp_readonly";
-const FLIGHT_AGENT_ROLE = "odft_flight_agent";
+const AGENT_ROLES = [
+  { role: "odft_flight_agent", passwordEnv: "ODFT_FLIGHT_AGENT_PASSWORD" },
+  { role: "odft_accommodation_agent", passwordEnv: "ODFT_ACCOMMODATION_AGENT_PASSWORD" },
+  { role: "odft_city_guide_agent", passwordEnv: "ODFT_CITY_GUIDE_AGENT_PASSWORD" },
+] as const;
 
 function requirePassword(envName: string): string {
   const value = process.env[envName];
@@ -23,6 +28,43 @@ function requirePassword(envName: string): string {
     throw new Error(`${envName} must be set (at least 16 characters) before running this script`);
   }
   return value;
+}
+
+/** Least-privilege profile shared by all three specialist agents. */
+async function grantAgentRole(pool: Pool, role: string): Promise<void> {
+  await pool.query(`GRANT USAGE ON SCHEMA odft_protocol TO ${role}`);
+  await pool.query(
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA odft_protocol TO ${role}`,
+  );
+  await pool.query(`GRANT USAGE ON SCHEMA odft_app TO ${role}`);
+  await pool.query(
+    `GRANT SELECT, INSERT, UPDATE ON odft_app.protocol_inbound_messages,
+            odft_app.protocol_task_control, odft_app.protocol_validated_outputs TO ${role}`,
+  );
+  await pool.query(`GRANT INSERT ON odft_app.protocol_observations TO ${role}`);
+  await pool.query(
+    `GRANT SELECT ON odft_app.agent_delegations, odft_app.reference_countries,
+            odft_app.reference_cities, odft_app.reference_landmarks,
+            odft_app.reference_airports, odft_app.reference_city_airports,
+            odft_app.reference_manifests, odft_app.reference_route_evidence,
+            odft_app.scenario_snapshots, odft_app.route_validations,
+            odft_app.schedule_validations, odft_app.trips,
+            odft_app.simulation_faults TO ${role}`,
+  );
+  await pool.query(`GRANT EXECUTE ON FUNCTION odft_app.claim_delegated_task(text, uuid, text) TO ${role}`);
+  await pool.query(
+    `GRANT EXECUTE ON FUNCTION odft_app.reserve_delegated_call(
+        text, uuid, text, text, text, text, text, text, text, text, text,
+        integer, numeric, numeric, integer, numeric, integer, numeric) TO ${role}`,
+  );
+  await pool.query(
+    `GRANT EXECUTE ON FUNCTION odft_app.settle_delegated_call(
+        text, uuid, integer, integer, integer, integer, numeric, text, integer, text, integer, text, text) TO ${role}`,
+  );
+  await pool.query(
+    `GRANT EXECUTE ON FUNCTION odft_app.mark_delegated_call_unknown(text, uuid, text, integer) TO ${role}`,
+  );
+  await pool.query(`GRANT SELECT ON odft_app.llm_calls TO ${role}`);
 }
 
 async function main(): Promise<void> {
@@ -36,7 +78,10 @@ async function main(): Promise<void> {
   }
   const protocolPassword = requirePassword("ODFT_PROTOCOL_ROLE_PASSWORD");
   const mcpPassword = requirePassword("ODFT_MCP_READONLY_PASSWORD");
-  const flightAgentPassword = requirePassword("ODFT_FLIGHT_AGENT_PASSWORD");
+  const agentPasswords = AGENT_ROLES.map((entry) => ({
+    ...entry,
+    password: requirePassword(entry.passwordEnv),
+  }));
 
   const pool = new Pool({ connectionString: databaseUrl, max: 1 });
   try {
@@ -48,14 +93,19 @@ async function main(): Promise<void> {
          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${MCP_READONLY_ROLE}') THEN
            CREATE ROLE ${MCP_READONLY_ROLE} LOGIN;
          END IF;
-         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${FLIGHT_AGENT_ROLE}') THEN
-           CREATE ROLE ${FLIGHT_AGENT_ROLE} LOGIN;
-         END IF;
+         ${AGENT_ROLES.map(
+           (entry) =>
+             `IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${entry.role}') THEN
+                CREATE ROLE ${entry.role} LOGIN;
+              END IF;`,
+         ).join("\n         ")}
        END $$`,
     );
     await pool.query(`ALTER ROLE ${PROTOCOL_ROLE} WITH PASSWORD '${protocolPassword.replace(/'/g, "''")}'`);
     await pool.query(`ALTER ROLE ${MCP_READONLY_ROLE} WITH PASSWORD '${mcpPassword.replace(/'/g, "''")}'`);
-    await pool.query(`ALTER ROLE ${FLIGHT_AGENT_ROLE} WITH PASSWORD '${flightAgentPassword.replace(/'/g, "''")}'`);
+    for (const entry of agentPasswords) {
+      await pool.query(`ALTER ROLE ${entry.role} WITH PASSWORD '${entry.password.replace(/'/g, "''")}'`);
+    }
 
     // Protocol service: read/write the protocol schema and the protocol tables.
     await pool.query(`GRANT USAGE ON SCHEMA odft_protocol TO ${PROTOCOL_ROLE}`);
@@ -82,51 +132,16 @@ async function main(): Promise<void> {
               odft_app.route_validations, odft_app.schedule_validations,
               odft_app.trips, odft_app.simulation_faults TO ${MCP_READONLY_ROLE}`,
     );
-    // Phase 05 Flight Agent: task storage + admission + counters + delegated
-    // ledger functions; NO write privileges on trip/scenario/selection/proposal/
-    // decision/reservation tables (proven by the delegated-governance test).
-    await pool.query(`GRANT USAGE ON SCHEMA odft_protocol TO ${FLIGHT_AGENT_ROLE}`);
-    await pool.query(
-      `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA odft_protocol TO ${FLIGHT_AGENT_ROLE}`,
-    );
-    await pool.query(`GRANT USAGE ON SCHEMA odft_app TO ${FLIGHT_AGENT_ROLE}`);
-    await pool.query(
-      `GRANT SELECT, INSERT, UPDATE ON odft_app.protocol_inbound_messages,
-              odft_app.protocol_task_control, odft_app.protocol_validated_outputs TO ${FLIGHT_AGENT_ROLE}`,
-    );
-    await pool.query(
-      `GRANT INSERT ON odft_app.protocol_observations TO ${FLIGHT_AGENT_ROLE}`,
-    );
-    await pool.query(
-      `GRANT SELECT ON odft_app.agent_delegations, odft_app.reference_countries,
-              odft_app.reference_cities, odft_app.reference_landmarks,
-              odft_app.reference_airports, odft_app.reference_city_airports,
-              odft_app.reference_manifests, odft_app.reference_route_evidence,
-              odft_app.scenario_snapshots, odft_app.route_validations,
-              odft_app.schedule_validations, odft_app.trips,
-              odft_app.simulation_faults TO ${FLIGHT_AGENT_ROLE}`,
-    );
-    await pool.query(
-      `GRANT EXECUTE ON FUNCTION odft_app.claim_delegated_task(text, uuid, text) TO ${FLIGHT_AGENT_ROLE}`,
-    );
-    await pool.query(
-      `GRANT EXECUTE ON FUNCTION odft_app.reserve_delegated_call(
-          text, uuid, text, text, text, text, text, text, text, text, text,
-          integer, numeric, numeric, integer, numeric, integer, numeric) TO ${FLIGHT_AGENT_ROLE}`,
-    );
-    await pool.query(
-      `GRANT EXECUTE ON FUNCTION odft_app.settle_delegated_call(
-          text, uuid, integer, integer, integer, integer, numeric, text, integer, text, integer, text, text) TO ${FLIGHT_AGENT_ROLE}`,
-    );
-    await pool.query(
-      `GRANT EXECUTE ON FUNCTION odft_app.mark_delegated_call_unknown(text, uuid, text, integer) TO ${FLIGHT_AGENT_ROLE}`,
-    );
-    await pool.query(
-      `GRANT SELECT ON odft_app.llm_calls TO ${FLIGHT_AGENT_ROLE}`,
-    );
+
+    // Specialist agents: task storage + admission + counters + delegated ledger
+    // functions; NO write privileges on trip/scenario/selection/proposal/
+    // decision/reservation tables (proven by the agent write-denial tests).
+    for (const entry of AGENT_ROLES) {
+      await grantAgentRole(pool, entry.role);
+    }
     process.stdout.write(
       `protocol roles ready: ${PROTOCOL_ROLE} (protocol schema), ${MCP_READONLY_ROLE} (read-only reference), ` +
-        `${FLIGHT_AGENT_ROLE} (task storage + delegated ledger)\n`,
+        `${AGENT_ROLES.map((entry) => entry.role).join(", ")} (task storage + delegated ledger)\n`,
     );
   } finally {
     await pool.end();

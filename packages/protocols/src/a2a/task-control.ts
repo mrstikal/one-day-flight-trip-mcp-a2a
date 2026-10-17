@@ -1,5 +1,12 @@
 import type { Pool } from "pg";
-import { addTaskCounters, getTaskControl, type TaskControlRecord } from "@odft/persistence";
+import {
+  addTaskCounters,
+  consumeInputContinuation as consumeInputContinuationRow,
+  getTaskControl,
+  recordInputRequest as recordInputRequestRow,
+  type ConsumeInputContinuationResult,
+  type TaskControlRecord,
+} from "@odft/persistence";
 
 /**
  * Phase 05 cumulative task limits (plan §3.9).
@@ -23,11 +30,25 @@ export interface TaskLimits {
   readonly maxInputs: number;
 }
 
-/** Per-skill task allowances of the plan's §3.9 table (Phase 05: flight only). */
+/** Per-skill task allowances of the plan's §3.9 table. */
 export const TASK_LIMITS: Readonly<Record<string, TaskLimits>> = {
   "flight.recommend.v1": {
     activeTimeMs: 60_000,
     mcpInvocations: 4,
+    llmAttempts: 2,
+    maxTaskCostUsd: 0.1,
+    maxInputs: 2,
+  },
+  "accommodation.recommend.v1": {
+    activeTimeMs: 60_000,
+    mcpInvocations: 4,
+    llmAttempts: 2,
+    maxTaskCostUsd: 0.1,
+    maxInputs: 2,
+  },
+  "city-guide.research.v1": {
+    activeTimeMs: 90_000,
+    mcpInvocations: 8,
     llmAttempts: 2,
     maxTaskCostUsd: 0.1,
     maxInputs: 2,
@@ -145,4 +166,35 @@ export async function countInputRequest(
     taskId: input.taskId,
     inputCount: 1,
   });
+}
+
+/**
+ * Phase 06: persist the pending question on the canonical task (plan §3.10).
+ * The caller asserted the input allowance first; this also flips the row to
+ * `input_required` and counts the request against the cumulative cap.
+ */
+export async function recordInputRequest(
+  pool: Pool,
+  input: {
+    agentIdentity: string;
+    taskId: string;
+    requestId: string;
+    requestHash: string;
+    expiresAt: string;
+  },
+): Promise<void> {
+  await recordInputRequestRow(pool, input);
+}
+
+/** Consume exactly one accepted continuation (generation + request + expiry). */
+export async function consumeContinuation(
+  pool: Pool,
+  input: {
+    agentIdentity: string;
+    taskId: string;
+    inputGeneration: number;
+    answerRequestId: string;
+  },
+): Promise<ConsumeInputContinuationResult> {
+  return consumeInputContinuationRow(pool, input);
 }

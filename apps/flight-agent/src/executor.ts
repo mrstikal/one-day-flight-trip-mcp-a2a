@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import { Role, TaskState, type Artifact, type Message, type Part } from "@a2a-js/sdk";
+import { TaskState, type Artifact } from "@a2a-js/sdk";
 import type { AgentExecutor, ExecutionEventBus, RequestContext } from "@a2a-js/sdk/server";
-import { AdapterError } from "@odft/ai";
 import {
   agentTaskRequestSchema,
   flightRecommendationsSchema,
@@ -11,7 +10,6 @@ import {
 import {
   assertAuthorityCovers,
   claimDelegationTask,
-  DelegatedAuthorityError,
   getTaskControl,
   loadDelegatedAuthority,
   requestTaskCancellation,
@@ -19,20 +17,20 @@ import {
 } from "@odft/persistence";
 import {
   accrueActiveTime,
-  assertAllowance,
-  countMcpInvocation,
+  countedToolCall,
+  createTaskClock,
+  createTaskSession,
+  dataPart,
+  dataPartOf,
   DurableMessageAdmission,
   limitsForSkill,
-  loadTaskAllowance,
   McpClient,
-  McpClientError,
-  TaskLimitError,
+  safeFailureCode,
   type ProtocolConfig,
 } from "@odft/protocols";
 import {
   createDelegatedFlightRanker,
   deterministicFlightOrder,
-  DelegatedCallError,
   type DelegatedFlightRankingDeps,
   type DelegatedFlightRankingResult,
 } from "@odft/services";
@@ -56,32 +54,6 @@ export interface FlightAgentRuntime {
   readonly rankingDeps?: DelegatedFlightRankingDeps;
 }
 
-function dataPartOf(message: Message): unknown {
-  for (const part of message.parts) {
-    if (part.content?.$case === "data" && part.content.value !== undefined) {
-      return part.content.value;
-    }
-  }
-  return undefined;
-}
-
-function agentMessage(taskId: string, contextId: string, text: string): Message {
-  return {
-    messageId: randomUUID(),
-    contextId,
-    taskId,
-    role: Role.ROLE_AGENT,
-    parts: [{ content: { $case: "text", value: text }, mediaType: "text/plain", filename: "", metadata: {} }],
-    metadata: undefined,
-    extensions: [],
-    referenceTaskIds: [],
-  };
-}
-
-function dataPart(value: unknown, mediaType: string): Part {
-  return { content: { $case: "data", value }, mediaType, filename: "", metadata: {} };
-}
-
 interface FlightCandidateFact {
   readonly id: string;
   readonly partyTotalMinor: number;
@@ -97,7 +69,6 @@ interface FlightCandidateFact {
 
 export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor {
   const ranker = createDelegatedFlightRanker(runtime.pool, runtime.serverConfig, runtime.rankingDeps);
-
   const deterministicOrder = deterministicFlightOrder;
 
   return {
@@ -108,52 +79,14 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
         throw new Error("admission must have committed the canonical task");
       }
       const startedAt = Date.now();
-      const publishFailure = async (code: string, reason: string): Promise<void> => {
-        eventBus.publish({
-          kind: "statusUpdate",
-          data: {
-            taskId: task.id,
-            contextId: task.contextId,
-            status: {
-              state: TaskState.TASK_STATE_FAILED,
-              message: agentMessage(task.id, task.contextId, reason),
-              timestamp: new Date().toISOString(),
-            },
-            metadata: { failureCode: code },
-          },
-        });
-        eventBus.finished();
-        await runtime.admission.markSettled({
-          messageId: message.messageId,
-          taskId: task.id,
-          state: "failed",
-        });
-      };
-      // Local revocation check: a cancellation accepted while this invocation
-      // runs stops it before any late artifact or completion is published.
-      const cancellationRequested = async (): Promise<boolean> => {
-        const control = await getTaskControl(runtime.pool, {
-          agentIdentity: FLIGHT_AGENT_IDENTITY,
-          taskId: task.id,
-        });
-        return Boolean(control?.cancelRequestedAt) || control?.state === "cancelled";
-      };
-      const publishCancelled = async (): Promise<void> => {
-        eventBus.publish({
-          kind: "statusUpdate",
-          data: {
-            taskId: task.id,
-            contextId: task.contextId,
-            status: {
-              state: TaskState.TASK_STATE_CANCELED,
-              message: undefined,
-              timestamp: new Date().toISOString(),
-            },
-            metadata: undefined,
-          },
-        });
-        eventBus.finished();
-      };
+      const session = createTaskSession({
+        pool: runtime.pool,
+        agentIdentity: FLIGHT_AGENT_IDENTITY,
+        eventBus,
+        admission: runtime.admission,
+        task,
+        messageId: message.messageId,
+      });
 
       // 1. Initial task event is mandatory for every invocation.
       eventBus.publish({
@@ -173,7 +106,7 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
 
         const request = agentTaskRequestSchema.safeParse(dataPartOf(message));
         if (!request.success || request.data.skillId !== FLIGHT_SKILL_ID) {
-          await publishFailure("INVALID_ARTIFACT", "the task request is not a valid flight recommendation request");
+          await session.publishFailure("INVALID_ARTIFACT", "the task request is not a valid flight recommendation request");
           return;
         }
         let authority = await loadDelegatedAuthority(runtime.pool, {
@@ -199,51 +132,38 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
           taskId: task.id,
         });
 
-        // 2. Real MCP discovery/read of the delegated frozen snapshot.
-        let allowance = await loadTaskAllowance(runtime.pool, {
+        // 2. Real MCP discovery/read of the delegated frozen snapshot. The clock
+        // asserts the remaining active time and re-reads the allowance before
+        // every counted call, so no invocation can exceed a cumulative cap.
+        const clock = await createTaskClock({
+          pool: runtime.pool,
           agentIdentity: FLIGHT_AGENT_IDENTITY,
           taskId: task.id,
           skillId: FLIGHT_SKILL_ID,
+          startedAtMs: startedAt,
         });
-        assertAllowance(allowance, { mcpInvocation: true, activeTime: true });
-        // Remaining active-execution allowance: asserted before every step, and
-        // the paid attempt additionally aborts at this deadline, so no single
-        // step can run past the 60-second cap. MCP calls stay bounded by the
-        // client's own 5-second timeout.
-        const deadlineMs = startedAt + allowance.remainingActiveMs;
-        const assertWithinActiveTime = (): void => {
-          if (Date.now() > deadlineMs) {
-            throw new TaskLimitError("the task active-execution allowance is exhausted");
-          }
-        };
-        eventBus.publish({
-          kind: "statusUpdate",
-          data: {
-            taskId: task.id,
-            contextId: task.contextId,
-            status: {
-              state: TaskState.TASK_STATE_WORKING,
-              message: agentMessage(task.id, task.contextId, "MCP discovery: travel-data search_flights"),
-              timestamp: new Date().toISOString(),
-            },
-            metadata: undefined,
-          },
-        });
-        await runtime.mcp.callTool("odft-travel-data", {
+        clock.assertNow({ mcpInvocation: true });
+        session.publishStatus(
+          TaskState.TASK_STATE_WORKING,
+          "MCP discovery: travel-data search_flights",
+        );
+        await countedToolCall({
+          mcp: runtime.mcp,
+          pool: runtime.pool,
+          agentIdentity: FLIGHT_AGENT_IDENTITY,
+          taskId: task.id,
+          clock,
+          service: "odft-travel-data",
           name: "get_scenario_metadata",
           arguments: { delegationId: authority.delegationId, snapshotId: authority.snapshotId },
         });
-        await countMcpInvocation(runtime.pool, { agentIdentity: FLIGHT_AGENT_IDENTITY, taskId: task.id });
-        // Reload the counters before each invocation: the allowance snapshot is
-        // never stale, so the 4-invocation cap cannot be exceeded by one.
-        allowance = await loadTaskAllowance(runtime.pool, {
+        const flightsPage = await countedToolCall({
+          mcp: runtime.mcp,
+          pool: runtime.pool,
           agentIdentity: FLIGHT_AGENT_IDENTITY,
           taskId: task.id,
-          skillId: FLIGHT_SKILL_ID,
-        });
-        assertAllowance(allowance, { mcpInvocation: true, activeTime: true });
-        assertWithinActiveTime();
-        const flightsPage = await runtime.mcp.callTool("odft-travel-data", {
+          clock,
+          service: "odft-travel-data",
           name: "search_flights",
           arguments: {
             delegationId: authority.delegationId,
@@ -251,7 +171,6 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
             pageSize: 20,
           },
         });
-        await countMcpInvocation(runtime.pool, { agentIdentity: FLIGHT_AGENT_IDENTITY, taskId: task.id });
         const page = flightsPage.structuredContent as {
           domainHash?: string;
           error?: string;
@@ -268,7 +187,7 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
         };
         if (page.providerStatus !== "ok" || !page.items?.length) {
           // A tool-level error (`isError`) carries the real reason; never hide it.
-          await publishFailure(
+          await session.publishFailure(
             "AGENT_UNAVAILABLE",
             page.error
               ? `the delegated flight query failed: ${page.error}`
@@ -278,7 +197,7 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
         }
         if (!page.domainHash) {
           // Never write a fabricated correlation fingerprint into an artifact.
-          await publishFailure(
+          await session.publishFailure(
             "INVALID_ARTIFACT",
             "the delegated flight query returned no flights domain content hash",
           );
@@ -300,9 +219,9 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
         }));
 
         // 3. Deterministic initial ranking, then the optional governed reorder.
-        assertWithinActiveTime();
-        if (await cancellationRequested()) {
-          await publishCancelled();
+        clock.assertNow({});
+        if (await session.cancellationRequested()) {
+          await session.publishCancelled();
           return;
         }
         const initialOrder = deterministicOrder(candidates);
@@ -312,7 +231,7 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
           mode: "fixture",
           fallbackUsed: false,
         };
-        if (candidates.length > 1 && allowance.remainingLlm > 0) {
+        if (candidates.length > 1 && clock.allowance().remainingLlm > 0) {
           const traceId = `trace-${task.id}`;
           ranking = await ranker.rank({
             authority: {
@@ -327,7 +246,7 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
             baselineOfferId: null,
             candidates: candidates.map((candidate) => ({ ...candidate })),
             effectScope: `recommendation:${task.history.length}`,
-            signal: AbortSignal.timeout(Math.max(1, deadlineMs - Date.now())),
+            signal: AbortSignal.timeout(Math.max(1, clock.deadlineMs - Date.now())),
             limits: {
               maxCallCostUsd: String(limitsForSkill(FLIGHT_SKILL_ID).maxTaskCostUsd),
               maxCallsPerTrip: runtime.serverConfig.maxLlmCallsPerTrip,
@@ -341,12 +260,12 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
           candidates.some((candidate) => candidate.id === id),
         );
         if (rankedIds.length === 0) {
-          await publishFailure("INVALID_ARTIFACT", "the ranking contained no usable combination");
+          await session.publishFailure("INVALID_ARTIFACT", "the ranking contained no usable combination");
           return;
         }
         // Final local revocation check before the artifact is published.
-        if (await cancellationRequested()) {
-          await publishCancelled();
+        if (await session.cancellationRequested()) {
+          await session.publishCancelled();
           return;
         }
 
@@ -399,50 +318,25 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
           metadata: undefined,
           extensions: [],
         };
-        eventBus.publish({
-          kind: "artifactUpdate",
-          data: {
-            taskId: task.id,
-            contextId: task.contextId,
-            artifact: artifactRecord,
-            append: false,
-            lastChunk: true,
-            metadata: undefined,
-          },
-        });
-        eventBus.publish({
-          kind: "statusUpdate",
-          data: {
-            taskId: task.id,
-            contextId: task.contextId,
-            status: {
-              state: TaskState.TASK_STATE_COMPLETED,
-              message: agentMessage(task.id, task.contextId, "flight recommendations completed"),
-              timestamp: new Date().toISOString(),
-            },
-            metadata: { mode: ranking.mode },
-          },
-        });
-        eventBus.finished();
+        session.publishArtifact(artifactRecord);
+        // Settle the admission record BEFORE the terminal status is published:
+        // a caller that observes COMPLETED can always read the settled row.
         await runtime.admission.markSettled({
           messageId: message.messageId,
           taskId: task.id,
           state: "completed",
         });
+        session.publishStatus(
+          TaskState.TASK_STATE_COMPLETED,
+          "flight recommendations completed",
+          { mode: ranking.mode },
+        );
+        eventBus.finished();
       } catch (error) {
-        const code =
-          error instanceof DelegatedAuthorityError
-            ? error.code
-            : error instanceof TaskLimitError
-              ? error.code
-              : error instanceof McpClientError
-                ? error.code
-                : error instanceof DelegatedCallError
-                  ? error.code
-                  : error instanceof AdapterError
-                    ? error.code
-                    : "INTERNAL_ERROR";
-        await publishFailure(code, error instanceof Error ? error.message : "flight recommendation failed");
+        await session.publishFailure(
+          safeFailureCode(error),
+          error instanceof Error ? error.message : "flight recommendation failed",
+        );
       } finally {
         await accrueActiveTime(runtime.pool, {
           agentIdentity: FLIGHT_AGENT_IDENTITY,

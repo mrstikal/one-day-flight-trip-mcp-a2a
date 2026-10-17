@@ -17,6 +17,8 @@ const TSX = `${REPO_ROOT}/node_modules/.bin/tsx`;
 export const PROTOCOL_PASSWORD = "test-protocol-password-0123456789";
 export const READONLY_PASSWORD = "test-readonly-password-0123456789";
 export const FLIGHT_AGENT_PASSWORD = "test-flight-agent-password-0123456789";
+export const ACCOMMODATION_AGENT_PASSWORD = "test-accommodation-password-0123456789";
+export const CITY_GUIDE_AGENT_PASSWORD = "test-city-guide-password-0123456789";
 
 /** Run the documented role setup for every protocol role against one test database. */
 export function runProtocolRoleSetup(databaseUrl: string): void {
@@ -28,6 +30,8 @@ export function runProtocolRoleSetup(databaseUrl: string): void {
       ODFT_PROTOCOL_ROLE_PASSWORD: PROTOCOL_PASSWORD,
       ODFT_MCP_READONLY_PASSWORD: READONLY_PASSWORD,
       ODFT_FLIGHT_AGENT_PASSWORD: FLIGHT_AGENT_PASSWORD,
+      ODFT_ACCOMMODATION_AGENT_PASSWORD: ACCOMMODATION_AGENT_PASSWORD,
+      ODFT_CITY_GUIDE_AGENT_PASSWORD: CITY_GUIDE_AGENT_PASSWORD,
     },
     stdio: "pipe",
   });

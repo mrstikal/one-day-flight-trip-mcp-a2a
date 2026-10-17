@@ -12,6 +12,7 @@ import {
 } from "@odft/persistence";
 import {
   createDelegatedFlightRanker,
+  rankDelegatedOffers,
   type DelegatedFlightRankingResult,
 } from "@odft/services";
 import { A2AClient } from "@odft/protocols";
@@ -504,6 +505,55 @@ describe("delegated paid path (scripted adapter)", () => {
     expect(rejected).toHaveLength(1);
     const failure = rejected[0] as PromiseRejectedResult;
     expect(failure.reason).toMatchObject({ name: "DelegatedCallError", code: "AI_BUDGET_EXCEEDED" });
+  }, 60_000);
+
+  it("ranks a hotel context through the generic delegated offer ranker", async () => {
+    // Phase 06: the same generic ranker serves the accommodation comparison
+    // (recommendation role, hotel target) with identical governance.
+    const ids = await seedPaidTask();
+    const hotels = [
+      { offerId: "hotel-a", partyTotalMinor: 20_000, level: "standard" as const, centerDistanceKm: 1.2 },
+      { offerId: "hotel-b", partyTotalMinor: 24_000, level: "standard" as const, centerDistanceKm: 0.4 },
+    ];
+    const result = await rankDelegatedOffers(pool, testServerConfig(), {
+      paidAdapter: scriptedAdapter({
+        rankedOfferIds: ["hotel-b", "hotel-a"],
+        reasons: [{ offerId: "hotel-b", explanation: "closer to the centre" }],
+        tradeoffs: [],
+      }),
+      paidProfile: profile,
+    }, {
+      authority: {
+        kind: "delegation",
+        delegationId: ids.delegationId,
+        agentIdentity: "flight-agent",
+        skillId: "accommodation.recommend.v1",
+        taskId: ids.taskId,
+        traceId: `trace-${ids.taskId}`,
+      },
+      effectScope: "recommendation:hotel",
+      limits,
+      rolePrompt: { promptVersion: "recommendation-v1", systemPrompt: "rank the hotels" },
+      context: {
+        role: "recommendation",
+        tradeoff: "closest to the centre first, then price",
+        target: "hotel",
+        baselineOfferId: null,
+        candidates: hotels,
+      },
+      allowedIds: hotels.map((hotel) => hotel.offerId),
+      deterministicOrder: ["hotel-a", "hotel-b"],
+    });
+    expect(result.mode).toBe("openrouter");
+    expect(result.fallbackUsed).toBe(false);
+    expect(result.rankedOfferIds).toEqual(["hotel-b", "hotel-a"]);
+    const call = await pool.query<{ status: string; validation_status: string; prompt_version: string }>(
+      `SELECT status, validation_status, prompt_version FROM odft_app.llm_calls WHERE delegation_id = $1`,
+      [ids.delegationId],
+    );
+    expect(call.rows[0]?.status).toBe("succeeded");
+    expect(call.rows[0]?.validation_status).toBe("valid");
+    expect(call.rows[0]?.prompt_version).toBe("recommendation-v1");
   }, 60_000);
 
   it("propagates the governance code of a revoked delegation verbatim", async () => {

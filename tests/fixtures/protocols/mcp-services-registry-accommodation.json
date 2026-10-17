@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "services": [
+    {
+      "serviceName": "odft-geography",
+      "endpointUrl": "http://127.0.0.1:4421/geography/mcp",
+      "credentialRef": "ODFT_AGENT_TOKEN_ACCOMMODATION"
+    },
+    {
+      "serviceName": "odft-travel-data",
+      "endpointUrl": "http://127.0.0.1:4422/travel-data/mcp",
+      "credentialRef": "ODFT_AGENT_TOKEN_ACCOMMODATION"
+    },
+    {
+      "serviceName": "odft-itinerary-tools",
+      "endpointUrl": "http://127.0.0.1:4423/itinerary-tools/mcp",
+      "credentialRef": "ODFT_AGENT_TOKEN_ACCOMMODATION"
+    }
+  ]
+}

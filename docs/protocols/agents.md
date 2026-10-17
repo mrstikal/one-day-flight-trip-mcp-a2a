@@ -1,4 +1,10 @@
-# Specialist agents (Phase 05)
+# Specialist agents (Phase 05–06)
+
+Three independently running A2A services — Flight (`flight.recommend.v1`),
+Accommodation (`accommodation.recommend.v1`) and City Guide
+(`city-guide.research.v1`) — share the same admission/limits/governance
+plumbing (`packages/protocols/src/a2a/executor-support.ts`) and the same
+least-privilege database profile, but implement their executors independently.
 
 ## Flight Agent (`apps/flight-agent`)
 
@@ -85,7 +91,7 @@ crash-before-work hook).
   `cancel_requested_at` and the `cancelled` state, and a running invocation
   checks that row before publishing its artifact or completion. The wide
   input-required window that exercises this end to end arrives with the Phase 06
-  agent.
+  agent (§ input-required below).
 
 ### Tests
 
@@ -97,3 +103,90 @@ an infeasible route that cannot become a success, write denial, the shared trip
 caps and the scripted paid path (reservation, validation-before-settlement,
 unknown-outcome retention, one-winner concurrency, verbatim governance codes),
 plus the shared lock-order concurrency checks.
+
+## Accommodation Agent (`apps/accommodation-agent`)
+
+| Item | Value |
+| --- | --- |
+| Identity / card | `accommodation-agent`, skill `accommodation.recommend.v1` |
+| Default bind | `127.0.0.1:4402` (`ODFT_ACCOMMODATION_AGENT_HOST` / `..._PORT`) |
+| Task storage | `odft_protocol.agent_tasks_accommodation` |
+| DB role | `odft_accommodation_agent` (restricted, same profile as the flight agent) |
+| MCP scope | `odft-travel-data` `search_hotels` + `get_scenario_metadata` (hotel domain only) |
+
+- Deterministic eligibility comes from the delegated query itself (effective
+  level / dates / party / luggage / objective override applied by the read
+  service); the local ranking is price-then-id (`rankDeterministically`).
+- Optional governed comparison reuses the recommendation role (v1 prompt,
+  `target:"hotel"`) through the generic `rankDelegatedOffers`; the artifact
+  reports the request's `effectiveLevel` and `searchObjective` and comparison
+  facts (price + centre distance).
+- **Genuine tradeoff question** (plan §3.10): a `cheaper` search whose eligible
+  set contains a hotel within a 50 % price premium of the cheapest that is at
+  least 1.5 km and 40 % relatively closer to the centre (and no preference
+  decides) is ambiguous. The agent persists a `AgentInputRequestV1`
+  (options `cheapest`/`central`, stable `requestId`, 24 h expiry), publishes
+  `TASK_STATE_INPUT_REQUIRED` and counts one input (max two). A fully specified
+  request never asks.
+- A continuation must validate against the persisted pending question: the
+  admission-incremented `input_generation`, the answered `requestId` and the
+  expiry; the binding is consumed exactly once (compare-and-swap), so a second,
+  different answer can never be accepted. The stored `input_request_hash` is
+  correlation evidence (the contract's continuation payload carries no hash).
+  The chosen option selects the deterministic order (price-first or
+  distance-first). Counters are never reset by a continuation.
+- Task limits: 60 s active / 4 MCP / 2 LLM attempts / USD 0.10 (the paid
+  comparison is reserved only in `AI_MODE=openrouter`).
+
+## City Guide Agent (`apps/city-guide-agent`)
+
+| Item | Value |
+| --- | --- |
+| Identity / card | `city-guide-agent`, skill `city-guide.research.v1` |
+| Default bind | `127.0.0.1:4403` (`ODFT_CITY_GUIDE_AGENT_HOST` / `..._PORT`) |
+| Task storage | `odft_protocol.agent_tasks_city_guide` |
+| DB role | `odft_city_guide_agent` (restricted, same profile) |
+| MCP scope | `odft-travel-data` `search_restaurants`/`search_attractions`/`search_events` + `get_scenario_metadata` |
+
+- Preserves the EXACT requested meal/activity/event domains (order preserved,
+  duplicates removed); domains outside its skill become explicit `unsupported`
+  outcomes, never dropped; a requested domain outside the delegated scope fails
+  the task before any work (`DELEGATION_REVOKED`).
+- Bounded parallel queries (concurrency three) and per-domain outcomes: a
+  completed domain is always retained; the task completes with the artifact when
+  at least one domain succeeded, otherwise fails (`MCP_UNAVAILABLE`). Provider
+  faults surface as labeled `retryable_error`/`unavailable` outcomes with
+  `simulatedFailure`.
+- Deterministic ranking only: meals by price then id, attractions keep the
+  preference/reference order of the read service, events by id. No LLM call in
+  Phase 06 (the 2-attempt budget stays a documented ceiling).
+- `inputFingerprint` per outcome comes from the task request's
+  `queryContext.domainInputFingerprints[domain]` (never invented).
+- Task limits: 90 s active / 8 MCP / 2 LLM attempts / USD 0.10.
+
+## Input-required and continuations (persistent generations)
+
+- `migrations/0015-agent-input.sql` adds `input_request_id`, `input_request_hash`
+  and `input_expires_at` to `protocol_task_control`; admission already
+  increments `input_generation` on any continuation message.
+- The question artifact advertises the generation the question belongs to; the
+  ANSWER must carry that value **plus one**, because admission increments the
+  task's `input_generation` when the continuation message arrives (the executor
+  matches the message value against the incremented row).
+- Only a continuation that matches the persisted pending question is accepted;
+  wrong id/generation → `STALE_AGENT_RESULT`, past expiry → `INPUT_EXPIRED`,
+  revoked authority → `DELEGATION_REVOKED`, an unknown option fails the task and
+  consumes the binding (never re-asks). A duplicate message id is answered by
+  admission with the persisted canonical task (no second execution).
+- `input_required` is a resting state: reconciliation across a restart never
+  fails it, and the pending question survives (tested).
+
+## Tests (Phase 06)
+
+`tests/integration/a2a/{accommodation,city-guide,input-required,parallel-research}.test.ts`
+and the extended `delegated-governance` suite spawn the real agents and the MCP
+host over HTTP: card/artifact validation, requested-domain exactness, partial
+success retention, the tradeoff question and its continuation, duplicate
+answers, expiry, restart while awaiting input, revoked authority, cumulative
+caps, least-privilege write denial, the hotel-context paid comparison and
+overlapping parallel execution windows.

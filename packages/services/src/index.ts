@@ -11,6 +11,7 @@ export const PACKAGE_ID = "@odft/services" as const;
  */
 
 export * from "./ai/authority.js";
+export * from "./ai/delegated-wiring.js";
 export * from "./ai/runtime.js";
 export * from "./travel/types.js";
 export * from "./travel/context.js";

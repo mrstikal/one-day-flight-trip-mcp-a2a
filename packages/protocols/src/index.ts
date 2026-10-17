@@ -18,6 +18,7 @@ export * from "./a2a/registry.js";
 export * from "./a2a/client.js";
 export * from "./a2a/server.js";
 export * from "./a2a/task-store.js";
+export * from "./a2a/executor-support.js";
 export * from "./a2a/message-admission.js";
 export * from "./a2a/task-control.js";
 export * from "./mcp/client.js";

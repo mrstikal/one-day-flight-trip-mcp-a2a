@@ -40,6 +40,7 @@ export const MIGRATION_VERSIONS: readonly string[] = [
   "0012-voice",
   "0013-protocol-state",
   "0014-agent-governance",
+  "0015-agent-input",
 ];
 
 export interface MigrationResult {

@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import {
+  decideProviderOutcome,
   SyntheticAccommodationSearchProvider,
   SyntheticAttractionsProvider,
   SyntheticEventsProvider,
@@ -146,6 +147,8 @@ export interface SnapshotCandidatePage<T> {
   readonly items: readonly T[];
   readonly providerStatus: "ok" | "unavailable" | "retryable_error" | "unsupported";
   readonly reason: string | null;
+  /** True when a persisted simulation overlay produced this outcome (§3.11). */
+  readonly simulated: boolean;
 }
 
 export interface ScenarioMetadataFact {
@@ -196,6 +199,7 @@ export interface HotelCandidateFact {
   readonly adults: number;
   readonly partyTotalMinor: number;
   readonly luggageStorage: boolean;
+  readonly centerDistanceKm: number;
   readonly anchor: { readonly lat: number; readonly lon: number };
 }
 
@@ -335,6 +339,7 @@ export function createTravelSnapshotReadService(
       items: page.items,
       providerStatus: "ok",
       reason: null,
+      simulated: false,
     };
   }
 
@@ -358,6 +363,13 @@ export function createTravelSnapshotReadService(
       items: [],
       providerStatus: status,
       reason,
+      simulated:
+        scope.behavior !== null &&
+        decideProviderOutcome(
+          scope.behavior,
+          domain === "flights" ? "flights" : SCENARIO_DOMAIN_FOR_RESEARCH[domain],
+          scope.attempt,
+        ) !== "ok",
     };
   }
 
@@ -457,6 +469,7 @@ export function createTravelSnapshotReadService(
           adults: offer.adults,
           partyTotalMinor: offer.partyTotalMinor,
           luggageStorage: offer.luggageStorage,
+          centerDistanceKm: offer.centerDistanceKm,
           anchor: { lat: offer.anchor.lat, lon: offer.anchor.lon },
         }));
       return pageOf("hotel", input, manifest, input, facts);

@@ -148,6 +148,9 @@ export interface TaskControlRecord {
   readonly reservedCostUsd: number;
   readonly actualCostUsd: number;
   readonly inputGeneration: number;
+  readonly inputRequestId: string | null;
+  readonly inputRequestHash: string | null;
+  readonly inputExpiresAt: string | null;
   readonly cancelRequestedAt: string | null;
   readonly restartFailedAt: string | null;
 }
@@ -166,13 +169,17 @@ interface TaskControlRow {
   reserved_cost_usd: string;
   actual_cost_usd: string;
   input_generation: number;
+  input_request_id: string | null;
+  input_request_hash: string | null;
+  input_expires_at: Date | null;
   cancel_requested_at: Date | null;
   restart_failed_at: Date | null;
 }
 
 const TASK_CONTROL_COLUMNS =
   "agent_identity, task_id, context_id, delegation_id, active_owner, state, active_time_ms, mcp_invocations, " +
-  "llm_attempts, input_count, reserved_cost_usd, actual_cost_usd, input_generation, cancel_requested_at, restart_failed_at";
+  "llm_attempts, input_count, reserved_cost_usd, actual_cost_usd, input_generation, input_request_id, " +
+  "input_request_hash, input_expires_at, cancel_requested_at, restart_failed_at";
 
 function toTaskControl(row: TaskControlRow): TaskControlRecord {
   return {
@@ -189,6 +196,9 @@ function toTaskControl(row: TaskControlRow): TaskControlRecord {
     reservedCostUsd: Number(row.reserved_cost_usd),
     actualCostUsd: Number(row.actual_cost_usd),
     inputGeneration: row.input_generation,
+    inputRequestId: row.input_request_id,
+    inputRequestHash: row.input_request_hash,
+    inputExpiresAt: row.input_expires_at ? row.input_expires_at.toISOString() : null,
     cancelRequestedAt: row.cancel_requested_at ? row.cancel_requested_at.toISOString() : null,
     restartFailedAt: row.restart_failed_at ? row.restart_failed_at.toISOString() : null,
   };
@@ -309,6 +319,101 @@ export async function requestTaskCancellation(
       WHERE agent_identity = $1 AND task_id = $2`,
     [input.agentIdentity, input.taskId],
   );
+}
+
+/**
+ * Phase 06: persist the pending specialist question (plan §3.10). The row must
+ * be the active invocation's; callers already asserted the input allowance.
+ */
+export async function recordInputRequest(
+  client: Queryable,
+  input: {
+    agentIdentity: string;
+    taskId: string;
+    requestId: string;
+    requestHash: string;
+    expiresAt: string;
+  },
+): Promise<void> {
+  const result = await client.query(
+    `UPDATE odft_app.protocol_task_control
+        SET state = 'input_required',
+            active_owner = NULL,
+            input_count = input_count + 1,
+            input_request_id = $3,
+            input_request_hash = $4,
+            input_expires_at = $5::timestamptz,
+            updated_at = now()
+      WHERE agent_identity = $1 AND task_id = $2`,
+    [input.agentIdentity, input.taskId, input.requestId, input.requestHash, input.expiresAt],
+  );
+  if (result.rowCount !== 1) {
+    throw new Error("the canonical task-control row is required before a question can be persisted");
+  }
+}
+
+export interface ConsumeInputContinuationResult {
+  readonly ok: boolean;
+  /** Safe failure category when `ok` is false. */
+  readonly code: "INPUT_EXPIRED" | "STALE_AGENT_RESULT" | null;
+  readonly reason: string | null;
+}
+
+/**
+ * Consume exactly one accepted continuation (plan §3.10): the compare-and-swap
+ * clears the pending binding so a second, different answer can never be
+ * accepted for the same question. Validates the admission-incremented input
+ * generation, the answered request id and the 24-hour expiry; the stored
+ * request hash stays correlation evidence (the continuation payload has no
+ * hash field).
+ */
+export async function consumeInputContinuation(
+  client: Queryable,
+  input: {
+    agentIdentity: string;
+    taskId: string;
+    inputGeneration: number;
+    answerRequestId: string;
+  },
+): Promise<ConsumeInputContinuationResult> {
+  const result = await client.query<{ expires_at: Date | null }>(
+    `UPDATE odft_app.protocol_task_control
+        SET input_request_id = NULL,
+            input_request_hash = NULL,
+            input_expires_at = NULL,
+            updated_at = now()
+      WHERE agent_identity = $1 AND task_id = $2
+        AND input_generation = $3
+        AND input_request_id = $4
+        AND input_expires_at IS NOT NULL
+        AND input_expires_at > now()
+      RETURNING input_expires_at AS expires_at`,
+    [input.agentIdentity, input.taskId, input.inputGeneration, input.answerRequestId],
+  );
+  if (result.rowCount === 1) {
+    return { ok: true, code: null, reason: null };
+  }
+  // Distinguish an expired pending request from a stale/unknown continuation so
+  // callers can report the plan's INPUT_EXPIRED category.
+  const pending = await client.query<{ expired: boolean; holds_request: boolean }>(
+    `SELECT
+        (input_expires_at IS NOT NULL AND input_expires_at <= now()) AS expired,
+        (input_request_id IS NOT NULL) AS holds_request
+       FROM odft_app.protocol_task_control
+      WHERE agent_identity = $1 AND task_id = $2`,
+    [input.agentIdentity, input.taskId],
+  );
+  const row = pending.rows[0];
+  if (row?.expired) {
+    return { ok: false, code: "INPUT_EXPIRED", reason: "the specialist question has expired" };
+  }
+  return {
+    ok: false,
+    code: "STALE_AGENT_RESULT",
+    reason: row?.holds_request
+      ? "the continuation does not match the pending question"
+      : "no pending question accepts this continuation",
+  };
 }
 
 /**
