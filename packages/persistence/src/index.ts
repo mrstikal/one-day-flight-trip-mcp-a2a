@@ -25,10 +25,13 @@ export { checkReadiness } from "./readiness.js";
 export type { CheckStatus, ReadinessOptions, ReadinessReport } from "./readiness.js";
 
 export {
+  countReferenceCoverage,
   DATASET_LIMITATION,
   getCityAirports,
   getCuratedLandmarks,
+  getReferenceAirport,
   getReferenceCity,
+  listReferenceManifests,
   listRouteEvidence,
   loadReferenceData,
   persistDiscoveredLandmarks,
@@ -47,6 +50,8 @@ export type {
   CuratedLandmarksResult,
   LoadResult,
   ReferenceCityRow,
+  ReferenceCoverageSummary,
+  ReferenceManifestRef,
   RouteEvidenceQuery,
 } from "./reference/repository.js";
 
@@ -164,6 +169,7 @@ export {
   evaluateAndPersistRoute,
   loadFeasibleRouteApproval,
   loadRouteValidation,
+  loadCurrentScheduleValidation,
   loadScheduleValidation,
   persistRouteValidation,
   persistScheduleValidation,
@@ -237,8 +243,10 @@ export type {
 } from "./recommendations.js";
 
 export {
+  effectiveLevel,
   loadSnapshotResearchInputs,
   loadTripResearchInputs,
+  nightDates,
   overlayTargetsDomain,
   queryDomainCandidates,
   rankTripRecommendations,
@@ -371,6 +379,7 @@ export {
 
 export {
   bindDelegationTask,
+  findActiveDelegationForSnapshot,
   getAgentDelegation,
   getOutboundMessage,
   insertAgentDelegation,

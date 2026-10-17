@@ -408,6 +408,102 @@ interface ReviewedLinkRow {
 }
 
 /** Resolve destination airports for a city (150 km / <= 3 airports / <= 120 min transfer). */
+/** Read-only airport details by id (Phase 04 MCP surface). */
+export async function getReferenceAirport(
+  pool: Pool,
+  airportId: string,
+): Promise<AirportRef | undefined> {
+  const result = await pool.query<AirportRow>(
+    `SELECT * FROM odft_app.reference_airports WHERE id = $1`,
+    [airportId],
+  );
+  const row = result.rows[0];
+  return row ? toAirportRef(row) : undefined;
+}
+
+export interface ReferenceManifestRef {
+  readonly source: string;
+  readonly url: string;
+  readonly retrievedAt: string;
+  readonly revision: string | null;
+  readonly sha256: string;
+  readonly license: string;
+  readonly licenseUrl: string | null;
+  readonly transformVersion: string;
+  readonly recordCount: number;
+  readonly rejectedCount: number;
+  readonly attribution: string | null;
+}
+
+/** Read-only reference provenance/licence rows (coverage + licences resources). */
+export async function listReferenceManifests(pool: Pool): Promise<ReferenceManifestRef[]> {
+  const result = await pool.query<{
+    source: string;
+    url: string;
+    retrieved_at: string;
+    revision: string | null;
+    sha256: string;
+    license: string;
+    license_url: string | null;
+    transform_version: string;
+    record_count: number;
+    rejected_count: number;
+    attribution: string | null;
+  }>(
+    `SELECT source, url, retrieved_at, revision, sha256, license, license_url,
+            transform_version, record_count, rejected_count, attribution
+       FROM odft_app.reference_manifests
+      ORDER BY source`,
+  );
+  return result.rows.map((row) => ({
+    source: row.source,
+    url: row.url,
+    retrievedAt: row.retrieved_at,
+    revision: row.revision,
+    sha256: row.sha256,
+    license: row.license,
+    licenseUrl: row.license_url,
+    transformVersion: row.transform_version,
+    recordCount: row.record_count,
+    rejectedCount: row.rejected_count,
+    attribution: row.attribution,
+  }));
+}
+
+export interface ReferenceCoverageSummary {
+  readonly cities: { readonly total: number; readonly curated: number; readonly genericOnly: number; readonly insufficient: number };
+  readonly countries: number;
+  readonly airports: number;
+}
+
+/** Read-only admitted/reviewed/generic coverage counts (geography resource). */
+export async function countReferenceCoverage(pool: Pool): Promise<ReferenceCoverageSummary> {
+  const cities = await pool.query<{ total: string; curated: string; generic_only: string; insufficient: string }>(
+    `SELECT count(*) AS total,
+            count(*) FILTER (WHERE coverage_flag = 'curated') AS curated,
+            count(*) FILTER (WHERE coverage_flag = 'generic_only') AS generic_only,
+            count(*) FILTER (WHERE coverage_flag = 'insufficient_reference') AS insufficient
+       FROM odft_app.reference_cities`,
+  );
+  const countries = await pool.query<{ count: string }>(
+    `SELECT count(*) AS count FROM odft_app.reference_countries`,
+  );
+  const airports = await pool.query<{ count: string }>(
+    `SELECT count(*) AS count FROM odft_app.reference_airports`,
+  );
+  const row = cities.rows[0];
+  return {
+    cities: {
+      total: Number(row?.total ?? 0),
+      curated: Number(row?.curated ?? 0),
+      genericOnly: Number(row?.generic_only ?? 0),
+      insufficient: Number(row?.insufficient ?? 0),
+    },
+    countries: Number(countries.rows[0]?.count ?? 0),
+    airports: Number(airports.rows[0]?.count ?? 0),
+  };
+}
+
 export async function getCityAirports(pool: Pool, cityId: string): Promise<CityAirportsResult> {
   const cityResult = await pool.query<CityRow>(`SELECT * FROM odft_app.reference_cities WHERE id = $1`, [
     cityId,

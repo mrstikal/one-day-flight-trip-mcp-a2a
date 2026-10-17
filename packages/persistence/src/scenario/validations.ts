@@ -61,6 +61,21 @@ export async function persistRouteValidation(
   }
 }
 
+/** Current persisted schedule validation of a trip (Phase 04 read surface). */
+export async function loadCurrentScheduleValidation(
+  client: Queryable,
+  tripId: string,
+): Promise<ScheduleValidation | undefined> {
+  const result = await client.query<{ result: unknown }>(
+    `SELECT sv.result FROM odft_app.schedule_validations sv
+       JOIN odft_app.trips t ON t.current_schedule_validation_id = sv.id
+      WHERE t.id = $1`,
+    [tripId],
+  );
+  const row = result.rows[0];
+  return row ? scheduleValidationSchema.parse(row.result) : undefined;
+}
+
 export async function loadRouteValidation(
   client: Queryable,
   id: string,

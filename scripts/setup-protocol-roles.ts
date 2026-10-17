@@ -64,13 +64,17 @@ async function main(): Promise<void> {
               odft_app.agent_delegations, odft_app.protocol_observations TO ${PROTOCOL_ROLE}`,
     );
 
-    // Read-only MCP base access: reference tables and scenario snapshots only.
+    // Read-only MCP access: reference data, frozen snapshots, the delegated
+    // trip row (preferences/route facts only), persisted route approvals and
+    // the immutable fault overlay. No write grant of any kind.
     await pool.query(`GRANT USAGE ON SCHEMA odft_app TO ${MCP_READONLY_ROLE}`);
     await pool.query(
       `GRANT SELECT ON odft_app.reference_countries, odft_app.reference_cities,
-              odft_app.reference_cities_landmarks, odft_app.reference_airports,
+              odft_app.reference_landmarks, odft_app.reference_airports,
               odft_app.reference_city_airports, odft_app.scenario_snapshots,
-              odft_app.reference_manifests TO ${MCP_READONLY_ROLE}`,
+              odft_app.reference_manifests, odft_app.reference_route_evidence,
+              odft_app.route_validations, odft_app.schedule_validations,
+              odft_app.trips, odft_app.simulation_faults TO ${MCP_READONLY_ROLE}`,
     );
     process.stdout.write(
       `protocol roles ready: ${PROTOCOL_ROLE} (protocol schema), ${MCP_READONLY_ROLE} (read-only reference)\n`,

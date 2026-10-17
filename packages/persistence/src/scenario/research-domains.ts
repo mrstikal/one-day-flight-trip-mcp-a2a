@@ -121,7 +121,8 @@ function contentFingerprint(value: unknown): string {
     .digest("hex");
 }
 
-function effectiveLevel(preferences: TripPreferences, service: Meal | "hotel"): ServiceLevel {
+/** Effective service level for a domain (Phase 04 read surface reuses it). */
+export function effectiveLevel(preferences: TripPreferences, service: Meal | "hotel"): ServiceLevel {
   return preferences.serviceOverrides[service] ?? preferences.defaultServiceLevel;
 }
 
@@ -205,7 +206,8 @@ function shiftDate(iso: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-function nightDates(sightseeingDate: string, variant: "one_night" | "two_nights"): string[] {
+/** Night dates of a variant (Phase 04 read surface reuses it). */
+export function nightDates(sightseeingDate: string, variant: "one_night" | "two_nights"): string[] {
   const checkIn = shiftDate(sightseeingDate, -1);
   return Array.from({ length: nightsForVariant(variant) }, (_unused, index) =>
     shiftDate(checkIn, index),

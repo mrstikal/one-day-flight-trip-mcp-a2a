@@ -15,18 +15,32 @@ import {
 import { SyntheticRoutingProvider } from "@odft/data";
 import {
   approveItineraryDraft,
+  getReferenceAirport,
   ItineraryPersistenceError,
   loadItineraryById,
   loadItineraryPlanningData,
   loadLatestItinerary,
   loadOverlay,
+  loadSnapshotManifest,
   parseClock,
   persistItineraryDraft,
+  PostgresSnapshotSource,
   recordFaultOutcome,
   saveItineraryReview,
   type ItineraryPlanningData,
 } from "@odft/persistence";
-import type { ItineraryIssue, ItineraryReview, Meal } from "@odft/contracts";
+import type {
+  ItineraryCosts,
+  ItineraryIssue,
+  ItineraryMetrics,
+  ItineraryReview,
+  Meal,
+  ScenarioManifest,
+  SnapshotContent,
+  TripPreferences,
+  TripRecord,
+} from "@odft/contracts";
+import type { RouteMode } from "@odft/data";
 import {
   enforceOptInVisits,
   plannerContextSchema,
@@ -431,6 +445,69 @@ function injectFirstAttemptOverlap(output: PlannerOutput): PlannerOutput {
 const INVALID_PROPOSAL_LABEL =
   "The planner proposal was rejected before feasibility validation; no draft was persisted.";
 
+/**
+ * Build the deterministic assembly input of one proposal from planning data.
+ * Shared by the worker planning path and the read-only itinerary tools so the
+ * rules live in one place (Phase 04).
+ */
+function buildItineraryAssemblyInput(
+  data: ItineraryPlanningData,
+  inputs: {
+    readonly proposal: PlannerOutput | { readonly stops: readonly never[] };
+    readonly seedScope: string;
+    readonly simulatedFailure: boolean;
+    readonly departureInstant: string;
+  },
+): Parameters<typeof assembleItinerary>[0] {
+  const hotel = data.hotelOfferId
+    ? data.content.hotels.find((offer) => offer.id === data.hotelOfferId)
+    : undefined;
+  const flight = data.flightOfferId
+    ? data.content.flights.find((combination) => combination.id === data.flightOfferId)
+    : undefined;
+  return {
+    proposal: inputs.proposal,
+    seedScope: inputs.seedScope,
+    sightseeingDate: data.trip.sightseeingDate,
+    zone: data.zone,
+    adults: data.trip.adults,
+    pace: data.trip.preferences.activityPace,
+    activities: activityCandidates(data),
+    meals: selectedMealOffers(data),
+    confirmedMealIds: data.confirmedMealIds,
+    flight: flight
+      ? {
+          offerId: flight.id,
+          partyTotalMinor: flight.partyTotalMinor,
+          label: `Flights ${flight.id}`,
+        }
+      : null,
+    hotel: hotel
+      ? {
+          offerId: hotel.id,
+          name: hotel.name,
+          partyTotalMinor: hotel.partyTotalMinor,
+          anchor: hotel.anchor,
+        }
+      : null,
+    destinationAirport:
+      data.destinationAirportId && data.destinationAirportAnchor
+        ? {
+            id: data.destinationAirportId,
+            name: "destination airport",
+            anchor: data.destinationAirportAnchor,
+          }
+        : null,
+    dinnerExcludedReason: data.dinnerExcludedReason,
+    selfArrangedMeals: data.selfArrangedMeals,
+    selfArrangedActivities: data.selfArrangedActivities,
+    returnDepartureInstant: inputs.departureInstant,
+    routing: ITINERARY_ROUTING,
+    routingRuleVersion: ITINERARY_ROUTING_RULE_VERSION,
+    simulatedFailure: inputs.simulatedFailure,
+  };
+}
+
 /* ---- Service ------------------------------------------------------------------ */
 
 export interface TravelItineraryServiceDeps {
@@ -520,7 +597,6 @@ export function createTravelItineraryService(
       let simulatedFailure = false;
       let simulatedFailureNote: string | null = null;
       let injectedThisAttempt = false;
-      const meals = selectedMealOffers(data);
       const activities = activityCandidates(data);
       // Visits are OPT-IN (2026-10-14): strip any activity the user did not pin
       // and that no stored tag minimum needs — the live model reliably adds
@@ -556,54 +632,15 @@ export function createTravelItineraryService(
           "Simulated failure: the first planning attempt included an injected overlap; it was repaired within the bounded loop.";
       }
 
-      const hotel = data.hotelOfferId
-        ? data.content.hotels.find((offer) => offer.id === data.hotelOfferId)
-        : undefined;
-      const flight = data.flightOfferId
-        ? data.content.flights.find((combination) => combination.id === data.flightOfferId)
-        : undefined;
       const source = itinerarySource(data);
-      const assembly = assembleItinerary({
-        proposal: output ?? { stops: [] },
-        seedScope: `${input.operationId}:${input.attempt}`,
-        sightseeingDate: data.trip.sightseeingDate,
-        zone: data.zone,
-        adults: data.trip.adults,
-        pace: data.trip.preferences.activityPace,
-        activities,
-        meals,
-        confirmedMealIds: data.confirmedMealIds,
-        flight: flight
-          ? {
-              offerId: flight.id,
-              partyTotalMinor: flight.partyTotalMinor,
-              label: `Flights ${flight.id}`,
-            }
-          : null,
-        hotel: hotel
-          ? {
-              offerId: hotel.id,
-              name: hotel.name,
-              partyTotalMinor: hotel.partyTotalMinor,
-              anchor: hotel.anchor,
-            }
-          : null,
-        destinationAirport:
-          data.destinationAirportId && data.destinationAirportAnchor
-            ? {
-                id: data.destinationAirportId,
-                name: "destination airport",
-                anchor: data.destinationAirportAnchor,
-              }
-            : null,
-        dinnerExcludedReason: data.dinnerExcludedReason,
-        selfArrangedMeals: data.selfArrangedMeals,
-        selfArrangedActivities: data.selfArrangedActivities,
-        returnDepartureInstant: departureInstant,
-        routing: ITINERARY_ROUTING,
-        routingRuleVersion: ITINERARY_ROUTING_RULE_VERSION,
-        simulatedFailure,
-      });
+      const assembly = assembleItinerary(
+        buildItineraryAssemblyInput(data, {
+          proposal: output ?? { stops: [] },
+          seedScope: `${input.operationId}:${input.attempt}`,
+          simulatedFailure,
+          departureInstant,
+        }),
+      );
 
       const rejectionIssue: ItineraryIssue | null =
         output === null
@@ -852,6 +889,395 @@ export function createTravelItineraryService(
         payload: { itineraryId: ref.id, version: ref.version, decisionId: input.decisionId },
       });
       return { itineraryId: ref.id, version: ref.version };
+    },
+  };
+}
+
+/* ---- Phase 04: read-only itinerary tools for the MCP surface ----------------- */
+
+/**
+ * Deterministic itinerary preflight over an EXPLICIT frozen snapshot.
+ *
+ * These power the Itinerary Tools MCP endpoint: they reuse the routing,
+ * assembly, validation, metrics and cost functions unchanged, validate every
+ * referenced candidate against the snapshot (never accepting an invented id),
+ * and persist nothing — no draft, no artifact, no fault counter.
+ */
+
+export interface ItineraryToolsScope {
+  readonly snapshotId: string;
+}
+
+export interface ItineraryToolContextInput {
+  readonly adults: number;
+  readonly sightseeingDate: string;
+  readonly travelVariant: "one_night" | "two_nights";
+  readonly preferences: TripPreferences;
+  readonly flightOfferId: string;
+  readonly hotelOfferId: string | null;
+  readonly destinationAirportId: string | null;
+  readonly mealSelections: { readonly breakfast: string | null; readonly lunch: string | null; readonly dinner: string | null };
+  readonly confirmedMealIds: readonly string[];
+  readonly selfArrangedMeals: readonly Meal[];
+  readonly selfArrangedActivities: boolean;
+  readonly preferredActivityIds: readonly string[];
+  readonly dinnerExcludedReason: string | null;
+}
+
+export interface ItineraryProposalStopInput {
+  readonly kind: "meal" | "activity" | "free_time" | "break" | "transfer";
+  readonly refId: string | null;
+  readonly startMinute: number;
+  readonly durationMinutes: number;
+}
+
+export interface ItineraryFindingFact {
+  readonly severity: "error" | "warning";
+  readonly code: string;
+  readonly message: string;
+}
+
+export interface ItineraryValidationFact {
+  readonly snapshotId: string;
+  readonly status: "valid" | "invalid";
+  readonly errors: readonly ItineraryFindingFact[];
+  readonly warnings: readonly ItineraryFindingFact[];
+  readonly metrics: ItineraryMetrics;
+  readonly walkingKm: number;
+  readonly costs: ItineraryCosts;
+  readonly simulatedFailure: boolean;
+}
+
+export interface TravelCostFact {
+  readonly snapshotId: string;
+  readonly partyTotalMinor: number;
+  readonly breakdown: ItineraryCosts;
+  readonly currency: "EUR";
+}
+
+export interface TravelTimeFact {
+  readonly snapshotId: string;
+  readonly mode: RouteMode;
+  readonly distanceKm: number;
+  readonly estimatedMinutes: number;
+  readonly ruleVersion: string;
+  readonly fromRef: string;
+  readonly toRef: string;
+}
+
+export interface TravelItineraryToolsService {
+  estimateTravelTime(input: {
+    readonly snapshotId: string;
+    readonly from: { readonly refId?: string; readonly airportId?: string };
+    readonly to: { readonly refId?: string; readonly airportId?: string };
+    readonly mode: RouteMode;
+    readonly adults: number;
+  }): Promise<TravelTimeFact>;
+  validateProposal(input: {
+    readonly scope: ItineraryToolsScope;
+    readonly context: ItineraryToolContextInput;
+    readonly stops: readonly ItineraryProposalStopInput[];
+  }): Promise<ItineraryValidationFact>;
+  calculateTripCost(input: {
+    readonly scope: ItineraryToolsScope;
+    readonly context: ItineraryToolContextInput;
+  }): Promise<TravelCostFact>;
+}
+
+export class ItineraryToolError extends Error {
+  readonly code: "INVALID_ARGUMENT" | "NOT_FOUND";
+  constructor(code: ItineraryToolError["code"], message: string) {
+    super(message);
+    this.name = "ItineraryToolError";
+    this.code = code;
+  }
+}
+
+function anchorOf(content: SnapshotContent, refId: string): { lat: number; lon: number } | undefined {
+  return (
+    content.hotels.find((offer) => offer.id === refId)?.anchor ??
+    content.restaurants.find((offer) => offer.id === refId)?.anchor ??
+    content.activities.find((activity) => activity.id === refId)?.anchor ??
+    content.events.find((event) => event.id === refId)?.anchor
+  );
+}
+
+export function createTravelItineraryToolsService(deps: {
+  readonly pool: Pool;
+}): TravelItineraryToolsService {
+  const source = new PostgresSnapshotSource(deps.pool);
+
+  async function loadScope(scope: ItineraryToolsScope): Promise<{ content: SnapshotContent; manifest: ScenarioManifest }> {
+    const manifest = await loadSnapshotManifest(deps.pool, scope.snapshotId);
+    const content = await source.getContent(scope.snapshotId);
+    if (!content) {
+      throw new ItineraryToolError("NOT_FOUND", `snapshot ${scope.snapshotId} is not materialized`);
+    }
+    return { content, manifest };
+  }
+
+  /**
+   * Validate every referenced candidate id against the frozen snapshot and
+   * cross-check the caller-supplied context against the snapshot's own
+   * context: cost/validation math must describe THIS snapshot.
+   */
+  function assertMembership(content: SnapshotContent, context: ItineraryToolContextInput, stops: readonly ItineraryProposalStopInput[]): void {
+    if (
+      context.adults !== content.context.adults ||
+      context.sightseeingDate !== content.context.sightseeingDate ||
+      context.travelVariant !== content.context.travelVariant
+    ) {
+      throw new ItineraryToolError(
+        "INVALID_ARGUMENT",
+        "the supplied context (adults/date/variant) does not match the frozen snapshot",
+      );
+    }
+    const flight = content.flights.find((combination) => combination.id === context.flightOfferId);
+    if (!flight) {
+      throw new ItineraryToolError("INVALID_ARGUMENT", `unknown flight offer ${context.flightOfferId}`);
+    }
+    if (context.hotelOfferId && !content.hotels.some((offer) => offer.id === context.hotelOfferId)) {
+      throw new ItineraryToolError("INVALID_ARGUMENT", `unknown hotel offer ${context.hotelOfferId}`);
+    }
+    for (const [meal, offerId] of Object.entries(context.mealSelections)) {
+      if (offerId === null) {
+        continue;
+      }
+      const offer = content.restaurants.find((restaurant) => restaurant.id === offerId);
+      if (!offer || offer.meal !== meal) {
+        throw new ItineraryToolError(
+          "INVALID_ARGUMENT",
+          `meal selection ${offerId} is not a ${meal} offer in this snapshot`,
+        );
+      }
+    }
+    for (const stop of stops) {
+      if ((stop.kind === "meal" || stop.kind === "activity") && stop.refId) {
+        const known =
+          stop.kind === "meal"
+            ? content.restaurants.some((offer) => offer.id === stop.refId)
+            : content.activities.some((activity) => activity.id === stop.refId);
+        if (!known) {
+          throw new ItineraryToolError(
+            "INVALID_ARGUMENT",
+            `proposal references unknown ${stop.kind} candidate ${stop.refId}`,
+          );
+        }
+      }
+    }
+  }
+
+  function planningDataOf(
+    snapshotId: string,
+    content: SnapshotContent,
+    context: ItineraryToolContextInput,
+    destinationAirportAnchor: { lat: number; lon: number } | null,
+  ): ItineraryPlanningData {
+    const trip: TripRecord = {
+      id: "00000000-0000-4000-8000-000000000000",
+      sessionId: "00000000-0000-4000-8000-000000000000",
+      revision: 0,
+      adults: context.adults,
+      originAirportId: content.flights[0]?.outbound.segments[0]?.fromAirportId ?? "",
+      destinationCityId: content.context.destinationCityId,
+      destinationCountryKey: content.context.countryKey,
+      sightseeingDate: context.sightseeingDate,
+      travelVariant: context.travelVariant,
+      preferences: context.preferences,
+      workflowStatus: "ready",
+      recoveryRequired: false,
+    };
+    const selectedMeals = {
+      breakfast: context.mealSelections.breakfast,
+      lunch: context.mealSelections.lunch,
+      dinner: context.mealSelections.dinner,
+    };
+    const confirmedMeals = {
+      breakfast: context.confirmedMealIds.includes(context.mealSelections.breakfast ?? "")
+        ? context.mealSelections.breakfast
+        : null,
+      lunch: context.confirmedMealIds.includes(context.mealSelections.lunch ?? "")
+        ? context.mealSelections.lunch
+        : null,
+      dinner: context.confirmedMealIds.includes(context.mealSelections.dinner ?? "")
+        ? context.mealSelections.dinner
+        : null,
+    };
+    return {
+      trip,
+      zone: content.context.cityZone,
+      snapshotId,
+      content,
+      selectedMeals,
+      confirmedMeals,
+      confirmedMealIds: context.confirmedMealIds,
+      selfArrangedMeals: [...context.selfArrangedMeals],
+      selfArrangedActivities: context.selfArrangedActivities,
+      flightOfferId: context.flightOfferId,
+      flightBooked: false,
+      hotelOfferId: context.hotelOfferId,
+      hotelBooked: false,
+      dinnerExcludedReason: context.dinnerExcludedReason,
+      destinationAirportId: context.destinationAirportId,
+      destinationAirportAnchor,
+      preferredActivityIds: [...context.preferredActivityIds],
+    };
+  }
+
+  function runAssembly(
+    snapshotId: string,
+    content: SnapshotContent,
+    context: ItineraryToolContextInput,
+    destinationAirportAnchor: { lat: number; lon: number } | null,
+    stops: readonly ItineraryProposalStopInput[],
+  ): { validation: ReturnType<typeof validateItinerary>; costs: ItineraryCosts; walkingKm: number } {
+    const data = planningDataOf(snapshotId, content, context, destinationAirportAnchor);
+    const flight = content.flights.find((combination) => combination.id === context.flightOfferId);
+    const departureInstant = flight?.inbound.segments[0]?.departureInstant;
+    if (!departureInstant) {
+      throw new ItineraryToolError("INVALID_ARGUMENT", "the selected flight has no return departure");
+    }
+    const proposal: PlannerOutput = {
+      stops: stops.map((stop) => ({
+        kind: stop.kind,
+        refId: stop.refId,
+        startMinute: stop.startMinute,
+        durationMinutes: stop.durationMinutes,
+      })) as PlannerOutput["stops"],
+      explanation: "itinerary-tools preflight proposal",
+      compromises: [],
+    };
+    const assembly = assembleItinerary(
+      buildItineraryAssemblyInput(data, {
+        proposal,
+        seedScope: `${snapshotId}:itinerary-tools`,
+        simulatedFailure: false,
+        departureInstant,
+      }),
+    );
+    const validation = validateItinerary({
+      events: assembly.events,
+      assemblyIssues: assembly.issues,
+      costs: assembly.costs,
+      walkingKm: assembly.walkingKm,
+      pace: data.trip.preferences.activityPace,
+      minimumActivityCounts: data.trip.preferences.minimumActivityCounts,
+      preferredActivityIds: data.preferredActivityIds,
+      budgetMinor: data.trip.preferences.maxBudgetMinor ?? null,
+      dinnerExcludedReason: data.dinnerExcludedReason,
+      dinnerSelected: (data.confirmedMeals.dinner ?? data.selectedMeals.dinner) !== null,
+      simulatedFailure: false,
+      source: itinerarySource(data),
+      preferredActivities: preferredActivityNames(data),
+    });
+    return { validation, costs: assembly.costs, walkingKm: assembly.walkingKm };
+  }
+
+  return {
+    async estimateTravelTime(input) {
+      const { content } = await loadScope({ snapshotId: input.snapshotId });
+      const resolve = async (
+        ref: { refId?: string; airportId?: string },
+      ): Promise<{ anchor: { lat: number; lon: number }; label: string }> => {
+        if (ref.airportId) {
+          const airport = await getReferenceAirport(deps.pool, ref.airportId);
+          if (!airport) {
+            throw new ItineraryToolError("INVALID_ARGUMENT", `unknown airport ${ref.airportId}`);
+          }
+          return { anchor: { lat: airport.lat, lon: airport.lon }, label: airport.iata };
+        }
+        if (ref.refId) {
+          const anchor = anchorOf(content, ref.refId);
+          if (!anchor) {
+            throw new ItineraryToolError(
+              "INVALID_ARGUMENT",
+              `unknown snapshot candidate ${ref.refId}`,
+            );
+          }
+          return { anchor, label: ref.refId };
+        }
+        throw new ItineraryToolError("INVALID_ARGUMENT", "a refId or airportId is required");
+      };
+      const from = await resolve(input.from);
+      const to = await resolve(input.to);
+      const estimate = ITINERARY_ROUTING.estimate({
+        startRef: from.label,
+        endRef: to.label,
+        mode: input.mode,
+        adults: input.adults,
+        start: from.anchor,
+        end: to.anchor,
+        ruleVersion: ITINERARY_ROUTING_RULE_VERSION,
+      });
+      return {
+        snapshotId: input.snapshotId,
+        mode: input.mode,
+        distanceKm: estimate.distanceKm,
+        estimatedMinutes: estimate.estimatedMinutes,
+        ruleVersion: ITINERARY_ROUTING_RULE_VERSION,
+        fromRef: from.label,
+        toRef: to.label,
+      };
+    },
+
+    async validateProposal(input) {
+      const { content } = await loadScope(input.scope);
+      assertMembership(content, input.context, input.stops);
+      const airportAnchor = input.context.destinationAirportId
+        ? await (async () => {
+            const airport = await getReferenceAirport(deps.pool, input.context.destinationAirportId as string);
+            return airport ? { lat: airport.lat, lon: airport.lon } : null;
+          })()
+        : null;
+      const { validation, costs, walkingKm } = runAssembly(
+        input.scope.snapshotId,
+        content,
+        input.context,
+        airportAnchor,
+        input.stops,
+      );
+      return {
+        snapshotId: input.scope.snapshotId,
+        status: validation.status,
+        errors: validation.errors.map((error) => ({
+          severity: error.severity,
+          code: error.code,
+          message: error.message,
+        })),
+        warnings: validation.warnings.map((warning) => ({
+          severity: warning.severity,
+          code: warning.code,
+          message: warning.message,
+        })),
+        metrics: validation.metrics,
+        walkingKm,
+        costs,
+        simulatedFailure: false,
+      };
+    },
+
+    async calculateTripCost(input) {
+      const { content } = await loadScope(input.scope);
+      assertMembership(content, input.context, []);
+      const airportAnchor = input.context.destinationAirportId
+        ? await (async () => {
+            const airport = await getReferenceAirport(deps.pool, input.context.destinationAirportId as string);
+            return airport ? { lat: airport.lat, lon: airport.lon } : null;
+          })()
+        : null;
+      const { costs } = runAssembly(
+        input.scope.snapshotId,
+        content,
+        input.context,
+        airportAnchor,
+        [],
+      );
+      return {
+        snapshotId: input.scope.snapshotId,
+        partyTotalMinor: costs.totalMinor,
+        breakdown: costs,
+        currency: "EUR",
+      };
     },
   };
 }

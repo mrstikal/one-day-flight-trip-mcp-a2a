@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import type { DelegationStatus, OutboundDeliveryState } from "@odft/contracts";
+import { delegationScopeSchema, type DelegationStatus, type OutboundDeliveryState } from "@odft/contracts";
 
 type Queryable = Pick<PoolClient, "query">;
 
@@ -124,6 +124,9 @@ export async function insertAgentDelegation(
   client: Queryable,
   input: InsertDelegationInput,
 ): Promise<AgentDelegationRecord> {
+  // A malformed scope must fail at write time, not later as an MCP argument
+  // error: the persisted scope is the delegation's authority.
+  const scope = delegationScopeSchema.parse(input.scope ?? {});
   const result = await client.query<DelegationRow>(
     `INSERT INTO odft_app.agent_delegations
        (id, trip_id, originating_operation_id, accepted_revision, skill_id, agent_identity, endpoint_url,
@@ -141,7 +144,7 @@ export async function insertAgentDelegation(
       input.cardVersion ?? null,
       input.snapshotId,
       input.inputFingerprint,
-      JSON.stringify(input.scope ?? {}),
+      JSON.stringify(scope),
       input.deadlineAt ?? null,
       input.attempt ?? 1,
     ],
@@ -361,4 +364,19 @@ export async function markOutboundDelivery(
       WHERE delegation_id = $1 AND message_id = $2`,
     [input.delegationId, input.messageId, input.state, input.errorCode ?? null],
   );
+}
+
+/** Newest active delegation of an identity for one frozen snapshot (Phase 04). */
+export async function findActiveDelegationForSnapshot(
+  client: Queryable,
+  input: { agentIdentity: string; snapshotId: string },
+): Promise<string | undefined> {
+  const result = await client.query<{ id: string }>(
+    `SELECT id FROM odft_app.agent_delegations
+      WHERE agent_identity = $1 AND snapshot_id = $2
+        AND status NOT IN ('revoked','cancelled','failed')
+      ORDER BY created_at DESC LIMIT 1`,
+    [input.agentIdentity, input.snapshotId],
+  );
+  return result.rows[0]?.id;
 }

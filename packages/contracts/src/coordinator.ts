@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { researchDomainSchema } from "./enums.js";
+import { researchDomainSchema, serviceLevelSchema } from "./enums.js";
 import {
   fingerprintSchema,
   instantSchema,
@@ -184,3 +184,35 @@ export const decisionEngineBindingSchema = z.discriminatedUnion("engine", [
     .strict(),
 ]);
 export type DecisionEngineBinding = z.infer<typeof decisionEngineBindingSchema>;
+
+/**
+ * Phase 04: the persisted scope of one delegation — the only authority an
+ * MCP tool or specialist agent may act under. `domains` is the exact domain
+ * allowlist, `snapshotId` the frozen snapshot it was granted for; the flags
+ * gate the deterministic route-validation and itinerary tools.
+ */
+export const delegationDomainSchema = z.enum([
+  "flights",
+  "hotel",
+  "breakfast",
+  "lunch",
+  "dinner",
+  "attractions",
+  "events",
+]);
+export type DelegationDomain = z.infer<typeof delegationDomainSchema>;
+
+export const delegationScopeSchema = z
+  .object({
+    domains: z.array(delegationDomainSchema).max(7),
+    /** Frozen snapshot this delegation authorizes (null: reference-only work). */
+    snapshotId: uuidSchema.nullable().default(null),
+    allowRouteValidation: z.boolean().default(false),
+    allowItinerary: z.boolean().default(false),
+    /** Explicit search objective of a scoped re-search (null: preserve level). */
+    objective: z.enum(["preserve_level", "cheaper"]).nullable().default(null),
+    /** Operation-scoped category override for the delegated query. */
+    levelOverride: serviceLevelSchema.nullable().default(null),
+  })
+  .strict();
+export type DelegationScope = z.infer<typeof delegationScopeSchema>;

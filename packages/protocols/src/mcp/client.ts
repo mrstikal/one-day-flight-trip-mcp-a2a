@@ -1,4 +1,4 @@
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { Client, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CallToolResult, ReadResourceResult } from "@modelcontextprotocol/client";
 import type { ProtocolConfig, McpServiceEntry } from "../config.js";
 
@@ -63,8 +63,21 @@ export class McpClient {
       { versionNegotiation: { mode: { pin: MCP_MODERN_PROTOCOL_VERSION } } },
     );
     try {
-      await client.connect(transport);
-    } catch {
+      // The connect handshake is under the same explicit deadline as calls: an
+      // unreachable endpoint must not hang the caller.
+      await withDeadline(
+        this.deps.config.timeouts.mcpTimeoutMs,
+        () => client.connect(transport),
+        () =>
+          new McpClientError(
+            "MCP_TIMEOUT",
+            `MCP service ${service.serviceName} did not complete its handshake in time`,
+          ),
+      );
+    } catch (error) {
+      if (error instanceof McpClientError) {
+        throw error;
+      }
       throw new McpClientError(
         "MCP_UNAVAILABLE",
         `MCP service ${service.serviceName} is unavailable`,
@@ -102,6 +115,10 @@ export class McpClient {
     return this.withClient(serviceName, async ({ client }) => client.listTools());
   }
 
+  async listResources(serviceName: string): Promise<Awaited<ReturnType<Client["listResources"]>>> {
+    return this.withClient(serviceName, async ({ client }) => client.listResources());
+  }
+
   /** One bounded tool call; never retried automatically (not read-only). */
   async callTool(
     serviceName: string,
@@ -110,7 +127,11 @@ export class McpClient {
     return this.withClient(serviceName, async ({ client }) => client.callTool(params));
   }
 
-  /** Read-only resource read with at most one extra attempt. */
+  /**
+   * Read-only resource read with at most one extra attempt for an eligible
+   * transport failure. Invalid input, permission denials and timeouts are
+   * never retried (plan §3.9).
+   */
   async readResource(
     serviceName: string,
     params: Parameters<Client["readResource"]>[0],
@@ -121,7 +142,12 @@ export class McpClient {
         return await this.withClient(serviceName, async ({ client }) => client.readResource(params));
       } catch (error) {
         lastError = error;
-        if (error instanceof McpClientError && error.code === "MCP_TIMEOUT") {
+        if (error instanceof McpClientError) {
+          throw error;
+        }
+        // HTTP-level denials are never retried: an authentication, permission or
+        // invalid-input failure will fail again (plan §3.9).
+        if (error instanceof SdkHttpError && error.status >= 400 && error.status < 500) {
           throw error;
         }
       }

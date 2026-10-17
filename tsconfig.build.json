@@ -9,6 +9,7 @@
     { "path": "packages/protocols" },
     { "path": "packages/services" },
     { "path": "packages/workflow" },
-    { "path": "apps/worker" }
+    { "path": "apps/worker" },
+    { "path": "apps/mcp-server" }
   ]
 }
