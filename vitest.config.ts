@@ -15,6 +15,7 @@ const alias = {
   "@odft/data": src("./packages/data/src/index.ts"),
   "@odft/ai": src("./packages/ai/src/index.ts"),
   "@odft/persistence": src("./packages/persistence/src/index.ts"),
+  "@odft/protocols": src("./packages/protocols/src/index.ts"),
   "@odft/services": src("./packages/services/src/index.ts"),
   "@odft/workflow": src("./packages/workflow/src/index.ts"),
   // Web-lib routes/handlers are importable in Node tests: map the `@/` alias and

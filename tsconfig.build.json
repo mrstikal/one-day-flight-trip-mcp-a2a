@@ -6,6 +6,7 @@
     { "path": "packages/data" },
     { "path": "packages/ai" },
     { "path": "packages/persistence" },
+    { "path": "packages/protocols" },
     { "path": "packages/services" },
     { "path": "packages/workflow" },
     { "path": "apps/worker" }

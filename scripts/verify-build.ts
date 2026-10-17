@@ -17,6 +17,7 @@ const PACKAGES: ReadonlyArray<readonly [string, string]> = [
   ["@odft/data", "@odft/data"],
   ["@odft/ai", "@odft/ai"],
   ["@odft/persistence", "@odft/persistence"],
+  ["@odft/protocols", "@odft/protocols"],
   ["@odft/services", "@odft/services"],
   ["@odft/workflow", "@odft/workflow"],
 ];
@@ -34,6 +35,9 @@ const FORBIDDEN_CLIENT_TOKENS = [
   "cities15000",
   "geo-tz",
   "@langchain/core",
+  "@a2a-js/",
+  "@modelcontextprotocol/",
+  "kysely",
   "@langchain/langgraph",
   "langgraph-checkpoint-postgres",
   "checkpointer",

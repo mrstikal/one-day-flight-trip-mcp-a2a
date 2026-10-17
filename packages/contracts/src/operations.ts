@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { domainCommandSchema } from "./commands.js";
-import { operationStatusSchema, travelVariantSchema, workflowStatusSchema } from "./enums.js";
+import {
+  engineSchema,
+  operationStatusSchema,
+  travelVariantSchema,
+  workflowStatusSchema,
+} from "./enums.js";
 import {
   adultsSchema,
   countryKeySchema,
@@ -74,6 +79,8 @@ export const operationRecordSchema = z
     acceptedRevision: z.number().int().min(0),
     status: operationStatusSchema,
     attempts: z.number().int().min(0),
+    /** Phase 03: engine that owns this operation (defaults to the legacy graph). */
+    engine: engineSchema.default("langgraph"),
   })
   .strict();
 export type OperationRecord = z.infer<typeof operationRecordSchema>;
@@ -99,6 +106,8 @@ export const tripSummarySchema = z
      * unfinished checkpoint (never a newer rejected conflict row).
      */
     recoveryOperationId: uuidSchema.nullable(),
+    /** Phase 03: execution engine of this trip (legacy graph by default). */
+    engine: engineSchema.default("langgraph"),
   })
   .strict();
 export type TripSummary = z.infer<typeof tripSummarySchema>;

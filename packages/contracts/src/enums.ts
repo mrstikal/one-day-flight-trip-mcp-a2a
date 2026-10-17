@@ -90,8 +90,17 @@ export const decisionKindSchema = z.enum([
   "itinerary_approval",
   "clarification",
   "recovery",
+  "agent_input",
 ]);
 export type DecisionKind = z.infer<typeof decisionKindSchema>;
+
+/**
+ * Phase 03: execution engine of a trip/operation/decision. Existing records
+ * default to `langgraph`; `coordinator-v1` is used only by explicitly created
+ * migration-test trips until the production default switches (Phase 11).
+ */
+export const engineSchema = z.enum(["langgraph", "coordinator-v1"]);
+export type Engine = z.infer<typeof engineSchema>;
 
 export const simulationModeSchema = z.enum([
   "normal",

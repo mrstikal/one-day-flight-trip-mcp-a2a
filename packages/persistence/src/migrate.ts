@@ -38,6 +38,7 @@ export const MIGRATION_VERSIONS: readonly string[] = [
   "0010-itinerary",
   "0011-self-arranged",
   "0012-voice",
+  "0013-protocol-state",
 ];
 
 export interface MigrationResult {

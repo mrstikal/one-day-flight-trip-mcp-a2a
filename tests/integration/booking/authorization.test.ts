@@ -224,10 +224,14 @@ describe("confirmation authorization", () => {
   });
 
   it("has no payment columns or payment-intent code", async () => {
+    // `card_version` is the Phase 03 A2A agent-card version (a protocol
+    // artifact), never payment data; every other `card`-shaped column stays
+    // forbidden.
     const columns = await pool.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
         WHERE table_schema = 'odft_app'
-          AND (column_name ~* '(payment|card|cvv|iban|billing)')`,
+          AND (column_name ~* '(payment|cvv|iban|billing)'
+               OR (column_name ~* 'card' AND column_name <> 'card_version'))`,
     );
     expect(columns.rows.map((row) => row.column_name)).toEqual([]);
 

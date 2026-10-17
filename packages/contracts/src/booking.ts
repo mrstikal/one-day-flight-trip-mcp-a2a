@@ -1,6 +1,7 @@
 import type {
   BookableKey,
   DecisionKind,
+  Engine,
   ProposalStatus,
   ReservationStatus,
   TravelVariant,
@@ -31,6 +32,8 @@ export interface TripRecord {
   readonly recoveryRequired: boolean;
   /** Failed unfinished operation the owner must recover (set with recoveryRequired). */
   readonly lastUnfinishedOperationId?: string;
+  /** Phase 03: execution engine; legacy records default to the graph. */
+  readonly engine?: Engine;
 }
 
 export interface OfferRecord {
@@ -119,6 +122,12 @@ export interface DecisionBindingRecord {
   readonly allowedOfferIds: string[];
   /** Option ids a `choose_option` response may select (empty = not offered). */
   readonly allowedOptionIds?: string[];
+  /** Phase 03: engine that owns this decision (legacy records are graph decisions). */
+  readonly engine?: Engine;
+  /** Phase 03: coordinator run binding of a coordinator-engine decision. */
+  readonly coordinatorRunId?: string;
+  /** Phase 03: persisted option payload (e.g. the `agent_input` question). */
+  readonly optionPayload?: unknown;
 }
 
 export interface InsertProposalInput {

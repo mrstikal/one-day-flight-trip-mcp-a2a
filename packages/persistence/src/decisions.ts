@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import type { DecisionBindingRecord, DecisionKind } from "@odft/contracts";
+import type { DecisionBindingRecord, DecisionKind, Engine } from "@odft/contracts";
 
 type Queryable = Pick<PoolClient, "query">;
 
@@ -13,6 +13,8 @@ interface DecisionRow {
   source_fingerprint: string;
   allowed_offer_ids: unknown;
   allowed_option_ids?: unknown;
+  engine?: Engine;
+  coordinator_run_id?: string | null;
 }
 
 export async function loadDecision(
@@ -20,7 +22,8 @@ export async function loadDecision(
   decisionId: string,
 ): Promise<DecisionBindingRecord | undefined> {
   const result = await client.query<DecisionRow>(
-    `SELECT id, trip_id, kind, proposal_id, status, source_fingerprint, allowed_offer_ids, allowed_option_ids
+    `SELECT id, trip_id, kind, proposal_id, status, source_fingerprint, allowed_offer_ids, allowed_option_ids,
+            engine, coordinator_run_id
        FROM odft_app.pending_decisions WHERE id = $1`,
     [decisionId],
   );
@@ -39,6 +42,8 @@ export async function loadDecision(
     allowedOptionIds: Array.isArray(row.allowed_option_ids)
       ? (row.allowed_option_ids as string[])
       : [],
+    ...(row.engine ? { engine: row.engine } : {}),
+    ...(row.coordinator_run_id ? { coordinatorRunId: row.coordinator_run_id } : {}),
   };
 }
 
@@ -46,14 +51,19 @@ export interface InsertDecisionInput {
   readonly id?: string;
   readonly tripId: string;
   readonly kind: DecisionKind;
-  readonly threadId: string;
-  readonly graphVersion: string;
+  /** Phase 03: engine binding; graph decisions require threadId/graphVersion. */
+  readonly engine?: Engine;
+  readonly threadId?: string;
+  readonly graphVersion?: string;
+  readonly coordinatorRunId?: string;
   readonly createdRevision: number;
   readonly sourceFingerprint: string;
   readonly payloadHash: string;
   readonly proposalId?: string;
   readonly allowedOfferIds?: string[];
   readonly allowedOptionIds?: string[];
+  /** Persisted option payload (e.g. the `agent_input` question contract). */
+  readonly optionPayload?: unknown;
   readonly status?: "pending" | "resolved" | "cancelled";
 }
 
@@ -61,20 +71,23 @@ export async function insertDecision(client: Queryable, input: InsertDecisionInp
   const id = input.id ?? randomUUID();
   await client.query(
     `INSERT INTO odft_app.pending_decisions
-       (id, trip_id, kind, thread_id, graph_version, created_revision, source_fingerprint, proposal_id,
-        allowed_offer_ids, allowed_option_ids, payload_hash, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11, $12)`,
+       (id, trip_id, kind, engine, thread_id, graph_version, coordinator_run_id, created_revision,
+        source_fingerprint, proposal_id, allowed_offer_ids, allowed_option_ids, option_payload, payload_hash, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15)`,
     [
       id,
       input.tripId,
       input.kind,
-      input.threadId,
-      input.graphVersion,
+      input.engine ?? "langgraph",
+      input.threadId ?? null,
+      input.graphVersion ?? null,
+      input.coordinatorRunId ?? null,
       input.createdRevision,
       input.sourceFingerprint,
       input.proposalId ?? null,
       JSON.stringify(input.allowedOfferIds ?? []),
       JSON.stringify(input.allowedOptionIds ?? []),
+      input.optionPayload === undefined ? JSON.stringify([]) : JSON.stringify(input.optionPayload),
       input.payloadHash,
       input.status ?? "pending",
     ],
@@ -99,7 +112,8 @@ export async function getPendingDecisionForTrip(
   tripId: string,
 ): Promise<DecisionBindingRecord | undefined> {
   const result = await client.query<DecisionRow>(
-    `SELECT id, trip_id, kind, proposal_id, status, source_fingerprint, allowed_offer_ids, allowed_option_ids
+    `SELECT id, trip_id, kind, proposal_id, status, source_fingerprint, allowed_offer_ids, allowed_option_ids,
+            engine, coordinator_run_id
        FROM odft_app.pending_decisions
       WHERE trip_id = $1 AND status = 'pending'
       LIMIT 1`,
@@ -120,5 +134,7 @@ export async function getPendingDecisionForTrip(
     allowedOptionIds: Array.isArray(row.allowed_option_ids)
       ? (row.allowed_option_ids as string[])
       : [],
+    ...(row.engine ? { engine: row.engine } : {}),
+    ...(row.coordinator_run_id ? { coordinatorRunId: row.coordinator_run_id } : {}),
   };
 }

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { decisionKindSchema, operationStatusSchema, scenarioDomainSchema } from "./enums.js";
 import { graphDefinitionSchema } from "./graph-definition.js";
 import { instantSchema, nonEmptyStringSchema, uuidSchema } from "./primitives.js";
+import { publicProtocolObservationSchema } from "./protocol-observations.js";
 import { publicVoiceCallSchema } from "./voice.js";
 
 /**
@@ -121,6 +122,11 @@ export const publicInspectorSchema = z
     voiceCalls: z.array(publicVoiceCallSchema).max(200),
     faults: z.array(publicInspectorFaultSchema).max(50),
     events: z.array(publicInspectorEventSchema).max(200),
+    /**
+     * Phase 03/09: safe A2A/MCP observations of real interactions. Empty until
+     * the coordinator/protocol phases persist observations for a trip.
+     */
+    protocolObservations: z.array(publicProtocolObservationSchema).max(200).default([]),
   })
   .strict();
 export type PublicInspector = z.infer<typeof publicInspectorSchema>;

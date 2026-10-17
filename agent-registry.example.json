@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "agents": [
+    {
+      "agentIdentity": "flight-agent",
+      "endpointUrl": "http://127.0.0.1:4211",
+      "cardUrl": "http://127.0.0.1:4211/.well-known/agent-card.json",
+      "credentialRef": "ODFT_AGENT_TOKEN_FLIGHT",
+      "requiredSkills": ["flight.recommend.v1"]
+    },
+    {
+      "agentIdentity": "accommodation-agent",
+      "endpointUrl": "http://127.0.0.1:4212",
+      "cardUrl": "http://127.0.0.1:4212/.well-known/agent-card.json",
+      "credentialRef": "ODFT_AGENT_TOKEN_ACCOMMODATION",
+      "requiredSkills": ["accommodation.recommend.v1"]
+    },
+    {
+      "agentIdentity": "city-guide-agent",
+      "endpointUrl": "http://127.0.0.1:4213",
+      "cardUrl": "http://127.0.0.1:4213/.well-known/agent-card.json",
+      "credentialRef": "ODFT_AGENT_TOKEN_CITY_GUIDE",
+      "requiredSkills": ["city-guide.research.v1"]
+    }
+  ]
+}

@@ -17,3 +17,7 @@ export * from "./ai.js";
 export * from "./voice.js";
 export * from "./graph-definition.js";
 export * from "./inspector.js";
+export * from "./agent-artifacts.js";
+export * from "./agent-tasks.js";
+export * from "./coordinator.js";
+export * from "./protocol-observations.js";

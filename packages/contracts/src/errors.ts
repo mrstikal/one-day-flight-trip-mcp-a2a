@@ -38,6 +38,17 @@ export const errorCodeSchema = z.enum([
   "VOICE_TIMEOUT",
   "CONFLICT",
   "INTERNAL_ERROR",
+  /** Phase 03 safe specialist/MCP failure categories (plan §3.5). */
+  "AGENT_UNAVAILABLE",
+  "AGENT_TIMEOUT",
+  "AGENT_RESTARTED",
+  "MCP_UNAVAILABLE",
+  "MCP_TIMEOUT",
+  "INVALID_ARTIFACT",
+  "TASK_BUDGET_EXCEEDED",
+  "INPUT_EXPIRED",
+  "DELEGATION_REVOKED",
+  "STALE_AGENT_RESULT",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 

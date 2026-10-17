@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import {
   tripPreferencesSchema,
+  type Engine,
   type SelectionUpsertInput,
   type TravelVariant,
   type TripPreferences,
@@ -14,7 +15,7 @@ const TRIP_COLUMNS =
   "id, session_id, revision, adults, origin_airport_id, destination_city_id, destination_country_key, " +
   "sightseeing_date::text AS sightseeing_date, travel_variant, preferences, active_scenario_snapshot_id, " +
   "current_route_validation_id, current_schedule_validation_id, workflow_status, recovery_required, " +
-  "last_unfinished_operation_id";
+  "last_unfinished_operation_id, engine";
 
 export interface TripRow {
   id: string;
@@ -33,6 +34,7 @@ export interface TripRow {
   workflow_status: WorkflowStatus;
   recovery_required: boolean;
   last_unfinished_operation_id: string | null;
+  engine: Engine;
 }
 
 export function toTripRecord(row: TripRow): TripRecord {
@@ -59,6 +61,7 @@ export function toTripRecord(row: TripRow): TripRecord {
     ...(row.last_unfinished_operation_id
       ? { lastUnfinishedOperationId: row.last_unfinished_operation_id }
       : {}),
+    engine: row.engine ?? "langgraph",
   };
 }
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { decisionKindSchema, type DecisionKind } from "./enums.js";
+import { decisionKindSchema, engineSchema, type DecisionKind } from "./enums.js";
 import { fingerprintSchema, nonEmptyStringSchema, uuidSchema } from "./primitives.js";
 import { mealSelectionsSchema, refineProgramSelection, selfArrangedMealsSchema } from "./preferences.js";
 
@@ -98,14 +98,21 @@ export type ResumeRequest = z.infer<typeof resumeRequestSchema>;
 
 export const pendingDecisionStatusSchema = z.enum(["pending", "resolved", "cancelled"]);
 
-export const pendingDecisionSchema = z
+export const pendingDecisionBaseSchema = z
   .object({
     id: uuidSchema,
     kind: decisionKindSchema,
-    threadId: z.string().min(1),
+    /**
+     * Phase 03 engine binding: graph decisions keep their checkpoint fields;
+     * coordinator decisions bind their run instead and must not invent graph
+     * ids (validated below, persisted by migration 0013).
+     */
+    engine: engineSchema.default("langgraph"),
+    threadId: z.string().min(1).optional(),
     interruptId: z.string().min(1).optional(),
     checkpointId: z.string().min(1).optional(),
-    graphVersion: z.string().min(1),
+    graphVersion: z.string().min(1).optional(),
+    coordinatorRunId: uuidSchema.optional(),
     createdRevision: z.number().int().min(0),
     sourceFingerprint: fingerprintSchema,
     proposalId: uuidSchema.optional(),
@@ -115,6 +122,35 @@ export const pendingDecisionSchema = z
     status: pendingDecisionStatusSchema,
   })
   .strict();
+
+/**
+ * The engine-binding-validated pending decision: graph decisions require their
+ * checkpoint fields, coordinator decisions require their run and must not carry
+ * graph identifiers.
+ */
+export const pendingDecisionSchema = pendingDecisionBaseSchema.superRefine((decision, context) => {
+    if (decision.engine === "langgraph") {
+      if (!decision.threadId) {
+        context.addIssue({ code: "custom", message: "graph decisions require a threadId" });
+      }
+      if (!decision.graphVersion) {
+        context.addIssue({ code: "custom", message: "graph decisions require a graphVersion" });
+      }
+      if (decision.coordinatorRunId !== undefined) {
+        context.addIssue({ code: "custom", message: "graph decisions cannot bind a coordinator run" });
+      }
+      return;
+    }
+    if (!decision.coordinatorRunId) {
+      context.addIssue({ code: "custom", message: "coordinator decisions require a coordinatorRunId" });
+    }
+    if (decision.threadId !== undefined || decision.graphVersion !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "coordinator decisions cannot carry graph checkpoint identifiers",
+      });
+    }
+  });
 export type PendingDecision = z.infer<typeof pendingDecisionSchema>;
 
 /** Which public actions each decision kind accepts (09-booking-simulation.md section 6). */
@@ -128,4 +164,6 @@ export const DECISION_ALLOWED_ACTIONS: Readonly<Record<DecisionKind, readonly st
   itinerary_approval: ["approve_itinerary"],
   clarification: ["choose_option"],
   recovery: ["choose_option"],
+  /** Phase 03: genuine specialist question (plan §3.10). */
+  agent_input: ["choose_option"],
 };

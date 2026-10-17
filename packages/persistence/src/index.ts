@@ -356,3 +356,58 @@ export {
   writeEffectFenced,
   type OperationFence,
 } from "./effects.js";
+
+/* ---- Phase 03: protocol state ------------------------------------------------ */
+
+export {
+  getActiveCoordinatorRun,
+  getCoordinatorRun,
+  insertCoordinatorRun,
+  updateCoordinatorRun,
+  type CoordinatorRunRecord,
+  type InsertCoordinatorRunInput,
+  type UpdateCoordinatorRunInput,
+} from "./coordinator-runs.js";
+
+export {
+  bindDelegationTask,
+  getAgentDelegation,
+  getOutboundMessage,
+  insertAgentDelegation,
+  insertOutboundMessage,
+  listOutstandingDelegations,
+  markOutboundDelivery,
+  requestDelegationCancellation,
+  revokeDelegation,
+  updateDelegationStatus,
+  type AgentDelegationRecord,
+  type InsertDelegationInput,
+  type InsertOutboundMessageInput,
+  type OutboundMessageRecord,
+} from "./agent-delegations.js";
+
+export {
+  addTaskCounters,
+  admitInboundMessage,
+  completeInboundMessage,
+  getTaskControl,
+  listUnmappedAdmissions,
+  loadValidatedOutput,
+  mapInboundMessage,
+  markRestartedTasksFailed,
+  requestTaskCancellation,
+  saveValidatedOutput,
+  setTaskState,
+  upsertTaskControl,
+  type AdmissionOutcome,
+  type InboundAdmissionRow,
+  type TaskControlRecord,
+} from "./protocol-tasks.js";
+
+export {
+  insertProtocolObservation,
+  linkObservationToEvent,
+  listObservationsForTrip,
+  listUnlinkedObservations,
+  type ProtocolObservationRecord,
+} from "./protocol-observations.js";

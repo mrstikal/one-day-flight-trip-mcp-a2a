@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { errorEnvelopeSchema } from "./errors.js";
-import { pendingDecisionSchema, resumeRequestSchema } from "./decisions.js";
+import { pendingDecisionBaseSchema, resumeRequestSchema } from "./decisions.js";
 import { operationStatusSchema } from "./enums.js";
 import { uuidSchema, nonEmptyStringSchema } from "./primitives.js";
 import { tripSummarySchema } from "./operations.js";
@@ -93,7 +93,7 @@ export const technicalRetryApiRequestSchema = z
 export type TechnicalRetryApiRequest = z.infer<typeof technicalRetryApiRequestSchema>;
 
 /** Public pending-decision projection: never includes internal hashes/fingerprints. */
-export const publicPendingDecisionSchema = pendingDecisionSchema
+export const publicPendingDecisionSchema = pendingDecisionBaseSchema
   .pick({
     id: true,
     kind: true,

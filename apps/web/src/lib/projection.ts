@@ -8,6 +8,7 @@ import {
   loadSelfArrangedState,
 } from "@odft/persistence";
 import {
+  engineSchema,
   publicClarificationSchema,
   publicInterpretationSchema,
   publicRouteChangePreviewSchema,
@@ -95,6 +96,7 @@ interface TripRow {
   active_scenario_snapshot_id: string | null;
   current_itinerary_id: string | null;
   approved_itinerary_id: string | null;
+  engine: string | null;
 }
 
 /**
@@ -419,7 +421,7 @@ export async function buildTripProjection(
             destination_country_key, sightseeing_date::text AS sightseeing_date, travel_variant,
             preferences, workflow_status, recovery_required, current_route_validation_id,
             current_schedule_validation_id, active_scenario_snapshot_id,
-            current_itinerary_id, approved_itinerary_id, last_unfinished_operation_id
+            current_itinerary_id, approved_itinerary_id, last_unfinished_operation_id, engine
        FROM odft_app.trips WHERE id = $1`,
     [tripId],
   );
@@ -442,6 +444,7 @@ export async function buildTripProjection(
     workflowStatus: workflowStatusSchema.parse(row.workflow_status),
     recoveryRequired: row.recovery_required,
     recoveryOperationId: row.last_unfinished_operation_id,
+    engine: engineSchema.parse(row.engine ?? "langgraph"),
   };
 
   const operationsResult = await pool.query<{

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import type { OperationRecord, OperationRef, OperationStatus } from "@odft/contracts";
+import type { Engine, OperationRecord, OperationRef, OperationStatus } from "@odft/contracts";
 
 type Queryable = Pick<PoolClient, "query">;
 
@@ -12,6 +12,7 @@ interface OperationRow {
   accepted_revision: number;
   status: OperationStatus;
   attempts: number;
+  engine: Engine;
 }
 
 function toOperationRecord(row: OperationRow): OperationRecord {
@@ -23,6 +24,7 @@ function toOperationRecord(row: OperationRow): OperationRecord {
     acceptedRevision: row.accepted_revision,
     status: row.status,
     attempts: row.attempts,
+    engine: row.engine ?? "langgraph",
   };
 }
 
@@ -35,6 +37,8 @@ export interface InsertOperationInput {
   readonly payload: unknown;
   readonly id?: string;
   readonly status?: OperationStatus;
+  /** Phase 03: engine owning the operation (defaults to the legacy graph). */
+  readonly engine?: Engine;
 }
 
 export async function insertOperation(
@@ -43,9 +47,9 @@ export async function insertOperation(
 ): Promise<OperationRecord> {
   const result = await client.query<OperationRow>(
     `INSERT INTO odft_app.workflow_operations
-       (id, trip_id, request_id, payload_hash, accepted_revision, status, kind, payload)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-     RETURNING id, trip_id, request_id, payload_hash, accepted_revision, status, attempts`,
+       (id, trip_id, request_id, payload_hash, accepted_revision, status, kind, payload, engine)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+     RETURNING id, trip_id, request_id, payload_hash, accepted_revision, status, attempts, engine`,
     [
       input.id ?? randomUUID(),
       input.tripId,
@@ -55,6 +59,7 @@ export async function insertOperation(
       input.status ?? "queued",
       input.kind,
       JSON.stringify(input.payload),
+      input.engine ?? "langgraph",
     ],
   );
   return toOperationRecord(result.rows[0] as OperationRow);
@@ -72,7 +77,7 @@ export async function getOperationByRequestId(
   requestId: string,
 ): Promise<StoredOperation | undefined> {
   const result = await client.query<OperationRow & { payload: unknown; result: unknown }>(
-    `SELECT id, trip_id, request_id, payload_hash, accepted_revision, status, attempts, payload, result
+    `SELECT id, trip_id, request_id, payload_hash, accepted_revision, status, attempts, engine, payload, result
        FROM odft_app.workflow_operations WHERE trip_id = $1 AND request_id = $2`,
     [tripId, requestId],
   );
@@ -85,7 +90,7 @@ export async function getActiveOperation(
   tripId: string,
 ): Promise<OperationRecord | undefined> {
   const result = await client.query<OperationRow>(
-    `SELECT id, trip_id, request_id, payload_hash, accepted_revision, status, attempts
+    `SELECT id, trip_id, request_id, payload_hash, accepted_revision, status, attempts, engine
        FROM odft_app.workflow_operations
       WHERE trip_id = $1 AND status IN ('queued', 'running')`,
     [tripId],

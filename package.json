@@ -17,6 +17,7 @@
     "reference:import": "tsx scripts/import-reference.ts",
     "reference:load": "tsx scripts/reference-load.ts",
     "checkpointer:setup": "tsx scripts/checkpointer-setup.ts",
+    "protocol:roles": "tsx scripts/setup-protocol-roles.ts",
     "ai:validate-models": "tsx scripts/ai-validate-models.ts",
     "voice:validate-models": "tsx scripts/voice-validate-models.ts",
     "dev": "npm run build:packages && concurrently -k -n packages,web,worker -c blue,green,magenta \"npm:dev:packages\" \"npm:dev:web\" \"npm:dev:worker\"",
