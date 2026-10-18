@@ -15,10 +15,13 @@ export function RouteFix({
   tripId,
   revision,
   onSubmitted,
+  disabled = false,
 }: {
   readonly tripId: string;
   readonly revision: number;
   readonly onSubmitted: () => void;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element {
   const [airportOptions, setAirportOptions] = useState<readonly ComboboxOption[]>([]);
   const [countryOptions, setCountryOptions] = useState<readonly ComboboxOption[]>([]);
@@ -112,7 +115,7 @@ export function RouteFix({
       <button
         type="button"
         onClick={() => void submit()}
-        disabled={busy}
+        disabled={busy || disabled}
         className="w-fit rounded bg-teal px-4 py-2 text-sm font-medium text-paper hover:bg-teal-strong disabled:opacity-50"
       >
         {busy ? "Updating…" : "Update route"}

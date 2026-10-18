@@ -8,11 +8,14 @@ export function ClarificationOptions({
   options,
   busy,
   onChoose,
+  disabled = false,
 }: {
   readonly question: string;
   readonly options: readonly PublicClarificationOption[];
   readonly busy: boolean;
   readonly onChoose: (optionId: string) => void;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element {
   return (
     <div
@@ -25,7 +28,7 @@ export function ClarificationOptions({
           <button
             key={option.id}
             type="button"
-            disabled={busy}
+            disabled={busy || disabled}
             onClick={() => onChoose(option.id)}
             className="rounded border border-border bg-paper px-3 py-1 text-sm disabled:opacity-50"
           >

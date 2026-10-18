@@ -8,7 +8,10 @@ import { startWorker, stopWorker, resetRateLimits } from "./_worker.js";
  * AC-09-4/5 (Phase 09): scenario C renders the empty compatible hotel set with
  * the flight preserved and a retry action that submits `retry_failed_domains`;
  * scenario D renders the siblings and labels the injected `Simulated failure`.
- * Both run on desktop and mobile projects.
+ * AC-09-2/AC-09-6: the inspector renders the communication map, MCP section,
+ * and protocol timeline from persisted rows; an archived trip is read-only
+ * history (notice + disabled mutation controls, no busy preloader).
+ * All run on desktop and mobile projects.
  */
 
 const ORIGIN = process.env.PUBLIC_BASE_URL ?? "http://localhost:3000";
@@ -114,8 +117,7 @@ test("scenario D: the retried hotel research renders siblings and labels the sim
 
 test("scenario C: an empty compatible hotel set explains the gap and offers retry", async ({
   page,
-}) => {
-  const tripId = await createTrip(page);
+}) => {  const tripId = await createTrip(page);
   expect(tripId).not.toBe("");
   await armFault(tripId, "hotels", "hotels_unavailable");
   await bookFlight(page);
@@ -151,4 +153,39 @@ test("scenario C: an empty compatible hotel set explains the gap and offers retr
   await page.goto(`/trips/${tripId}/flights`);
   await expect(page.getByTestId("demo-reference")).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId("demo-reference")).toContainText("DEMO-FLT-");
+});
+
+test("inspector renders the communication sections and archived history is read-only", async ({
+  page,
+}) => {
+  const tripId = await createTrip(page);
+  expect(tripId).not.toBe("");
+  await bookFlight(page);
+
+  // The inspector renders the Phase 09 communication sections from persisted
+  // rows (empty-state copy when nothing was persisted yet — never a failure).
+  await page.goto(`/trips/${tripId}/inspector`);
+  await expect(page.getByTestId("inspector")).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("communication-legend")).toBeVisible();
+  await expect(page.getByTestId("timeline-legend")).toBeVisible();
+
+  // Archive the trip directly: the UI must render the history notice, disable
+  // every mutation control, and never show a busy preloader for history.
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required for the Phase 09 e2e history check");
+  }
+  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  try {
+    await pool.query(
+      `UPDATE odft_app.trips SET archived_at = now(), archive_reason = 'e2e history check' WHERE id = $1`,
+      [tripId],
+    );
+  } finally {
+    await pool.end();
+  }
+  await page.goto(`/trips/${tripId}/flights`);
+  await expect(page.getByTestId("history-notice")).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("history-notice")).toContainText("read-only");
+  await expect(page.getByTestId("operation-preloader")).toHaveCount(0);
 });

@@ -17,11 +17,14 @@ export function InterestControls({
   revision,
   pace,
   onChanged,
+  disabled = false,
 }: {
   readonly tripId: string;
   readonly revision: number;
   readonly pace: ActivityPace;
   readonly onChanged: () => void;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -44,7 +47,7 @@ export function InterestControls({
   }
 
   return (
-    <fieldset className="flex flex-col gap-2" disabled={busy}>
+    <fieldset className="flex flex-col gap-2" disabled={busy || disabled}>
       <legend className="text-sm font-medium">Activity pace</legend>
       <div className="flex flex-wrap gap-3">
         {PACES.map((option) => (

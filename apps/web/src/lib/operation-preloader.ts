@@ -77,7 +77,18 @@ export class OperationPreloader {
     this.update();
   }
 
-  reconcileOperations(operations: readonly ProjectedOperationStatus[]): void {
+  reconcileOperations(
+    operations: readonly ProjectedOperationStatus[],
+    options: { readonly historyReadOnly?: boolean } = {},
+  ): void {
+    // Phase 09 history: an archived trip never shows a busy preloader — its
+    // operations are read-only history, so a lingering `queued` row from before
+    // archival must not keep the UI blocked.
+    if (options.historyReadOnly) {
+      this.trackedOperations.clear();
+      this.update();
+      return;
+    }
     for (const operation of operations) {
       if (operation.status !== "queued" && operation.status !== "running") {
         this.trackedOperations.delete(operation.operationId);

@@ -108,6 +108,12 @@ export const tripSummarySchema = z
     recoveryOperationId: uuidSchema.nullable(),
     /** Phase 03: execution engine of this trip (legacy graph by default). */
     engine: engineSchema.default("langgraph"),
+    /**
+     * Phase 09 history: set when the trip was archived as read-only history
+     * (Phase 11 archival; fixtures only until then). Null = modifiable.
+     */
+    archivedAt: z.string().min(1).nullable().default(null),
+    archiveReason: z.string().min(1).max(200).nullable().default(null),
   })
   .strict();
 export type TripSummary = z.infer<typeof tripSummarySchema>;

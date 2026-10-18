@@ -253,13 +253,18 @@ export async function admitOperation(
     const existing = await getOperationByRequestId(client, tripId, request.requestId);
     if (existing) {
       // Ownership must be validated even on the dedupe path.
-      const owner = await client.query<{ session_id: string }>(
-        `SELECT session_id FROM odft_app.trips WHERE id = $1`,
+      const owner = await client.query<{ session_id: string; archived_at: string | null }>(
+        `SELECT session_id, archived_at::text AS archived_at FROM odft_app.trips WHERE id = $1`,
         [tripId],
       );
       if (owner.rows[0]?.session_id !== sessionId) {
         await client.query("ROLLBACK");
         return error("FORBIDDEN", "trip is not owned by this session");
+      }
+      // Phase 09 history: an archived trip replays nothing as accepted.
+      if (owner.rows[0]?.archived_at) {
+        await client.query("ROLLBACK");
+        return error("TRIP_ARCHIVED", "archived trips are read-only history");
       }
       if (existing.record.payloadHash !== payloadHash) {
         await client.query("ROLLBACK");
@@ -293,6 +298,12 @@ export async function admitOperation(
     if (trip.sessionId !== sessionId) {
       await client.query("ROLLBACK");
       return error("FORBIDDEN", "trip is not owned by this session");
+    }
+    // Phase 09 history: archived trips are read-only (defense in depth — the
+    // BFF already rejects these writes with TRIP_ARCHIVED).
+    if (trip.archivedAt) {
+      await client.query("ROLLBACK");
+      return error("TRIP_ARCHIVED", "archived trips are read-only history");
     }
 
     // Re-check the dedupe key now that we hold the trip lock: a concurrent
@@ -411,13 +422,18 @@ export async function admitResume(
 
     const existing = await getOperationByRequestId(client, tripId, request.requestId);
     if (existing) {
-      const owner = await client.query<{ session_id: string }>(
-        `SELECT session_id FROM odft_app.trips WHERE id = $1`,
+      const owner = await client.query<{ session_id: string; archived_at: string | null }>(
+        `SELECT session_id, archived_at::text AS archived_at FROM odft_app.trips WHERE id = $1`,
         [tripId],
       );
       if (owner.rows[0]?.session_id !== sessionId) {
         await client.query("ROLLBACK");
         return error("FORBIDDEN", "trip is not owned by this session");
+      }
+      // Phase 09 history: an archived trip replays nothing as accepted.
+      if (owner.rows[0]?.archived_at) {
+        await client.query("ROLLBACK");
+        return error("TRIP_ARCHIVED", "archived trips are read-only history");
       }
       if (existing.record.payloadHash !== payloadHash) {
         await client.query("ROLLBACK");
@@ -440,6 +456,11 @@ export async function admitResume(
     if (trip.sessionId !== sessionId) {
       await client.query("ROLLBACK");
       return error("FORBIDDEN", "trip is not owned by this session");
+    }
+    // Phase 09 history: archived trips are read-only (defense in depth).
+    if (trip.archivedAt) {
+      await client.query("ROLLBACK");
+      return error("TRIP_ARCHIVED", "archived trips are read-only history");
     }
     const raced = await getOperationByRequestId(client, tripId, request.requestId);
     if (raced) {

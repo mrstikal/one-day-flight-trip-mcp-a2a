@@ -27,6 +27,7 @@ export function ServiceLevelSelect({
   levelState,
   customObjective,
   onChanged,
+  disabled = false,
 }: {
   readonly tripId: string;
   readonly revision: number;
@@ -35,6 +36,8 @@ export function ServiceLevelSelect({
   readonly levelState: PublicServiceLevelState;
   readonly customObjective: string | null;
   readonly onChanged: () => void;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -76,7 +79,7 @@ export function ServiceLevelSelect({
           data-testid={`level-select-${service}`}
           className="w-48 rounded border border-border bg-paper px-3 py-2 text-sm disabled:opacity-60"
           value={custom ? "custom" : levelState.level}
-          disabled={custom || busy}
+          disabled={custom || busy || disabled}
           onChange={(event) => void apply(event.target.value as ServiceLevel)}
         >
           {LEVEL_LABELS.map(({ value, label: levelLabel }) => (
@@ -90,7 +93,7 @@ export function ServiceLevelSelect({
           <button
             type="button"
             onClick={() => void apply(null)}
-            disabled={busy}
+            disabled={busy || disabled}
             className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50"
           >
             Use default

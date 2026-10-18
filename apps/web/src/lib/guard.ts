@@ -1,5 +1,5 @@
 import type { NextResponse } from "next/server";
-import { renewSession } from "@odft/persistence";
+import { getTrip, renewSession } from "@odft/persistence";
 import { getServerDeps } from "@/lib/server";
 import { clientIp, errorResponse, hasValidOrigin } from "@/lib/http";
 import { CSRF_HEADER, resolveSession, SESSION_TTL_MS, verifyCsrf } from "@/lib/session";
@@ -92,4 +92,32 @@ export async function guardMutation(
   await renewSession(deps.pool, session.sessionId, new Date(Date.now() + SESSION_TTL_MS));
 
   return { ok: true, deps, session };
+}
+
+/**
+ * Phase 09 history denial (ODTF_PLAN.md §3.16 step 6).
+ *
+ * Every trip-mutating BFF route calls this after `guardMutation` and ownership
+ * validation: an archived trip is read-only history, so ANY write — chat,
+ * resume, retry, simulation controls, booking, cancellation, or voice
+ * ledger/conversation writes — is rejected with `TRIP_ARCHIVED` before any
+ * business call runs. Reads (projection, events, inspector) never call this.
+ *
+ * The check reads the trip's `archived_at` under the caller's ownership proof
+ * (`trip.sessionId === session.sessionId`); a foreign or missing trip stays a
+ * uniform 404 so existence is not an oracle.
+ */
+export async function denyArchivedTripWrite(input: {
+  readonly deps: ReturnType<typeof getServerDeps>;
+  readonly sessionId: string;
+  readonly tripId: string;
+}): Promise<NextResponse | null> {
+  const trip = await getTrip(input.deps.pool, input.tripId);
+  if (!trip || trip.sessionId !== input.sessionId) {
+    return errorResponse("NOT_FOUND", "trip not found");
+  }
+  if (trip.archivedAt) {
+    return errorResponse("TRIP_ARCHIVED", "archived trips are read-only history");
+  }
+  return null;
 }

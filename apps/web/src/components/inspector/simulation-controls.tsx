@@ -44,11 +44,14 @@ export function SimulationControls({
   revision,
   inspector,
   onSubmitted,
+  disabled = false,
 }: {
   readonly tripId: string;
   readonly revision: number;
   readonly inspector: PublicInspector;
   readonly onSubmitted: () => void;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | undefined>();
@@ -90,7 +93,7 @@ export function SimulationControls({
           <button
             key={entry.mode}
             type="button"
-            disabled={busy}
+            disabled={busy || disabled}
             title={entry.description}
             onClick={() => {
               void arm(entry.mode);

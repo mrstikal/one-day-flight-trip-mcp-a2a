@@ -14,10 +14,13 @@ export function RouteChangeCard({
   preview,
   busy,
   onConfirm,
+  disabled = false,
 }: {
   readonly preview: PublicRouteChangePreview;
   readonly busy: boolean;
   readonly onConfirm: () => void;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element {
   const money = (minor: number): string => (minor / 100).toFixed(2);
   const variantLabel = (variant: string): string =>
@@ -89,7 +92,7 @@ export function RouteChangeCard({
       )}
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || disabled}
         onClick={onConfirm}
         data-testid="route-change-confirm"
         className="mt-3 rounded bg-teal px-3 py-1.5 text-xs font-medium text-paper disabled:opacity-50"

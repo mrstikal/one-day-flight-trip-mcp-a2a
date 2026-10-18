@@ -107,6 +107,75 @@ export const publicInspectorEventSchema = z
   .strict();
 export type PublicInspectorEvent = z.infer<typeof publicInspectorEventSchema>;
 
+/**
+ * Phase 09 communication-inspector sections (ODTF_PLAN.md §3.15/§3.16).
+ *
+ * Every section renders ONLY persisted safe rows — the visual follows actual
+ * communications, never a static graph topology. A2A/MCP/Application edges
+ * carry distinct labels (see `edge`) with a legend in the UI. No SDK task
+ * objects, prompts, tokens, raw payloads, secrets, or personal data appear.
+ */
+
+export const inspectorEdgeSchema = z.enum(["a2a", "mcp", "application"]);
+export type InspectorEdge = z.infer<typeof inspectorEdgeSchema>;
+
+/** One safe A2A communication row (delegation/task lifecycle evidence). */
+export const publicInspectorCommunicationSchema = z
+  .object({
+    edge: z.literal("a2a"),
+    /** Persisted agent identity (e.g. `flight-agent`); never an endpoint URL. */
+    agentIdentity: nonEmptyStringSchema.max(120),
+    skillId: nonEmptyStringSchema.max(120).nullable(),
+    delegationId: uuidSchema.nullable(),
+    /** Safe SDK-independent task state (`submitted`/`working`/…); never the SDK enum. */
+    taskState: nonEmptyStringSchema.max(40).nullable(),
+    /** Delegation lifecycle status (persisted `agent_delegations.status`). */
+    delegationStatus: nonEmptyStringSchema.max(40).nullable(),
+    /** Safe failure category when the row reports a failure; never a stack. */
+    failureCategory: nonEmptyStringSchema.max(120).nullable(),
+    durationMs: z.number().int().min(0).max(3_600_000).nullable(),
+    /** Delegation attempt (retries visible per §3.15). */
+    attempt: z.number().int().min(1).nullable(),
+    /** Remote-cancel outcome for this delegation (`pending`/`acknowledged`/`failed`). */
+    cancellationState: z.enum(["pending", "acknowledged", "failed"]).nullable(),
+    createdAt: instantSchema,
+    updatedAt: instantSchema,
+  })
+  .strict();
+export type PublicInspectorCommunication = z.infer<typeof publicInspectorCommunicationSchema>;
+
+/** One safe MCP communication row (discovery/invocation evidence). */
+export const publicInspectorMcpCallSchema = z
+  .object({
+    edge: z.literal("mcp"),
+    /** Safe tool/resource/invocation identity (never arguments or results). */
+    name: nonEmptyStringSchema.max(200),
+    kind: z.enum(["tool_call", "resource_read", "connect", "discovery"]),
+    status: z.enum(["ok", "error"]),
+    /** Safe failure category when the row reports a failure; never a stack. */
+    failureCategory: nonEmptyStringSchema.max(120).nullable(),
+    durationMs: z.number().int().min(0).max(3_600_000).nullable(),
+    occurredAt: instantSchema,
+  })
+  .strict();
+export type PublicInspectorMcpCall = z.infer<typeof publicInspectorMcpCallSchema>;
+
+/** One safe application-protocol timeline event (bridged observations). */
+export const publicInspectorTimelineEventSchema = z
+  .object({
+    edge: z.enum(["a2a", "mcp", "application"]),
+    /** Persisted observation kind (e.g. `task_completed`, `mcp_tool_call`). */
+    kind: nonEmptyStringSchema.max(80),
+    /** Persisted observation source identity; never a credential or URL. */
+    source: nonEmptyStringSchema.max(120),
+    operationId: uuidSchema.nullable(),
+    /** Safe one-line summary; never a payload dump. */
+    summary: nonEmptyStringSchema.max(200).nullable(),
+    at: instantSchema,
+  })
+  .strict();
+export type PublicInspectorTimelineEvent = z.infer<typeof publicInspectorTimelineEventSchema>;
+
 export const publicInspectorSchema = z
   .object({
     /** Current persisted scenario mode (`normal` when no overlay is armed). */
@@ -127,6 +196,21 @@ export const publicInspectorSchema = z
      * the coordinator/protocol phases persist observations for a trip.
      */
     protocolObservations: z.array(publicProtocolObservationSchema).max(200).default([]),
+    /**
+     * Phase 09 communication map (ODTF_PLAN.md §3.15): one safe row per
+     * delegation/task lifecycle evidence. Empty until delegations exist.
+     */
+    communications: z.array(publicInspectorCommunicationSchema).max(200).default([]),
+    /**
+     * Phase 09 MCP section: one safe row per discovery/invocation evidence.
+     * Derived from persisted `mcp_*` observations; never arguments/results.
+     */
+    mcpCalls: z.array(publicInspectorMcpCallSchema).max(200).default([]),
+    /**
+     * Phase 09 application-protocol timeline: bridged observations in
+     * chronological source order (A2A/MCP/Application edges with a legend).
+     */
+    timeline: z.array(publicInspectorTimelineEventSchema).max(200).default([]),
   })
   .strict();
 export type PublicInspector = z.infer<typeof publicInspectorSchema>;

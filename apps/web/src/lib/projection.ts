@@ -97,6 +97,8 @@ interface TripRow {
   current_itinerary_id: string | null;
   approved_itinerary_id: string | null;
   engine: string | null;
+  archived_at: string | null;
+  archive_reason: string | null;
 }
 
 /**
@@ -421,7 +423,8 @@ export async function buildTripProjection(
             destination_country_key, sightseeing_date::text AS sightseeing_date, travel_variant,
             preferences, workflow_status, recovery_required, current_route_validation_id,
             current_schedule_validation_id, active_scenario_snapshot_id,
-            current_itinerary_id, approved_itinerary_id, last_unfinished_operation_id, engine
+            current_itinerary_id, approved_itinerary_id, last_unfinished_operation_id, engine,
+            archived_at::text AS archived_at, archive_reason
        FROM odft_app.trips WHERE id = $1`,
     [tripId],
   );
@@ -445,7 +448,11 @@ export async function buildTripProjection(
     recoveryRequired: row.recovery_required,
     recoveryOperationId: row.last_unfinished_operation_id,
     engine: engineSchema.parse(row.engine ?? "langgraph"),
+    archivedAt: row.archived_at,
+    archiveReason: row.archive_reason,
   };
+  const historyReadOnly = row.archived_at !== null;
+  const capabilities = { canModify: !historyReadOnly };
 
   const operationsResult = await pool.query<{
     id: string;
@@ -933,8 +940,15 @@ export async function buildTripProjection(
       createdAt: message.createdAt,
     };
   });
+  // Phase 09 step 4: specialist finite-option questions (`agent_input`,
+  // persisted by the coordinator with question/options in `option_payload`)
+  // render through the existing clarification pattern — the rail's
+  // ClarificationOptions card answers them with the same `choose_option` flow.
   const clarification: PublicClarification | null = (() => {
-    if (decisionRow?.kind !== "clarification" || !decisionRow.option_payload) {
+    if (
+      (decisionRow?.kind !== "clarification" && decisionRow?.kind !== "agent_input") ||
+      !decisionRow.option_payload
+    ) {
       return null;
     }
     const parsed = publicClarificationSchema.safeParse(decisionRow.option_payload);
@@ -1012,6 +1026,8 @@ export async function buildTripProjection(
     routeChange,
     inspector,
     display,
+    historyReadOnly,
+    capabilities,
   };
 }
 

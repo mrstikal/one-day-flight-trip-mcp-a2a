@@ -19,6 +19,7 @@ export function BookingConfirmationDialog({
   onCancel,
   onReject,
   rejectLabel,
+  disabled = false,
 }: {
   readonly open: boolean;
   readonly heading: string;
@@ -29,6 +30,8 @@ export function BookingConfirmationDialog({
   readonly onCancel: () => void;
   readonly onReject?: () => void;
   readonly rejectLabel?: string;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element | null {
   if (!open) {
     return null;
@@ -41,6 +44,7 @@ export function BookingConfirmationDialog({
       error={error}
       onConfirm={onConfirm}
       onCancel={onCancel}
+      disabled={disabled}
       {...(onReject ? { onReject } : {})}
       {...(rejectLabel ? { rejectLabel } : {})}
     />
@@ -56,6 +60,7 @@ function DialogBody({
   onCancel,
   onReject,
   rejectLabel,
+  disabled = false,
 }: {
   readonly heading: string;
   readonly summary: React.ReactNode;
@@ -65,6 +70,7 @@ function DialogBody({
   readonly onCancel: () => void;
   readonly onReject?: () => void;
   readonly rejectLabel?: string;
+  readonly disabled?: boolean;
 }): React.JSX.Element {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [acknowledged, setAcknowledged] = useState(false);
@@ -151,7 +157,7 @@ function DialogBody({
             <button
               type="button"
               onClick={onReject}
-              disabled={busy}
+              disabled={busy || disabled}
               className="rounded border border-border px-4 py-2 text-sm disabled:opacity-50"
             >
               {rejectLabel ?? "Choose a different option"}
@@ -167,7 +173,7 @@ function DialogBody({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={!acknowledged || busy}
+            disabled={!acknowledged || busy || disabled}
             className="rounded bg-teal px-4 py-2 text-sm font-medium text-paper hover:bg-teal-strong disabled:opacity-50"
           >
             {busy ? "Confirming…" : "Confirm simulated booking"}

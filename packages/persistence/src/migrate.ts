@@ -41,6 +41,8 @@ export const MIGRATION_VERSIONS: readonly string[] = [
   "0013-protocol-state",
   "0014-agent-governance",
   "0015-agent-input",
+  "0016-cancel-retries",
+  "0017-bridge-skip",
 ];
 
 export interface MigrationResult {

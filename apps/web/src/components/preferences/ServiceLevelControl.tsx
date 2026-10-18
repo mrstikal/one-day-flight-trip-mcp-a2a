@@ -19,6 +19,7 @@ export function ServiceLevelControl({
   label,
   levelState,
   onChanged,
+  disabled = false,
 }: {
   readonly tripId: string;
   readonly revision: number;
@@ -26,6 +27,8 @@ export function ServiceLevelControl({
   readonly label: string;
   readonly levelState: PublicServiceLevelState;
   readonly onChanged: () => void;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -49,7 +52,7 @@ export function ServiceLevelControl({
 
   const groupName = `service-level-${service}`;
   return (
-    <fieldset className="flex flex-col gap-2" disabled={busy}>
+    <fieldset className="flex flex-col gap-2" disabled={busy || disabled}>
       <legend className="text-sm font-medium">
         {label} category
         <span className="ml-2 text-xs font-normal text-ink-muted">
@@ -73,7 +76,7 @@ export function ServiceLevelControl({
           <button
             type="button"
             onClick={() => void apply(null)}
-            disabled={busy}
+            disabled={busy || disabled}
             className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50"
           >
             Use default

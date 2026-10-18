@@ -142,6 +142,7 @@ describe("coordinator recovery", () => {
             throw new Error("simulated transport outage");
           },
           getTask: realTransport.getTask,
+          cancelTask: realTransport.cancelTask,
         },
         ports: portsFactory({
           operationId: claim.operationId,

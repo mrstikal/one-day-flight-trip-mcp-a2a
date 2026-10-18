@@ -10,6 +10,7 @@ import { useTripEvents } from "@/lib/use-sse";
 import { hasSavedProgram, nextTripStep } from "@/lib/trip-step";
 import { useAssistantVoice } from "@/lib/use-assistant-voice";
 import { appendTranscript, VOICE_COPY, type ComposerState } from "@/lib/voice-state";
+import { CancelOperationButton } from "@/components/operations/CancelOperationButton";
 import { ClarificationOptions } from "./clarification-options";
 import { MessageList } from "./message-list";
 import { RouteChangeCard } from "./route-change-card";
@@ -91,6 +92,23 @@ export function ConversationRail({ tripId }: { readonly tripId: string }): React
       ) ?? false,
     [projection],
   );
+  // Phase 09 history: archived trips are read-only — every mutation control in
+  // the rail is disabled and the composer explains why instead of sending.
+  const readOnly = projection?.historyReadOnly ?? false;
+  // Phase 09 cancellation: the NEWEST unsettled operation can be cancelled
+  // by its owner; the button disappears once the operation settles. The
+  // projection lists operations oldest-first, so the last match is the live
+  // one — every prior decision leaves its own operation `waiting` forever.
+  const cancellableOperation = readOnly
+    ? undefined
+    : [...(projection?.operations ?? [])]
+        .reverse()
+        .find(
+          (operation) =>
+            operation.status === "queued" ||
+            operation.status === "running" ||
+            operation.status === "waiting",
+        );
 
   const handleError = useCallback(
     (caught: unknown): void => {
@@ -192,8 +210,14 @@ export function ConversationRail({ tripId }: { readonly tripId: string }): React
   }, [handleError, projection, refresh, tripId]);
 
   const clarification = projection?.clarification ?? null;
+  // Phase 09 step 4: `agent_input` specialist questions reuse the clarification
+  // card (same finite-option `choose_option` answer path).
   const pendingClarification =
-    clarification && projection?.pendingDecision?.kind === "clarification" ? clarification : null;
+    clarification &&
+    (projection?.pendingDecision?.kind === "clarification" ||
+      projection?.pendingDecision?.kind === "agent_input")
+      ? clarification
+      : null;
   const routeChange =
     projection?.pendingDecision?.kind === "route_change_confirmation"
       ? (projection.routeChange ?? null)
@@ -274,6 +298,7 @@ export function ConversationRail({ tripId }: { readonly tripId: string }): React
           question={pendingClarification.question}
           options={pendingClarification.options}
           busy={busy}
+          disabled={readOnly}
           onChoose={(optionId) => {
             void chooseOption(optionId);
           }}
@@ -284,12 +309,21 @@ export function ConversationRail({ tripId }: { readonly tripId: string }): React
         <RouteChangeCard
           preview={routeChange}
           busy={busy || activeWork}
+          disabled={readOnly}
           onConfirm={() => {
             void confirmRouteChange();
           }}
         />
       ) : null}
 
+      {cancellableOperation && projection ? (
+        <CancelOperationButton
+          tripId={tripId}
+          operationId={cancellableOperation.operationId}
+          revision={projection.trip.revision}
+          onCancelled={refresh}
+        />
+      ) : null}
       {actionError ? (
         <p role="alert" className="text-sm text-red-700">
           {actionError}
@@ -318,7 +352,7 @@ export function ConversationRail({ tripId }: { readonly tripId: string }): React
           maxLength={2000}
           ref={textareaRef}
           value={draft}
-          disabled={busy || !projection}
+          disabled={busy || !projection || readOnly}
           onChange={(event) => {
             const value = event.target.value;
             setComposer({ draft: value, voiceInsertionError: null });
@@ -331,10 +365,10 @@ export function ConversationRail({ tripId }: { readonly tripId: string }): React
             {composer.voiceInsertionError}
           </p>
         ) : null}
-        <VoiceControls voice={voice} />
+        <VoiceControls voice={voice} disabled={readOnly} />
         <button
           type="submit"
-          disabled={busy || activeWork || voice.busy || draft.trim().length === 0}
+          disabled={busy || activeWork || voice.busy || draft.trim().length === 0 || readOnly}
           className="self-end rounded bg-teal px-4 py-2 text-sm font-medium text-paper disabled:opacity-50"
         >
           {activeWork ? "Working…" : "Send"}

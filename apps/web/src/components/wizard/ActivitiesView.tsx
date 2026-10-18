@@ -154,6 +154,8 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
       ) ?? false,
     [projection],
   );
+  // Phase 09 history: archived trips render every mutation control disabled.
+  const readOnly = projection?.historyReadOnly ?? false;
 
   if (!projection) {
     if (error) {
@@ -271,6 +273,7 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
       <div className="flex flex-col gap-6">
         {banner}
         <RecoveryCard
+          disabled={readOnly}
           decision={pendingDecision}
           tripId={tripId}
           busy={busy}
@@ -311,7 +314,7 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
                       Minimum {count} {tag} visit{count === 1 ? "" : "s"}
                       <button
                         type="button"
-                        disabled={busy || activeWork}
+                        disabled={busy || activeWork || readOnly}
                         onClick={() => void clearRequirement(tag)}
                         className="text-clay underline disabled:opacity-50"
                       >
@@ -337,7 +340,7 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
                 type="checkbox"
                 data-testid="self-arranged-activities"
                 checked={activitiesSelfArranged}
-                disabled={busy || activeWork}
+                disabled={busy || activeWork || readOnly}
                 onChange={(event) => setSelfArrangedOverride(event.target.checked)}
               />
               I&apos;ll arrange the activities myself
@@ -357,7 +360,8 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
               revision={projection.trip.revision}
               pace={projection.trip.preferences.activityPace}
               onChanged={refresh}
-            />
+          disabled={readOnly}
+        />
             {actionError ? (
               <p role="alert" className="text-sm text-clay">
                 {actionError}
@@ -370,7 +374,7 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
                     key={activity.id}
                     activity={activity}
                     selected={selectedIds.includes(activity.id)}
-                    disabled={busy || activeWork}
+                    disabled={busy || activeWork || readOnly}
                     planned={plannedById.has(activity.id)}
                     {...(plannedById.has(activity.id)
                       ? { plannedSlot: plannedById.get(activity.id) }

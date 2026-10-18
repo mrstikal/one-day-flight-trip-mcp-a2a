@@ -7,7 +7,7 @@ import {
   readJsonResult,
   scopeErrorResponse,
 } from "@/lib/http";
-import { guardMutation } from "@/lib/guard";
+import { denyArchivedTripWrite, guardMutation } from "@/lib/guard";
 import { consumeRateLimit, scopeHash } from "@/lib/rate-limit";
 import { SIGHTSEEING_DATE_WINDOW_MESSAGE, isValidSightseeingDate } from "@/lib/date-window";
 
@@ -79,6 +79,14 @@ export async function POST(
   }
 
   const { id } = await context.params;
+  const archived = await denyArchivedTripWrite({
+    deps: guard.deps,
+    sessionId: guard.session.sessionId,
+    tripId: id,
+  });
+  if (archived) {
+    return archived;
+  }
   const result = await admitOperation(guard.deps.pool, {
     tripId: id,
     sessionId: guard.session.sessionId,

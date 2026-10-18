@@ -36,6 +36,8 @@ export interface AgentDelegationRecord {
   readonly acceptedArtifactHash: string | null;
   readonly cancellationRequestedAt: string | null;
   readonly cancellationState: "pending" | "acknowledged" | "failed" | null;
+  /** Phase 09 cancel outbox: SDK cancel attempts so far (bounded retries). */
+  readonly cancellationAttempts: number;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -63,6 +65,7 @@ interface DelegationRow {
   accepted_artifact_hash: string | null;
   cancellation_requested_at: Date | null;
   cancellation_state: "pending" | "acknowledged" | "failed" | null;
+  cancellation_attempts: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -71,6 +74,7 @@ const DELEGATION_COLUMNS =
   "id, trip_id, originating_operation_id, current_operation_id, accepted_revision, skill_id, agent_identity, " +
   "endpoint_url, card_version, snapshot_id, input_fingerprint, scope, task_id, context_id, status, deadline_at, " +
   "attempt, revoked_at, revoke_reason, accepted_artifact_hash, cancellation_requested_at, cancellation_state, " +
+  "cancellation_attempts, " +
   "created_at, updated_at";
 
 function toRecord(row: DelegationRow): AgentDelegationRecord {
@@ -99,6 +103,7 @@ function toRecord(row: DelegationRow): AgentDelegationRecord {
       ? row.cancellation_requested_at.toISOString()
       : null,
     cancellationState: row.cancellation_state,
+    cancellationAttempts: row.cancellation_attempts ?? 0,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -226,6 +231,97 @@ export async function requestDelegationCancellation(
             updated_at = now()
       WHERE id = $1`,
     [delegationId],
+  );
+}
+
+export interface PendingDelegationCancel {
+  readonly delegationId: string;
+  readonly agentIdentity: string;
+  readonly tripId: string;
+  readonly taskId: string | null;
+  readonly contextId: string | null;
+  readonly attempts: number;
+}
+
+/**
+ * Phase 09 cancel outbox: delegations whose remote SDK cancellation was
+ * persisted as an intent but never reconciled. The reconciler processes them
+ * independently of the (already cancelled) operation claim with bounded
+ * retries; the final outcome (`acknowledged`/`failed`) is rendered in the
+ * inspector.
+ */
+export async function listPendingDelegationCancels(
+  client: Queryable,
+  limit = 50,
+): Promise<PendingDelegationCancel[]> {
+  const result = await client.query<{
+    id: string;
+    agent_identity: string;
+    trip_id: string;
+    task_id: string | null;
+    context_id: string | null;
+    cancellation_attempts: number;
+  }>(
+    `SELECT id, agent_identity, trip_id, task_id, context_id, cancellation_attempts
+       FROM odft_app.agent_delegations
+      WHERE cancellation_state = 'pending'
+      ORDER BY cancellation_attempts ASC, cancellation_requested_at NULLS LAST, created_at
+      LIMIT $1`,
+    [limit],
+  );
+  return result.rows.map((row) => ({
+    delegationId: row.id,
+    agentIdentity: row.agent_identity,
+    tripId: row.trip_id,
+    taskId: row.task_id,
+    contextId: row.context_id,
+    attempts: row.cancellation_attempts ?? 0,
+  }));
+}
+
+/** Record one failed SDK cancel attempt (bounded retries stay `pending`). */
+export async function noteDelegationCancelAttempt(
+  client: Queryable,
+  delegationId: string,
+): Promise<void> {
+  await client.query(
+    `UPDATE odft_app.agent_delegations
+        SET cancellation_attempts = cancellation_attempts + 1, updated_at = now()
+      WHERE id = $1 AND cancellation_state = 'pending'`,
+    [delegationId],
+  );
+}
+
+/**
+ * Claim one pending cancel intent for this reconciler before dispatching the
+ * SDK call: the guarded UPDATE returns false when a concurrent reconciler
+ * already claimed (or settled) the intent, so the loser skips the transport
+ * call instead of double-dispatching `cancelTask` and double-counting.
+ */
+export async function claimDelegationCancel(
+  client: Queryable,
+  delegationId: string,
+): Promise<boolean> {
+  const result = await client.query(
+    `UPDATE odft_app.agent_delegations
+        SET cancellation_attempts = cancellation_attempts + 1, updated_at = now()
+      WHERE id = $1 AND cancellation_state = 'pending'
+      RETURNING id`,
+    [delegationId],
+  );
+  return (result.rowCount ?? 0) === 1;
+}
+
+/** Record the reconciled remote-cancel outcome (inspector evidence). */
+export async function resolveDelegationCancellation(
+  client: Queryable,
+  input: { delegationId: string; state: "acknowledged" | "failed" },
+): Promise<void> {
+  await client.query(
+    `UPDATE odft_app.agent_delegations
+        SET cancellation_state = $2, updated_at = now()
+      WHERE id = $1 AND cancellation_state = 'pending'`,
+    [input.delegationId, input.state],
   );
 }
 

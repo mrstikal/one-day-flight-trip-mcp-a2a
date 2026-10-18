@@ -159,5 +159,12 @@ export function createA2ADelegationTransport(config: ProtocolConfig): Coordinato
       };
       return snapshot;
     },
+    async cancelTask(input) {
+      await client.cancelTask(input.agentIdentity, {
+        id: input.taskId,
+        tenant: "",
+        metadata: undefined,
+      });
+    },
   };
 }

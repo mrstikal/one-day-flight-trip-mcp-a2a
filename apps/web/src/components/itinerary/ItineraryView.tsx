@@ -127,6 +127,8 @@ export function ItineraryView({ tripId }: { readonly tripId: string }): React.JS
       ) ?? false,
     [projection],
   );
+  // Phase 09 history: archived trips render every mutation control disabled.
+  const readOnly = projection?.historyReadOnly ?? false;
 
   if (!projection) {
     if (error) {
@@ -178,7 +180,7 @@ export function ItineraryView({ tripId }: { readonly tripId: string }): React.JS
             type="button"
             data-testid="build-itinerary"
             onClick={() => void build()}
-            disabled={busy || pending !== null}
+            disabled={busy || pending !== null || readOnly}
             className="w-fit rounded bg-teal px-4 py-2 text-sm font-medium text-paper hover:bg-teal-strong disabled:opacity-50"
           >
             {busy ? "Building…" : "Build itinerary"}
@@ -245,6 +247,7 @@ export function ItineraryView({ tripId }: { readonly tripId: string }): React.JS
           busy={busy}
           error={actionError}
           onChoose={chooseRecovery}
+          disabled={readOnly}
         />
       ) : null}
 
@@ -273,7 +276,7 @@ export function ItineraryView({ tripId }: { readonly tripId: string }): React.JS
             type="button"
             data-testid="open-approval"
             onClick={() => setDialogOpen(true)}
-            disabled={blockingErrors > 0}
+            disabled={blockingErrors > 0 || readOnly}
             className="w-fit rounded bg-teal px-4 py-2 text-sm font-medium text-paper hover:bg-teal-strong disabled:opacity-50"
           >
             Review and approve
@@ -293,7 +296,7 @@ export function ItineraryView({ tripId }: { readonly tripId: string }): React.JS
           type="button"
           data-testid="rebuild-itinerary"
           onClick={() => void build()}
-          disabled={busy}
+          disabled={busy || readOnly}
           className="w-fit rounded border border-teal px-3 py-1 text-sm text-teal disabled:opacity-50"
         >
           {busy ? "Rebuilding…" : "Rebuild itinerary"}

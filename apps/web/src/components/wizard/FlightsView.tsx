@@ -40,6 +40,8 @@ export function FlightsView({ tripId }: { readonly tripId: string }): React.JSX.
       ) ?? false,
     [projection],
   );
+  // Phase 09 history: archived trips render every mutation control disabled.
+  const readOnly = projection?.historyReadOnly ?? false;
 
   const handleError = useCallback(
     (caught: unknown): void => {
@@ -211,7 +213,7 @@ export function FlightsView({ tripId }: { readonly tripId: string }): React.JSX.
   if (flights.routeStatus === "INFEASIBLE" || flights.routeStatus === "UNDETERMINED") {
     return wrap(
       <RouteRejectionCard reasons={flights.routeReasons} alternatives={flights.alternatives}>
-        <RouteFix tripId={tripId} revision={projection.trip.revision} onSubmitted={refresh} />
+        <RouteFix tripId={tripId} revision={projection.trip.revision} onSubmitted={refresh} disabled={readOnly} />
       </RouteRejectionCard>,
     );
   }
@@ -277,7 +279,7 @@ export function FlightsView({ tripId }: { readonly tripId: string }): React.JSX.
             </button>
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || readOnly}
               onClick={() =>
                 void submitResponse(pendingDecision.id, projection.trip.revision, {
                   action: "reject_proposal",
@@ -291,7 +293,7 @@ export function FlightsView({ tripId }: { readonly tripId: string }): React.JSX.
             {pendingDecision.kind === "booking_confirmation" ? (
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || readOnly}
                 data-testid="decline-flight-booking"
                 onClick={() =>
                   void declineFlightBooking(
@@ -356,7 +358,7 @@ export function FlightsView({ tripId }: { readonly tripId: string }): React.JSX.
               key={flight.id}
               flight={flight}
               selected={false}
-              disabled={busy || activeWork}
+              disabled={busy || activeWork || readOnly}
               onChoose={() =>
                 void chooseOffer(pendingDecision.id, projection.trip.revision, flight.id)
               }
@@ -422,7 +424,7 @@ export function FlightsView({ tripId }: { readonly tripId: string }): React.JSX.
           <FlightCard
             flight={keptFlight}
             selected
-            disabled={busy || activeWork}
+            disabled={busy || activeWork || readOnly}
             actionLabel="Book this flight"
             onChoose={() => void bookSelectedFlight(keptFlight.id)}
           />

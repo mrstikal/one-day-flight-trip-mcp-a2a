@@ -27,6 +27,7 @@ export function RecoveryCard({
   busy,
   error,
   onChoose,
+  disabled = false,
 }: {
   readonly decision: PublicPendingDecision;
   readonly tripId: string;
@@ -34,6 +35,8 @@ export function RecoveryCard({
   readonly error: string | undefined;
   /** Submits the choice; resolves true only when the resume was accepted. */
   readonly onChoose: (optionId: string) => Promise<boolean>;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element {
   const router = useRouter();
 
@@ -71,7 +74,7 @@ export function RecoveryCard({
           <button
             key={optionId}
             type="button"
-            disabled={busy}
+            disabled={busy || disabled}
             onClick={() => {
               void choose(optionId);
             }}

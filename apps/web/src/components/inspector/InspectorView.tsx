@@ -5,7 +5,10 @@ import Link from "next/link";
 import { useTripProjection } from "@/lib/use-trip-projection";
 import { useTripEvents } from "@/lib/use-sse";
 import { hasSavedProgram, nextTripStep } from "@/lib/trip-step";
+import { AgentCard } from "./agent-card";
+import { CommunicationMap } from "./communication-map";
 import { ExecutionGraph } from "./execution-graph";
+import { ProtocolTimeline } from "./protocol-timeline";
 import { SimulationControls } from "./simulation-controls";
 
 /**
@@ -208,6 +211,24 @@ export function InspectorView({ tripId }: { readonly tripId: string }): React.JS
         </table>
       </section>
 
+      <CommunicationMap communications={inspector.communications} />
+
+      {inspector.communications.length > 0 ? (
+        <section aria-label="Agents">
+          <h2 className="text-base font-semibold">Agents</h2>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {inspector.communications.map((row, index) => (
+              <AgentCard
+                key={`${row.delegationId ?? row.agentIdentity}-${index}`}
+                communication={row}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <ProtocolTimeline mcpCalls={inspector.mcpCalls} timeline={inspector.timeline} />
+
       <section aria-label="LLM calls">
         <h2 className="text-base font-semibold">LLM calls</h2>
         <p className="mt-1 text-xs text-ink-muted">
@@ -344,7 +365,7 @@ export function InspectorView({ tripId }: { readonly tripId: string }): React.JS
         )}
       </section>
 
-      {projection.display.demoControlsEnabled ? (
+      {projection.display.demoControlsEnabled && !projection.historyReadOnly ? (
         <SimulationControls
           tripId={tripId}
           revision={projection.trip.revision}

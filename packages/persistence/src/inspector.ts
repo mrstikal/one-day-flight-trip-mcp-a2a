@@ -4,13 +4,18 @@ import {
   errorCodeSchema,
   graphDefinitionSchema,
   operationStatusSchema,
+  protocolObservationSchema,
   publicInspectorFaultSchema,
   publicInspectorSchema,
   publicVoiceCallSchema,
   scenarioDomainSchema,
   type PublicInspector,
+  type PublicInspectorCommunication,
   type PublicInspectorEvent,
+  type PublicInspectorMcpCall,
   type PublicInspectorNode,
+  type PublicInspectorTimelineEvent,
+  type PublicProtocolObservation,
   type PublicVoiceCall,
 } from "@odft/contracts";
 import { formatUsdAmount, parseUsdAmount, usdFromDb } from "./usd.js";
@@ -186,6 +191,8 @@ export async function loadPublicInspector(
     faultsResult,
     eventsResult,
     activeResult,
+    communicationsResult,
+    observationsResult,
   ] = await Promise.all([
     client.query<{ payload: unknown }>(
       `SELECT payload FROM odft_app.execution_events
@@ -292,6 +299,71 @@ export async function loadPublicInspector(
       `SELECT id, kind FROM odft_app.pending_decisions
           WHERE trip_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 1`,
       [tripId],
+    ),
+    // Phase 09 communication map: persisted delegation/task lifecycle evidence.
+    client.query<{
+      agent_identity: string;
+      skill_id: string | null;
+      delegation_id: string | null;
+      task_state: string | null;
+      delegation_status: string | null;
+      failure_category: string | null;
+      duration_ms: number | null;
+      attempt: number | null;
+      cancellation_state: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `SELECT d.agent_identity, d.skill_id, d.id AS delegation_id, d.attempt,
+              -- Task lifecycle evidence: the latest persisted task observation
+              -- for this delegation (SDK-independent safe state), if any.
+              (SELECT o.payload->>'status' FROM odft_app.protocol_observations o
+                WHERE o.delegation_id = d.id
+                  AND o.kind IN ('task_accepted','task_progress','task_completed','task_failed','task_cancelled','task_input_required')
+                ORDER BY o.occurred_at DESC LIMIT 1) AS task_state,
+              d.status AS delegation_status,
+              (SELECT o.payload->>'failureCategory' FROM odft_app.protocol_observations o
+                WHERE o.delegation_id = d.id AND o.payload->>'failureCategory' IS NOT NULL
+                ORDER BY o.occurred_at DESC LIMIT 1) AS failure_category,
+              -- Defensive cast: a non-integer payload value yields NULL instead
+              -- of throwing the whole inspector query; missing stays NULL (never
+              -- a fabricated 0 duration).
+              (SELECT CASE
+                 WHEN o.payload->>'durationMs' ~ '^\\d+$'
+                 THEN (o.payload->>'durationMs')::int
+                 ELSE NULL END
+                 FROM odft_app.protocol_observations o
+                WHERE o.delegation_id = d.id AND o.payload->>'durationMs' IS NOT NULL
+                ORDER BY o.occurred_at DESC LIMIT 1) AS duration_ms,
+              d.cancellation_state,
+              d.created_at::text AS created_at, d.updated_at::text AS updated_at
+         FROM odft_app.agent_delegations d
+        WHERE d.trip_id = $1
+        ORDER BY d.created_at DESC LIMIT $2`,
+      [tripId, MAX_ROWS],
+    ),
+    // Phase 09 MCP section + application timeline: persisted observations only.
+    client.query<{
+      id: string;
+      source: string;
+      kind: string;
+      trip_id: string | null;
+      operation_id: string | null;
+      delegation_id: string | null;
+      task_id: string | null;
+      context_id: string | null;
+      trace_id: string | null;
+      payload: unknown;
+      payload_hash: string;
+      occurred_at: string;
+    }>(
+      `SELECT id, source, kind, trip_id, operation_id, delegation_id, task_id,
+              context_id, trace_id, payload, payload_hash,
+              occurred_at::text AS occurred_at
+         FROM odft_app.protocol_observations
+        WHERE trip_id = $1
+        ORDER BY occurred_at DESC LIMIT $2`,
+      [tripId, MAX_ROWS],
     ),
   ]);
 
@@ -469,6 +541,157 @@ export async function loadPublicInspector(
   const events = eventsResult.rows.map(rowToEvent);
   const scenarioMode = faultsResult.rows[0]?.fault ?? "normal";
 
+  // Phase 09 communication map: one safe row per delegation. Unsafe rows
+  // (unknown identities, overlong strings) are dropped, never rendered.
+  const communications: PublicInspectorCommunication[] = communicationsResult.rows.flatMap((row) => {
+    const state =
+      row.cancellation_state === "pending" ||
+      row.cancellation_state === "acknowledged" ||
+      row.cancellation_state === "failed"
+        ? row.cancellation_state
+        : null;
+    if (typeof row.agent_identity !== "string" || row.agent_identity.length === 0) {
+      return [];
+    }
+    return [
+      {
+        edge: "a2a" as const,
+        agentIdentity: row.agent_identity.slice(0, 120),
+        skillId:
+          typeof row.skill_id === "string" && row.skill_id.length > 0
+            ? row.skill_id.slice(0, 120)
+            : null,
+        delegationId: row.delegation_id,
+        taskState:
+          typeof row.task_state === "string" && row.task_state.length > 0
+            ? row.task_state.slice(0, 40)
+            : null,
+        delegationStatus:
+          typeof row.delegation_status === "string" && row.delegation_status.length > 0
+            ? row.delegation_status.slice(0, 40)
+            : null,
+        failureCategory:
+          typeof row.failure_category === "string" && row.failure_category.length > 0
+            ? row.failure_category.slice(0, 120)
+            : null,
+        durationMs:
+          typeof row.duration_ms === "number" && Number.isFinite(row.duration_ms)
+            ? Math.max(0, Math.min(Math.round(row.duration_ms), 3_600_000))
+            : null,
+        attempt:
+          typeof row.attempt === "number" && Number.isFinite(row.attempt) && row.attempt >= 1
+            ? Math.round(row.attempt)
+            : null,
+        cancellationState: state,
+        createdAt: toIso(row.created_at),
+        updatedAt: toIso(row.updated_at),
+      },
+    ];
+  });
+
+  // Phase 09 persisted observations: safe rows only (schema-validated). The
+  // timeline keeps chronological SOURCE order (observed_at), not ingestion
+  // order — late observations slot into the right position.
+  const observations: PublicProtocolObservation[] = observationsResult.rows.flatMap((row) => {
+    const parsed = protocolObservationSchema.safeParse({
+      id: row.id,
+      source: row.source,
+      kind: row.kind,
+      correlation: {
+        tripId: row.trip_id,
+        operationId: row.operation_id,
+        delegationId: row.delegation_id,
+        taskId: row.task_id,
+        contextId: row.context_id,
+        traceId: row.trace_id,
+      },
+      payload: row.payload,
+      occurredAt: toIso(row.occurred_at),
+      payloadHash: row.payload_hash,
+    });
+    if (!parsed.success) {
+      return [];
+    }
+    return [{ ...parsed.data, id: parsed.data.id ?? row.id }];
+  });
+
+  const mcpCalls: PublicInspectorMcpCall[] = [];
+  const timeline: PublicInspectorTimelineEvent[] = [];
+  for (const observation of [...observations].reverse()) {
+    const source = shortString(observation.source, 120) ?? "unknown";
+    const summary = shortString(
+      typeof observation.payload.detail === "string" ? observation.payload.detail : null,
+      200,
+    );
+    // Agent-card discovery is an A2A interaction (§3.15 table), not an MCP
+    // call: it renders on the timeline with the a2a edge, never in the MCP
+    // section, so both sections agree.
+    if (
+      observation.kind === "mcp_tool_call" ||
+      observation.kind === "mcp_resource_read" ||
+      observation.kind === "mcp_connect"
+    ) {
+      const name =
+        shortString(
+          typeof observation.payload.detail === "string" ? observation.payload.detail : null,
+          200,
+        ) ?? observation.kind;
+      const status = observation.payload.status === "error" ? "error" : "ok";
+      const failureCategory =
+        status === "error"
+          ? (shortString(
+              typeof observation.payload.failureCategory === "string"
+                ? observation.payload.failureCategory
+                : null,
+              120,
+            ) ?? "UNKNOWN")
+          : null;
+      // Defensive duration cast: a non-integer payload value yields null
+      // instead of throwing the whole inspector query.
+      const rawDuration =
+        typeof observation.payload.durationMs === "number"
+          ? observation.payload.durationMs
+          : typeof observation.payload.durationMs === "string" &&
+              /^\d+$/.test(observation.payload.durationMs)
+            ? Number.parseInt(observation.payload.durationMs, 10)
+            : null;
+      const duration =
+        rawDuration !== null && Number.isFinite(rawDuration)
+          ? Math.max(0, Math.min(Math.round(rawDuration), 3_600_000))
+          : null;
+      mcpCalls.push({
+        edge: "mcp",
+        name,
+        kind:
+          observation.kind === "mcp_resource_read"
+            ? "resource_read"
+            : observation.kind === "mcp_connect"
+              ? "connect"
+              : "tool_call",
+        status: status as "ok" | "error",
+        failureCategory,
+        durationMs: duration,
+        occurredAt: observation.occurredAt,
+      });
+    }
+    const edge =
+      observation.kind === "mcp_tool_call" ||
+      observation.kind === "mcp_resource_read" ||
+      observation.kind === "mcp_connect"
+        ? ("mcp" as const)
+        : observation.source === "coordinator"
+          ? ("application" as const)
+          : ("a2a" as const);
+    timeline.push({
+      edge,
+      kind: observation.kind,
+      source,
+      operationId: observation.correlation.operationId,
+      summary,
+      at: observation.occurredAt,
+    });
+  }
+
   const candidate = {
     scenarioMode,
     graph,
@@ -480,6 +703,10 @@ export async function loadPublicInspector(
     voiceCalls,
     faults,
     events,
+    protocolObservations: observations.slice(0, MAX_ROWS),
+    communications: communications.slice(0, MAX_ROWS),
+    mcpCalls: mcpCalls.slice(0, MAX_ROWS),
+    timeline: timeline.slice(0, MAX_ROWS),
   };
   const parsed = publicInspectorSchema.safeParse(candidate);
   if (parsed.success) {

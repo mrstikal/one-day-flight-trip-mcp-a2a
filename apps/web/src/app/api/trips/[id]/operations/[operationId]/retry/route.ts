@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { technicalRetryApiRequestSchema } from "@odft/contracts";
 import { retryOperation } from "@odft/persistence";
 import { envelopeResponse, errorResponse, jsonResponse, readJsonResult, scopeErrorResponse } from "@/lib/http";
-import { guardMutation } from "@/lib/guard";
+import { denyArchivedTripWrite, guardMutation } from "@/lib/guard";
 
 /**
  * POST /api/trips/[id]/operations/[operationId]/retry — explicit owner technical
@@ -40,6 +40,14 @@ export async function POST(
   }
 
   const { id, operationId } = await context.params;
+  const archived = await denyArchivedTripWrite({
+    deps: guard.deps,
+    sessionId: guard.session.sessionId,
+    tripId: id,
+  });
+  if (archived) {
+    return archived;
+  }
   const result = await retryOperation(guard.deps.pool, {
     tripId: id,
     sessionId: guard.session.sessionId,

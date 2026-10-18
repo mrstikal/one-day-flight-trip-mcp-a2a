@@ -34,6 +34,9 @@ export interface TripRecord {
   readonly lastUnfinishedOperationId?: string;
   /** Phase 03: execution engine; legacy records default to the graph. */
   readonly engine?: Engine;
+  /** Phase 09 history: set when the trip was archived as read-only history. */
+  readonly archivedAt?: string | null;
+  readonly archiveReason?: string | null;
 }
 
 export interface OfferRecord {

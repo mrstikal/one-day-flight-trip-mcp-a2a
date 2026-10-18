@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { resumeApiRequestSchema } from "@odft/contracts";
 import { admitResume } from "@odft/persistence";
 import { envelopeResponse, errorResponse, jsonResponse, readJsonResult, scopeErrorResponse } from "@/lib/http";
-import { guardMutation } from "@/lib/guard";
+import { denyArchivedTripWrite, guardMutation } from "@/lib/guard";
 
 /**
  * POST /api/trips/[id]/resume — admit a decision resume. The BFF generates the
@@ -41,6 +41,14 @@ export async function POST(
   }
 
   const { id } = await context.params;
+  const archived = await denyArchivedTripWrite({
+    deps: guard.deps,
+    sessionId: guard.session.sessionId,
+    tripId: id,
+  });
+  if (archived) {
+    return archived;
+  }
   const result = await admitResume(guard.deps.pool, {
     tripId: id,
     sessionId: guard.session.sessionId,

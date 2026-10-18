@@ -25,6 +25,7 @@ import {
 import { runClaimLoop } from "./claim.js";
 import { createCoordinatorDriver } from "./coordinator-driver.js";
 import { createA2ADelegationTransport, loadCoordinatorTransportConfig } from "./coordinator-transport.js";
+import { runReconcileLoop } from "./reconcile-loop.js";
 import { createOperationDriver, type WorkerGraph } from "./driver.js";
 import { createAiService } from "./ai/service.js";
 import { createTravelPortsFactory } from "./travel/ports.js";
@@ -223,6 +224,17 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
           graceMs: options.graceMs ?? 30_000,
           logger,
           supportedEngines: ["coordinator-v1"],
+        }),
+      );
+      // Phase 09 durable outboxes: the observation bridge and the cancel
+      // reconciler run on their own interval, independently of any claim.
+      // The delegation transport already speaks SDK cancelTask.
+      loops.push(
+        runReconcileLoop({
+          operationsPool,
+          shutdown,
+          transport: coordinatorTransport,
+          logger,
         }),
       );
     }

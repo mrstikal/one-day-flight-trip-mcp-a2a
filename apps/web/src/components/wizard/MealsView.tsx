@@ -194,6 +194,8 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
     [projection],
   );
   const activeWork = activeOperation !== undefined;
+  // Phase 09 history: archived trips render every mutation control disabled.
+  const readOnly = projection?.historyReadOnly ?? false;
 
   if (!projection) {
     if (error) {
@@ -225,9 +227,13 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
   // step. A decision that must be answered elsewhere (a live hotel/flight
   // choice, a staged booking confirmation, recovery) keeps the step read-only.
   const changesEditable =
-    pendingDecision === null ||
-    pendingDecision.kind === "itinerary_approval" ||
-    pendingDecision.kind === "clarification";
+    !readOnly &&
+    (pendingDecision === null ||
+      pendingDecision.kind === "itinerary_approval" ||
+      pendingDecision.kind === "clarification" ||
+      // Phase 09: an archived trip's lingering pending decision no longer
+      // blocks the read-only explanation below.
+      pendingDecision.kind === "agent_input");
 
   const banner = error ? (
     <p role="status" className="rounded border border-clay bg-cream p-3 text-sm text-clay">
@@ -314,7 +320,7 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
                       type="checkbox"
                       data-testid={`self-arranged-${meal}`}
                       checked={isSelfArranged}
-                      disabled={busy || activeWork || confirmedHere}
+                      disabled={busy || activeWork || readOnly || confirmedHere}
                       onChange={(event) =>
                         setSelfArrangedOverride({
                           ...selfArranged,
@@ -356,7 +362,8 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
                     levelState={serviceLevels[meal]}
                     customObjective={searchObjectives[meal]}
                     onChanged={refresh}
-                  />
+          disabled={readOnly}
+        />
                   {offers.length === 0 ? (
                     <p className="text-sm text-ink-muted">
                       No {meal} offers are available for this category.
@@ -376,7 +383,7 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
                             selection[meal] === offer.id ? "Selected" : `Choose this ${meal}`
                           }
                           selected={selection[meal] === offer.id}
-                          disabled={busy || activeWork}
+                          disabled={busy || activeWork || readOnly}
                           testId={`meal-offer-${meal}`}
                           onAction={() => setMealSelection({ ...selection, [meal]: offer.id })}
                         />
@@ -391,7 +398,7 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
         <div>
           <button
             type="button"
-            disabled={busy || activeWork || !ready}
+            disabled={busy || activeWork || readOnly || !ready}
             onClick={() =>
               void submitResponse(pendingDecision.id, projection.trip.revision, {
                 action: "submit_program",
@@ -425,6 +432,7 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
       <div className="flex flex-col gap-6">
         {banner}
         <RecoveryCard
+          disabled={readOnly}
           decision={pendingDecision}
           tripId={tripId}
           busy={busy}
@@ -474,6 +482,7 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
         <div className="flex flex-col gap-6">
           {banner}
           <ProposalReview
+            disabled={readOnly}
             title={`Confirm your ${mealService} reservation`}
             description="Restaurant reservations are optional. Confirm to create the simulated reservation, or choose a different option."
             proposal={proposal}
@@ -488,6 +497,7 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
             }
           />
           <BookingConfirmationDialog
+            disabled={readOnly}
             open={dialogOpen}
             heading="Confirm this simulated restaurant booking"
             busy={busy}
@@ -579,6 +589,7 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
                       service={meal}
                       label={meal}
                       onChanged={refresh}
+                      disabled={readOnly}
                     />
                   ) : null}
                   {program && !blocked && !confirmedHere ? (
@@ -594,7 +605,7 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
                         type="checkbox"
                         data-testid={`saved-self-arranged-${meal}`}
                         checked={isSelfArranged}
-                        disabled={busy || activeWork || (!isSelfArranged && offerId === null)}
+                        disabled={busy || activeWork || readOnly || (!isSelfArranged && offerId === null)}
                         onChange={(event) => void toggleSelfArranged(meal, event.target.checked)}
                       />
                       I&apos;ll arrange it myself
@@ -628,7 +639,7 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
               <button
                 key={meal}
                 type="button"
-                disabled={busy || activeWork}
+                disabled={busy || activeWork || readOnly}
                 onClick={() => void reserveMeal(meal, offerId)}
                 className="w-fit rounded border border-teal px-4 py-2 text-sm text-teal disabled:opacity-50"
               >
@@ -666,7 +677,7 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
               revision={projection.trip.revision}
               domain={meal}
               state={state}
-              disabled={activeWork}
+              disabled={activeWork || readOnly}
               onRetried={refresh}
             />
           ))}
@@ -681,7 +692,8 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
                 levelState={serviceLevels[meal]}
                 customObjective={searchObjectives[meal]}
                 onChanged={refresh}
-              />
+          disabled={readOnly}
+        />
             ))}
           </div>
         </div>

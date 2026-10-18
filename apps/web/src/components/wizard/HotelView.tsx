@@ -93,6 +93,8 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
       ) ?? false,
     [projection],
   );
+  // Phase 09 history: archived trips render every mutation control disabled.
+  const readOnly = projection?.historyReadOnly ?? false;
 
   // The trip can be left at the hotel step without a waiting decision when an
   // earlier chat operation ended without one. Nothing is preparing then, so the
@@ -188,9 +190,13 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
   // must be answered elsewhere (a live hotel/flight choice, a staged booking
   // confirmation, the meal program step, recovery) keeps the step read-only.
   const changesEditable =
-    pendingDecision === null ||
-    pendingDecision.kind === "itinerary_approval" ||
-    pendingDecision.kind === "clarification";
+    !readOnly &&
+    (pendingDecision === null ||
+      pendingDecision.kind === "itinerary_approval" ||
+      pendingDecision.kind === "clarification" ||
+      // Phase 09: an archived trip's lingering pending decision no longer
+      // blocks the read-only explanation below.
+      pendingDecision.kind === "agent_input");
   const changeControls = (
     <>
       {changesEditable ? (
@@ -206,6 +212,7 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
             service="hotel"
             label="hotel"
             onChanged={refresh}
+            disabled={readOnly}
           />
         </>
       ) : pendingDecision ? (
@@ -242,6 +249,7 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
       <div className="flex flex-col gap-6">
         {banner}
         <RecoveryCard
+          disabled={readOnly}
           decision={pendingDecision}
           tripId={tripId}
           busy={busy}
@@ -282,6 +290,7 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
           levelState={serviceLevels.hotel}
           customObjective={projection.searchObjectives.hotel}
           onChanged={refresh}
+          disabled={readOnly}
         />
         <SimulatedFailureNote state={hotelResearch} />
         {hotel.length === 0 ? (
@@ -301,7 +310,7 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
                 demoLabels={offer.demoLabels}
                 actionLabel={selectedId === offer.id ? "Selected" : "Choose this hotel"}
                 selected={selectedId === offer.id}
-                disabled={busy || activeWork}
+                disabled={busy || activeWork || readOnly}
                 testId="hotel-offer"
                 onAction={() =>
                   void submitResponse(pendingDecision.id, projection.trip.revision, {
@@ -353,6 +362,7 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
       <div className="flex flex-col gap-6">
         {banner}
         <ProposalReview
+          disabled={readOnly}
           title="Review and confirm your hotel"
           description="Your selected hotel is staged as a review proposal. Confirm to create the simulated reservation, choose a different hotel, or decline the booking."
           proposal={proposal}
@@ -369,7 +379,7 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
         {pendingDecision.kind === "booking_confirmation" ? (
           <button
             type="button"
-            disabled={busy || activeWork}
+            disabled={busy || activeWork || readOnly}
             data-testid="decline-hotel-booking"
             onClick={() =>
               void declineHotelBooking(pendingDecision.id, projection.trip.revision, proposal.id)
@@ -380,6 +390,7 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
           </button>
         ) : null}
         <BookingConfirmationDialog
+          disabled={readOnly}
           open={dialogOpen}
           heading="Confirm this simulated hotel booking"
           busy={busy}
@@ -432,7 +443,8 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
             levelState={serviceLevels.hotel}
             customObjective={projection.searchObjectives.hotel}
             onChanged={refresh}
-          />
+          disabled={readOnly}
+        />
         ) : null}
         {changeControls}
         <p role="note" className="text-sm text-ink-muted">
@@ -481,7 +493,7 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
             demoLabels={keptHotel.demoLabels}
             actionLabel="Book this hotel"
             selected
-            disabled={busy || activeWork}
+            disabled={busy || activeWork || readOnly}
             testId="selected-hotel-offer"
             onAction={() => void bookSelectedHotel(keptHotel.id)}
           />
@@ -495,7 +507,8 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
             levelState={serviceLevels.hotel}
             customObjective={projection.searchObjectives.hotel}
             onChanged={refresh}
-          />
+          disabled={readOnly}
+        />
         ) : null}
         {changeControls}
         <p className="text-sm">
@@ -521,7 +534,7 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
           revision={projection.trip.revision}
           domain="hotel"
           state={hotelResearch}
-          disabled={activeWork}
+          disabled={activeWork || readOnly}
           onRetried={refresh}
         />
         <ServiceLevelSelect
@@ -532,6 +545,7 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
           levelState={serviceLevels.hotel}
           customObjective={projection.searchObjectives.hotel}
           onChanged={refresh}
+          disabled={readOnly}
         />
         <p className="text-sm">
           <Link href={`/trips/${tripId}/flights`} className="underline">

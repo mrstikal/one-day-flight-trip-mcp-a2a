@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 type Queryable = Pick<PoolClient, "query">;
 
@@ -27,6 +27,11 @@ const EVENT_FIELD_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
   "operation.failed": ["code"],
   "operation.rejected": ["code"],
   "operation.retry_requested": ["recoveryRound"],
+  "operation.cancel_requested": ["controlRequestId"],
+  "operation.cancelled": ["controlRequestId"],
+  // Phase 09 observation bridge: one application event per persisted protocol
+  // observation (safe correlation/summary only; never prompts or payloads).
+  "protocol.observed": ["kind", "source", "observationId", "delegationId", "observedAt", "summary"],
   "decision.awaiting": ["kind"],
   "booking.confirmed": ["reservationId", "serviceKey", "demoReference"],
   "booking.declined": ["serviceKey", "offerId"],
@@ -102,6 +107,89 @@ export async function insertEvent(client: Queryable, input: ExecutionEventInput)
       JSON.stringify(projectSafeEvent(input.type, input.payload)),
     ],
   );
+}
+
+/**
+ * Phase 09 observation→event bridge (ODTF_PLAN.md step 1).
+ *
+ * Inserts one `protocol.observed` application event for an unlinked observation
+ * and links the observation to that event idempotently. Late observations are
+ * reconciled even after their operation ended: the link uses the observation's
+ * correlation (trip/operation) and the SOURCE timestamp is preserved in the
+ * payload as `observedAt`, so the timeline keeps chronological source order
+ * instead of ingestion order. The observation stays linked exactly once; a
+ * duplicate bridge for the same observation returns the stored event link.
+ *
+ * Runs on the caller's client in ONE transaction (insert + link commit
+ * atomically): a crash between the statements can never orphan a duplicate
+ * `protocol.observed` event. When the link UPDATE affects 0 rows, a concurrent
+ * bridge won the race — the transaction rolls back and the winner's event id
+ * is returned instead of inserting a second event.
+ */
+export async function bridgeObservationToEvent(
+  pool: Pool,
+  input: {
+    observationId: string;
+    tripId: string;
+    operationId: string | null;
+    type: "protocol.observed";
+    payload: Record<string, unknown>;
+  },
+): Promise<string> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const existing = await client.query<{ application_event_id: string | null }>(
+      `SELECT application_event_id FROM odft_app.protocol_observations WHERE id = $1`,
+      [input.observationId],
+    );
+    const linked = existing.rows[0]?.application_event_id;
+    if (linked !== null && linked !== undefined) {
+      await client.query("ROLLBACK");
+      return String(linked);
+    }
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO odft_app.execution_events (trip_id, operation_id, type, payload)
+     VALUES ($1, $2, $3, $4::jsonb)
+     RETURNING id::text AS id`,
+      [input.tripId, input.operationId, input.type, JSON.stringify(projectSafeEvent(input.type, input.payload))],
+    );
+    const eventId = inserted.rows[0]?.id;
+    if (!eventId) {
+      await client.query("ROLLBACK");
+      throw new Error(`bridging observation ${input.observationId} produced no event`);
+    }
+    const linked2 = await client.query(
+      `UPDATE odft_app.protocol_observations
+          SET application_event_id = $2::bigint
+        WHERE id = $1 AND application_event_id IS NULL`,
+      [input.observationId, eventId],
+    );
+    if ((linked2.rowCount ?? 0) !== 1) {
+      // Lost the race: roll back our orphan event and return the winner.
+      await client.query("ROLLBACK");
+      const after = await client.query<{ application_event_id: string | null }>(
+        `SELECT application_event_id FROM odft_app.protocol_observations WHERE id = $1`,
+        [input.observationId],
+      );
+      const winner = after.rows[0]?.application_event_id;
+      if (winner === null || winner === undefined) {
+        throw new Error(`bridging observation ${input.observationId} lost its link`);
+      }
+      return String(winner);
+    }
+    await client.query("COMMIT");
+    return eventId;
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // ignore nested rollback failure
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export interface ProjectedEvent {

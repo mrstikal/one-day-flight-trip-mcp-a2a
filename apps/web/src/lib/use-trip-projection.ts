@@ -68,7 +68,9 @@ export function useTripProjection(
         return;
       }
       failures.current = 0;
-      operationPreloader.reconcileOperations(projection.operations);
+      operationPreloader.reconcileOperations(projection.operations, {
+        historyReadOnly: projection.historyReadOnly,
+      });
       setState({ projection, error: null, loading: false });
       if (options.poll !== false && hasActiveWork(projection)) {
         schedule(POLL_INTERVAL_MS);

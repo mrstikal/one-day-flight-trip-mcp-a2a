@@ -37,6 +37,8 @@ export default async function SummaryPage({
   }
 
   const { trip, reservations, program, itinerary, selections } = projection;
+  // Phase 09 history: archived trips render every mutation control disabled.
+  const historyDisabled = !projection.capabilities.canModify;
   const activeReservations = reservations.filter((row) => row.status === "confirmed");
   // Phase 12: flight/hotel selections whose booking was declined ("I don't want
   // to book") are still unbooked and can be booked from here.
@@ -105,6 +107,7 @@ export default async function SummaryPage({
                     tripId={id}
                     service={reservation.serviceKey}
                     label={reservation.serviceKey}
+                    disabled={historyDisabled}
                   />
                 ) : null}
               </li>
@@ -135,6 +138,7 @@ export default async function SummaryPage({
                   service={entry.serviceKey}
                   offerId={entry.selection.offerId as string}
                   label={entry.label}
+                  disabled={historyDisabled}
                 />
               </li>
             ))}

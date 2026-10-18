@@ -18,6 +18,7 @@ export function ProposalReview({
   busy,
   impactRows,
   children,
+  disabled = false,
 }: {
   readonly title: string;
   readonly description: string;
@@ -28,6 +29,8 @@ export function ProposalReview({
   readonly busy: boolean;
   readonly impactRows?: readonly ImpactRow[];
   readonly children?: React.ReactNode;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element {
   const delta = proposal.priceDeltaMinor;
   return (
@@ -56,7 +59,7 @@ export function ProposalReview({
         <button
           type="button"
           onClick={onReview}
-          disabled={busy}
+          disabled={busy || disabled}
           className="w-fit rounded bg-teal px-4 py-2 text-sm font-medium text-paper hover:bg-teal-strong disabled:opacity-50"
         >
           {reviewLabel}
@@ -64,7 +67,7 @@ export function ProposalReview({
         <button
           type="button"
           onClick={onReject}
-          disabled={busy}
+          disabled={busy || disabled}
           className="w-fit rounded border border-border px-4 py-2 text-sm disabled:opacity-50"
         >
           Choose a different option

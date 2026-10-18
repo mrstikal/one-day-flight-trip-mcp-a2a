@@ -28,12 +28,15 @@ export function ChangeServiceButton({
   service,
   label,
   onChanged,
+  disabled = false,
 }: {
   readonly tripId: string;
   readonly service: ServiceKey;
   readonly label: string;
   /** Present when the button sits on the target step itself. */
   readonly onChanged?: () => void;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element | null {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -79,7 +82,7 @@ export function ChangeServiceButton({
       <button
         type="button"
         data-testid={`change-${service}`}
-        disabled={busy}
+        disabled={busy || disabled}
         onClick={() => void changeService()}
         className="w-fit rounded border border-teal px-3 py-1.5 text-sm font-medium text-teal hover:bg-teal-50 disabled:opacity-50"
       >

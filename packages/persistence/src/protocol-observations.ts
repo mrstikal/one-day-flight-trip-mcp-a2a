@@ -55,7 +55,7 @@ function toRecord(row: ObservationRow): ProtocolObservationRecord {
 
 const OBSERVATION_COLUMNS =
   "id, source, kind, trip_id, operation_id, delegation_id, task_id, context_id, trace_id, payload, " +
-  "payload_hash, occurred_at, application_event_id";
+  "payload_hash, occurred_at, application_event_id, bridge_skipped_at";
 
 export async function insertProtocolObservation(
   client: Queryable,
@@ -134,14 +134,59 @@ export async function listUnlinkedObservations(
   client: Queryable,
   limit = 100,
 ): Promise<ProtocolObservationRecord[]> {
+  // Trip-less rows can never bridge (no event correlation) and corrupt rows
+  // must not wedge the round: trip-less rows are excluded HERE so they cannot
+  // starve the LIMIT window; corrupt rows are SKIPPED per-row below so one bad
+  // payload never fails the round (the reconciler additionally guards each
+  // bridge individually).
   const result = await client.query<ObservationRow>(
     `SELECT ${OBSERVATION_COLUMNS} FROM odft_app.protocol_observations
-      WHERE application_event_id IS NULL
+      WHERE application_event_id IS NULL AND trip_id IS NOT NULL
+        AND bridge_skipped_at IS NULL
       ORDER BY occurred_at, id
       LIMIT $1`,
     [limit],
   );
-  return result.rows.map(toRecord);
+  return result.rows.flatMap((row) => {
+    const parsed = protocolObservationSchema.safeParse({
+      id: row.id,
+      source: row.source,
+      kind: row.kind,
+      correlation: {
+        tripId: row.trip_id,
+        operationId: row.operation_id,
+        delegationId: row.delegation_id,
+        taskId: row.task_id,
+        contextId: row.context_id,
+        traceId: row.trace_id,
+      },
+      payload: row.payload,
+      occurredAt: row.occurred_at.toISOString(),
+      payloadHash: row.payload_hash,
+    });
+    if (!parsed.success) {
+      return [];
+    }
+    return [{ ...parsed.data, applicationEventId: row.application_event_id }];
+  });
+}
+
+/**
+ * Quarantine a corrupt observation out of the bridge window: rows that fail
+ * contract parsing stay unlinked forever and sort first, so beyond the LIMIT
+ * window they would starve valid observations. Skipped rows stay queryable
+ * for operators (never silently deleted).
+ */
+export async function markObservationBridgeSkipped(
+  client: Queryable,
+  observationId: string,
+): Promise<void> {
+  await client.query(
+    `UPDATE odft_app.protocol_observations
+        SET bridge_skipped_at = now()
+      WHERE id = $1 AND application_event_id IS NULL AND bridge_skipped_at IS NULL`,
+    [observationId],
+  );
 }
 
 export async function listObservationsForTrip(

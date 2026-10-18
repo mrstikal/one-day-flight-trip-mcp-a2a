@@ -54,6 +54,16 @@ export interface CoordinatorDelegationTransport {
   }): Promise<{ taskId: string; contextId: string }>;
   /** Read the saved task (recovery/reconciliation path). */
   getTask(input: { agentIdentity: string; taskId: string }): Promise<DelegationTaskSnapshot>;
+  /**
+   * Phase 09 best-effort remote cancellation of one specialist task (cancel
+   * outbox reconciler). The task may have completed already; a transport error
+   * persists as `failed` inspector evidence, never a reconciler crash.
+   */
+  cancelTask(input: {
+    agentIdentity: string;
+    delegationId: string;
+    taskId: string;
+  }): Promise<void>;
 }
 
 export interface CreateOutboundDelegationInput {

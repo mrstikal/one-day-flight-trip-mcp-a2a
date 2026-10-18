@@ -152,4 +152,15 @@ describe("OperationPreloader", () => {
     expect(preloader.getSnapshot()).toBeNull();
     expect(preloader.getBlockingSnapshot()).toBe(false);
   });
+
+  it("never shows a busy preloader for archived read-only history", () => {
+    const preloader = new OperationPreloader();
+    preloader.trackAcceptedOperation("operation-1", "Saving your plan...");
+    // A lingering queued row from before archival must not keep the UI blocked.
+    preloader.reconcileOperations([{ operationId: "operation-1", status: "queued" }], {
+      historyReadOnly: true,
+    });
+    expect(preloader.getSnapshot()).toBeNull();
+    expect(preloader.getBlockingSnapshot()).toBe(false);
+  });
 });

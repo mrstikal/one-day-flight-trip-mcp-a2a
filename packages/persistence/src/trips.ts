@@ -15,7 +15,7 @@ const TRIP_COLUMNS =
   "id, session_id, revision, adults, origin_airport_id, destination_city_id, destination_country_key, " +
   "sightseeing_date::text AS sightseeing_date, travel_variant, preferences, active_scenario_snapshot_id, " +
   "current_route_validation_id, current_schedule_validation_id, workflow_status, recovery_required, " +
-  "last_unfinished_operation_id, engine";
+  "last_unfinished_operation_id, engine, archived_at::text AS archived_at, archive_reason";
 
 export interface TripRow {
   id: string;
@@ -35,6 +35,9 @@ export interface TripRow {
   recovery_required: boolean;
   last_unfinished_operation_id: string | null;
   engine: Engine;
+  /** Phase 09 history: set when the trip was archived as read-only history. */
+  archived_at: string | null;
+  archive_reason: string | null;
 }
 
 export function toTripRecord(row: TripRow): TripRecord {
@@ -62,6 +65,8 @@ export function toTripRecord(row: TripRow): TripRecord {
       ? { lastUnfinishedOperationId: row.last_unfinished_operation_id }
       : {}),
     engine: row.engine ?? "langgraph",
+    ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
+    ...(row.archive_reason ? { archiveReason: row.archive_reason } : {}),
   };
 }
 

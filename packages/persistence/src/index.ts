@@ -79,7 +79,12 @@ export {
 export type { InsertOperationInput, StoredOperation } from "./operations.js";
 
 export { readEffect, writeEffect } from "./effects.js";
-export { insertEvent, listTripEvents, projectSafeEvent } from "./events.js";
+export {
+  bridgeObservationToEvent,
+  insertEvent,
+  listTripEvents,
+  projectSafeEvent,
+} from "./events.js";
 export { deriveOperationFrontier, loadPublicInspector } from "./inspector.js";
 export type { ExecutionEventInput, ProjectedEvent } from "./events.js";
 
@@ -141,8 +146,13 @@ export {
 } from "./operations/fencing.js";
 export type { OperationFencingContext, OperationOwnership } from "./operations/fencing.js";
 
-export { retryOperation, setRecoveryRequired } from "./operations/control.js";
-export type { RetryOperationOptions, RetryOperationResult } from "./operations/control.js";
+export { cancelOperation, retryOperation, setRecoveryRequired } from "./operations/control.js";
+export type {
+  CancelOperationOptions,
+  CancelOperationResult,
+  RetryOperationOptions,
+  RetryOperationResult,
+} from "./operations/control.js";
 
 export { GRAPH_VERSION, admitOperation, admitResume, createTrip, withEffect } from "./admission.js";
 export type {
@@ -391,14 +401,19 @@ export {
   insertAgentDelegation,
   insertOutboundMessage,
   listOutstandingDelegations,
+  listPendingDelegationCancels,
+  claimDelegationCancel,
   markOutboundDelivery,
+  noteDelegationCancelAttempt,
   requestDelegationCancellation,
+  resolveDelegationCancellation,
   revokeDelegation,
   updateDelegationStatus,
   type AgentDelegationRecord,
   type InsertDelegationInput,
   type InsertOutboundMessageInput,
   type OutboundMessageRecord,
+  type PendingDelegationCancel,
 } from "./agent-delegations.js";
 
 export {
@@ -435,5 +450,6 @@ export {
   linkObservationToEvent,
   listObservationsForTrip,
   listUnlinkedObservations,
+  markObservationBridgeSkipped,
   type ProtocolObservationRecord,
 } from "./protocol-observations.js";

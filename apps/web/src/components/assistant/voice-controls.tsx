@@ -14,8 +14,11 @@ import type { AssistantVoice } from "@/lib/use-assistant-voice";
  */
 export function VoiceControls({
   voice,
+  disabled = false,
 }: {
   readonly voice: AssistantVoice;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element | null {
   if (voice.serverEnabled === null) {
     // Availability unknown: never silent when the query itself failed.
@@ -69,7 +72,7 @@ export function VoiceControls({
             type="button"
             data-testid="voice-dictate"
             aria-pressed={recording}
-            disabled={captureBusy && !recording}
+            disabled={disabled || (captureBusy && !recording)}
             onClick={() => {
               if (recording) {
                 voice.stopRecording();

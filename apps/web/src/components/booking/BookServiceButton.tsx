@@ -23,11 +23,14 @@ export function BookServiceButton({
   service,
   offerId,
   label,
+  disabled = false,
 }: {
   readonly tripId: string;
   readonly service: BookableKey;
   readonly offerId: string;
   readonly label: string;
+  /** Phase 09 history: true for archived read-only trips. */
+  readonly disabled?: boolean;
 }): React.JSX.Element | null {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -67,7 +70,7 @@ export function BookServiceButton({
       <button
         type="button"
         data-testid={`book-${service}`}
-        disabled={busy}
+        disabled={busy || disabled}
         onClick={() => void bookService()}
         className="w-fit rounded bg-teal px-3 py-1.5 text-sm font-medium text-paper hover:bg-teal-strong disabled:opacity-50"
       >

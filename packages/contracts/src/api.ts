@@ -92,6 +92,29 @@ export const technicalRetryApiRequestSchema = z
   .strict();
 export type TechnicalRetryApiRequest = z.infer<typeof technicalRetryApiRequestSchema>;
 
+/**
+ * Phase 09 operation cancellation (ODTF_PLAN.md §3.13): a technical control
+ * action that never increments `trip.revision`. The BFF generates the control
+ * request id when the client omits it; duplicates replay the stored result.
+ */
+export const technicalCancelApiRequestSchema = z
+  .object({
+    controlRequestId: uuidSchema.optional(),
+    expectedRevision: z.number().int().min(0),
+  })
+  .strict();
+export type TechnicalCancelApiRequest = z.infer<typeof technicalCancelApiRequestSchema>;
+
+export const cancelOperationResultSchema = z
+  .object({
+    status: z.literal("cancelled"),
+    operationId: uuidSchema,
+    revision: z.number().int().min(0),
+    deduped: z.boolean(),
+  })
+  .strict();
+export type CancelOperationResult = z.infer<typeof cancelOperationResultSchema>;
+
 /** Public pending-decision projection: never includes internal hashes/fingerprints. */
 export const publicPendingDecisionSchema = pendingDecisionBaseSchema
   .pick({
@@ -181,6 +204,14 @@ export const tripProjectionSchema = z
     /** Phase 11: safe execution inspector (demo-controls gated; null otherwise). */
     inspector: publicInspectorSchema.nullable(),
     display: tripDisplaySchema,
+    /**
+     * Phase 09 history: derived server-side from `trips.archived_at`. When true
+     * the trip is read-only history — the UI disables every mutation control and
+     * never shows a busy preloader for an archived operation.
+     */
+    historyReadOnly: z.boolean(),
+    /** Phase 09 capabilities: `canModify` is false exactly for archived trips. */
+    capabilities: z.object({ canModify: z.boolean() }).strict(),
   })
   .strict();
 export type TripProjection = z.infer<typeof tripProjectionSchema>;

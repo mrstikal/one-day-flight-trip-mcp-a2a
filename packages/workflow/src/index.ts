@@ -135,3 +135,14 @@ export type {
 export * from "./coordinator/state.js";
 export * from "./coordinator/delegations.js";
 export * from "./coordinator/dispatch.js";
+export {
+  bridgePendingObservations,
+  reconcileOutboxes,
+  reconcilePendingCancels,
+} from "./coordinator/reconcile.js";
+export type {
+  CancelReconcileSummary,
+  CancelTaskTransport,
+  ObservationBridgeSummary,
+  ReconcileOutboxesResult,
+} from "./coordinator/reconcile.js";
