@@ -90,6 +90,7 @@ export function createTravelPortsFactory(
       replace: (input) => bookingService.replace(input),
       declineBooking: (input) => bookingService.declineBooking(input),
       applyProgram: (input) => bookingService.applyProgram(input),
+      validateProgram: (input) => bookingService.validateProgram(input),
       validateSelectedLogistics: (input) => bookingService.validateSelectedLogistics(input),
 
       loadResearchInputs: (tripId, operationId, searchIntent) =>

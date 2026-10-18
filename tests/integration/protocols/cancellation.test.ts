@@ -206,6 +206,13 @@ describe("cancellation races", () => {
       [tripId],
     );
     expect(run.rows[0]?.status).toBe("cancelled");
+    const trip = await harness.pool.query<{ workflow_status: string }>(
+      `SELECT workflow_status FROM odft_app.trips WHERE id = $1`,
+      [tripId],
+    );
+    // Older answered decisions stay `waiting` as audit rows; they must not keep
+    // the cancelled trip stuck in queued/waiting_user.
+    expect(trip.rows[0]?.workflow_status).toBe("ready");
     const hotelDecision = await harness.pool.query(
       `SELECT 1 FROM odft_app.pending_decisions
         WHERE trip_id = $1 AND kind = 'hotel_choice' AND status = 'pending'`,

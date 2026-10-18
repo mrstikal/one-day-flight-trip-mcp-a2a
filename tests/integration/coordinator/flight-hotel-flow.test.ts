@@ -181,6 +181,38 @@ describe("coordinator flight-hotel flow", () => {
     expect(reservations.rows.map((row) => row.service_key)).toEqual(["flights", "hotel"]);
   }, 300_000);
 
+  it("withdraws a rejected proposal and reopens the flight choice", async () => {
+    const { tripId, sessionId } = await createCoordinatorTrip(harness.pool);
+    const flightPark = await driveUntilParked(harness.pools, tripId);
+    expect(flightPark?.waitReason).toBe("flight_choice");
+    const flightChoice = await pendingDecision(tripId);
+    await resume(tripId, sessionId, flightChoice.id, {
+      action: "choose_offer",
+      offerId: flightChoice.allowedOfferIds[0],
+    });
+    const bookingPark = await driveUntilParked(harness.pools, tripId);
+    expect(bookingPark?.waitReason).toBe("booking_confirmation");
+    const booking = await pendingDecision(tripId);
+    expect(booking.proposalId).not.toBeNull();
+
+    await resume(tripId, sessionId, booking.id, {
+      action: "reject_proposal",
+      proposalId: booking.proposalId,
+    });
+    const reopened = await driveUntilParked(harness.pools, tripId);
+    expect(reopened?.waitReason).toBe("flight_choice");
+    const proposal = await harness.pool.query<{ status: string }>(
+      `SELECT status FROM odft_app.selection_proposals WHERE id = $1`,
+      [booking.proposalId],
+    );
+    expect(proposal.rows[0]?.status).toBe("rejected");
+    const reservations = await harness.pool.query(
+      `SELECT 1 FROM odft_app.reservations WHERE trip_id = $1`,
+      [tripId],
+    );
+    expect(reservations.rowCount).toBe(0);
+  });
+
   it("finalizes an infeasible route as a blocked outcome with no unanswerable decision", async () => {
     const { tripId } = await createCoordinatorTrip(harness.pool, {
       destinationCityId: "geonames:3077916", // Ceske Budejovice (ground travel preferred)

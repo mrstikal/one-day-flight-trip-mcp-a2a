@@ -4,6 +4,7 @@ import { SyntheticRoutingProvider } from "@odft/data";
 import type { BookableKey, Meal, ServiceKey } from "@odft/contracts";
 import { tripPreferencesSchema } from "@odft/contracts";
 import { getTrip } from "../trips.js";
+import { assertOperationFence, type OperationFence } from "../effects.js";
 import { loadSnapshotContent } from "./snapshots.js";
 
 /**
@@ -413,17 +414,39 @@ export async function planProgramSelections(
 export async function recordPreferredActivities(
   pool: Pool,
   input: { readonly tripId: string; readonly preferredActivityIds: readonly string[] },
+  fence?: OperationFence,
 ): Promise<void> {
   if (input.preferredActivityIds.length === 0) {
     return;
   }
-  await recordRecommendation(pool, {
-    tripId: input.tripId,
-    serviceKey: "activities",
-    snapshotId: "preferred",
-    rankedOfferIds: input.preferredActivityIds,
-    explanation: "User program activity preferences (Phase 07).",
-  });
+  if (!fence) {
+    await recordRecommendation(pool, {
+      tripId: input.tripId,
+      serviceKey: "activities",
+      snapshotId: "preferred",
+      rankedOfferIds: input.preferredActivityIds,
+      explanation: "User program activity preferences (Phase 07).",
+    });
+    return;
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await assertOperationFence(client, fence);
+    await recordRecommendation(client, {
+      tripId: input.tripId,
+      serviceKey: "activities",
+      snapshotId: "preferred",
+      rankedOfferIds: input.preferredActivityIds,
+      explanation: "User program activity preferences (Phase 07).",
+    });
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /** Persist compatible unbooked selections (idempotent upsert). */
@@ -431,6 +454,7 @@ export async function upsertProgramSelections(
   pool: Pool,
   tripId: string,
   selections: readonly ProgramSelection[],
+  fence?: OperationFence,
 ): Promise<void> {
   if (selections.length === 0) {
     return;
@@ -438,6 +462,9 @@ export async function upsertProgramSelections(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    if (fence) {
+      await assertOperationFence(client, fence);
+    }
     for (const selection of selections) {
       await client.query(
         `INSERT INTO odft_app.trip_selections
@@ -474,15 +501,29 @@ export async function removeProgramSelections(
   pool: Pool,
   tripId: string,
   meals: readonly Meal[],
+  fence?: OperationFence,
 ): Promise<void> {
   if (meals.length === 0) {
     return;
   }
-  await pool.query(
-    `DELETE FROM odft_app.trip_selections
-      WHERE trip_id = $1 AND service_key = ANY($2::text[])`,
-    [tripId, meals],
-  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (fence) {
+      await assertOperationFence(client, fence);
+    }
+    await client.query(
+      `DELETE FROM odft_app.trip_selections
+        WHERE trip_id = $1 AND service_key = ANY($2::text[])`,
+      [tripId, meals],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /**

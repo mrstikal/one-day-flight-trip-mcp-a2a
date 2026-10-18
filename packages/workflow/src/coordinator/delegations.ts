@@ -1,7 +1,12 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
+  accommodationRecommendationsSchema,
   agentTaskRequestSchema,
+  cityGuideRecommendationsSchema,
+  delegationScopeSchema,
+  flightRecommendationsSchema,
+  itineraryProposalSchema,
   type AgentTaskRequest,
   type ResearchDomain,
   type TripPreferences,
@@ -245,6 +250,8 @@ export function acceptArtifact(input: {
       operationId?: unknown;
       acceptedRevision?: unknown;
       snapshotId?: unknown;
+      skillId?: unknown;
+      inputFingerprint?: unknown;
     };
   } | null;
   const correlation = value?.correlation;
@@ -256,10 +263,54 @@ export function acceptArtifact(input: {
     correlation.tripId !== input.delegation.tripId ||
     correlation.operationId !== input.operationId ||
     correlation.acceptedRevision !== input.acceptedRevision ||
-    correlation.snapshotId !== input.delegation.snapshotId
+    correlation.snapshotId !== input.delegation.snapshotId ||
+    correlation.skillId !== input.delegation.skillId ||
+    correlation.inputFingerprint !== input.delegation.inputFingerprint
   ) {
     return undefined;
   }
+
+  // Validate the payload against the skill's contract, not only its envelope.
+  // A matching correlation with an unknown flight id or a self-claimed wrong
+  // fingerprint must never become an accepted delegation.
+  const parsed =
+    input.delegation.skillId === "flight.recommend.v1"
+      ? flightRecommendationsSchema.safeParse(value)
+      : input.delegation.skillId === "accommodation.recommend.v1"
+        ? accommodationRecommendationsSchema.safeParse(value)
+        : input.delegation.skillId === "city-guide.research.v1"
+          ? cityGuideRecommendationsSchema.safeParse(value)
+          : input.delegation.skillId === "itinerary.propose.v1"
+            ? itineraryProposalSchema.safeParse(value)
+            : undefined;
+  if (!parsed) {
+    return undefined;
+  }
+  if (!parsed.success) {
+    return undefined;
+  }
+
+  // The artifact may only report the scope it was granted.
+  const scope = delegationScopeSchema.safeParse(input.delegation.scope);
+  if (!scope.success) {
+    return undefined;
+  }
+  if (
+    input.delegation.skillId === "city-guide.research.v1" &&
+    "outcomes" in parsed.data &&
+    !parsed.data.outcomes.every((outcome) => scope.data.domains.includes(outcome.domain))
+  ) {
+    return undefined;
+  }
+  if (
+    input.delegation.skillId === "accommodation.recommend.v1" &&
+    "searchObjective" in parsed.data &&
+    scope.data.objective !== null &&
+    parsed.data.searchObjective !== scope.data.objective
+  ) {
+    return undefined;
+  }
+
   return { payloadHash: contentHash(value), value };
 }
 
@@ -344,11 +395,19 @@ export async function insertContinuationOutbound(
   pool: Pool,
   input: { delegationId: string; payload: unknown; continuationGeneration: number },
 ): Promise<{ messageId: string }> {
-  const messageId = randomUUID();
+  const payloadHash = contentHash(input.payload);
+  // Replay-safe identity: the same answer for the same generation always maps
+  // to the same persisted message. After a delivery succeeds but the cursor
+  // write is lost, recovery re-delivers the SAME message id, which the
+  // specialist admission dedupes to the canonical task instead of consuming the
+  // answer twice (and failing the generation CAS).
+  const messageId = deterministicUuid(
+    `continuation:${input.delegationId}:${input.continuationGeneration}:${payloadHash}`,
+  );
   const written = await insertOutboundMessage(pool, {
     delegationId: input.delegationId,
     messageId,
-    payloadHash: contentHash(input.payload),
+    payloadHash,
     payload: input.payload,
     continuationGeneration: input.continuationGeneration,
   });
@@ -356,6 +415,17 @@ export async function insertContinuationOutbound(
     throw new Error("continuation outbound conflict");
   }
   return { messageId };
+}
+
+/** Stable UUID-shaped identity derived from a seed (replay-safe message ids). */
+function deterministicUuid(seed: string): string {
+  const bytes = createHash("sha256").update(seed, "utf8").digest().subarray(0, 16);
+  // RFC 9562 version 5-style variant/version bits; the value is only an opaque
+  // message identity, never a security token.
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /** Newest outbound intent of one delegation (one task per delegation). */

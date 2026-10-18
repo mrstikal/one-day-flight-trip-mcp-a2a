@@ -235,7 +235,7 @@ export type {
 
 export {
   artifactIdFor,
-  listLatestRecommendationArtifacts,
+  listRecommendationArtifacts,
   recordRecommendationArtifact,
 } from "./recommendations.js";
 export type {
@@ -377,7 +377,9 @@ export {
   getActiveCoordinatorRun,
   getCoordinatorRun,
   insertCoordinatorRun,
+  insertCoordinatorRunFenced,
   updateCoordinatorRun,
+  updateCoordinatorRunFenced,
   type CoordinatorRunDataInput,
   type CoordinatorRunRecord,
   type InsertCoordinatorRunInput,

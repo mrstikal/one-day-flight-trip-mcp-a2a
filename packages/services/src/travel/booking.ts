@@ -12,6 +12,7 @@ import {
   validateTripLogistics,
 } from "@odft/persistence";
 import type { OperationAuthority } from "../ai/authority.js";
+import { fencingContextFor } from "../ai/authority.js";
 import type {
   BookableKey,
   DeclinedBookingResult,
@@ -85,6 +86,16 @@ export interface TravelBookingService {
     /** Activities the traveler arranges themselves: never planned. */
     activitiesSelfArranged: boolean;
   }): Promise<ProgramResult>;
+  /**
+   * Validate a program without writing anything. Callers use it before
+   * committing the rest of a command batch, so a deterministic conflict (for
+   * example removing a confirmed meal) cannot leave preferences applied.
+   */
+  validateProgram(input: {
+    tripId: string;
+    mealSelections: MealSelections;
+    selfArrangedMeals: Meal[];
+  }): Promise<void>;
   /** Phase 07: deterministic hotel/airport transfer and confirmed-meal window check. */
   validateSelectedLogistics(input: { tripId: string }): Promise<LogisticsResult>;
 }
@@ -166,6 +177,14 @@ export function createTravelBookingService(deps: TravelBookingServiceDeps): Trav
       });
     },
 
+    async validateProgram(input) {
+      await planProgramSelections(pool, {
+        tripId: input.tripId,
+        mealSelections: input.mealSelections,
+        selfArrangedMeals: input.selfArrangedMeals,
+      });
+    },
+
     async applyProgram(input) {
       const plan = await planProgramSelections(pool, {
         tripId: input.tripId,
@@ -204,21 +223,31 @@ export function createTravelBookingService(deps: TravelBookingServiceDeps): Trav
           sourceFingerprint,
         };
       }
-      await upsertProgramSelections(pool, input.tripId, plan.selections);
+      const fence = fencingContextFor(authority, input.operationId, input.tripId);
+      await upsertProgramSelections(pool, input.tripId, plan.selections, fence);
       // A meal the traveler now arranges themselves loses its unbooked selection
       // (planProgramSelections refused this for any confirmed reservation).
-      await removeProgramSelections(pool, input.tripId, plan.selfArrangedMeals);
-      await setSelfArrangedState(pool, input.tripId, {
-        meals: plan.selfArrangedMeals,
-        activities: input.activitiesSelfArranged,
-      });
+      await removeProgramSelections(pool, input.tripId, plan.selfArrangedMeals, fence);
+      await setSelfArrangedState(
+        pool,
+        input.tripId,
+        {
+          meals: plan.selfArrangedMeals,
+          activities: input.activitiesSelfArranged,
+        },
+        fence,
+      );
       // Self-arranged activities keep the previously recorded preferences (they
       // return unchanged when the traveler opts back in).
       if (!input.activitiesSelfArranged) {
-        await recordPreferredActivities(pool, {
-          tripId: input.tripId,
-          preferredActivityIds: input.preferredActivityIds,
-        });
+        await recordPreferredActivities(
+          pool,
+          {
+            tripId: input.tripId,
+            preferredActivityIds: input.preferredActivityIds,
+          },
+          fence,
+        );
       }
       await writeEvent({ type: "program.saved", payload: {} });
       return {

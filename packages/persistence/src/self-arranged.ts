@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { mealSchema, type Meal } from "@odft/contracts";
+import { assertOperationFence, type OperationFence } from "./effects.js";
 
 /**
  * Explicit "I'll arrange it myself" program state (Phase 12). One row per
@@ -51,11 +52,15 @@ export async function setSelfArrangedState(
   pool: Pool,
   tripId: string,
   state: SelfArrangedState,
+  fence?: OperationFence,
 ): Promise<void> {
   const keys = selfArrangedServiceKeys(state);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    if (fence) {
+      await assertOperationFence(client, fence);
+    }
     await replaceSelfArrangedStateIn(client, tripId, keys);
     await client.query("COMMIT");
   } catch (error) {

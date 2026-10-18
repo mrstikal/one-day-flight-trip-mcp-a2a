@@ -11,6 +11,7 @@ import {
 } from "@odft/contracts";
 import { computeRouteFingerprint, validateRoute, validateSchedules } from "@odft/data";
 import { getTrip } from "../trips.js";
+import { assertOperationFence, type OperationFence } from "../effects.js";
 import { buildRouteInputs } from "./route-inputs.js";
 import { loadSnapshotContent, loadSnapshotManifest } from "./snapshots.js";
 
@@ -35,6 +36,7 @@ export async function persistRouteValidation(
   pool: Pool,
   tripId: string,
   result: RouteValidation,
+  fence?: OperationFence,
 ): Promise<string> {
   const id = result.id ?? randomUUID();
   const stored: RouteValidation = { ...result, id };
@@ -42,6 +44,9 @@ export async function persistRouteValidation(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    if (fence) {
+      await assertOperationFence(client, fence);
+    }
     await client.query(
       `INSERT INTO odft_app.route_validations (id, trip_id, fingerprint, policy_version, status, result)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
@@ -205,6 +210,7 @@ export interface PersistScheduleInput {
 export async function persistScheduleValidation(
   pool: Pool,
   input: PersistScheduleInput,
+  fence?: OperationFence,
 ): Promise<string> {
   const id = input.result.id ?? randomUUID();
   const stored: ScheduleValidation = { ...input.result, id };
@@ -212,6 +218,9 @@ export async function persistScheduleValidation(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    if (fence) {
+      await assertOperationFence(client, fence);
+    }
     await client.query(
       `INSERT INTO odft_app.schedule_validations (id, route_validation_id, snapshot_id, fingerprint, status, result)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
@@ -259,6 +268,7 @@ export interface EvaluatedRoute {
 export async function evaluateAndPersistRoute(
   pool: Pool,
   tripId: string,
+  fence?: OperationFence,
 ): Promise<EvaluatedRoute | undefined> {
   const client = await pool.connect();
   let trip: TripRecord | undefined;
@@ -273,7 +283,7 @@ export async function evaluateAndPersistRoute(
     return undefined;
   }
   const result = validateRoute(inputs);
-  const id = await persistRouteValidation(pool, tripId, result);
+  const id = await persistRouteValidation(pool, tripId, result, fence);
   return { id, result: { ...result, id } };
 }
 
@@ -286,6 +296,7 @@ export async function validateAndPersistSchedules(
   pool: Pool,
   tripId: string,
   snapshotId: string,
+  fence?: OperationFence,
 ): Promise<ScheduleValidation | undefined> {
   const client = await pool.connect();
   let inputs: Awaited<ReturnType<typeof buildRouteInputs>>;
@@ -326,6 +337,6 @@ export async function validateAndPersistSchedules(
     destinationTransferMinutes: approval.approvedPairDetails[0]?.destinationTransferMinutes ?? 0,
     routeValidationId: approval.routeValidationId,
   });
-  const id = await persistScheduleValidation(pool, { tripId, snapshotId, result });
+  const id = await persistScheduleValidation(pool, { tripId, snapshotId, result }, fence);
   return { ...result, id };
 }

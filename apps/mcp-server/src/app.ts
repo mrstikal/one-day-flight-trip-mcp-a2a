@@ -56,6 +56,13 @@ export interface McpHostContext {
   readonly telemetry: ProtocolTelemetryWriter;
   /** The caller's newest active delegation for a snapshot (resource reads). */
   delegationForSnapshot(identity: string, snapshotId: string): Promise<string>;
+  /** Best-effort correlation for a tool-call observation (never throws). */
+  correlationForDelegation(delegationId: string): Promise<{
+    readonly tripId: string;
+    readonly operationId: string;
+    readonly delegationId: string;
+    readonly taskId: string | null;
+  } | undefined>;
   authorize(input: {
     readonly identity: string;
     readonly endpoint: McpEndpointKey;
@@ -115,6 +122,23 @@ export function createMcpHostContext(config: McpHostConfig): McpHostContext {
         );
       }
       return delegationId;
+    },
+
+    async correlationForDelegation(delegationId) {
+      try {
+        const delegation = await getAgentDelegation(authPool, delegationId);
+        if (!delegation) {
+          return undefined;
+        }
+        return {
+          tripId: delegation.tripId,
+          operationId: delegation.originatingOperationId,
+          delegationId: delegation.id,
+          taskId: delegation.taskId,
+        };
+      } catch {
+        return undefined;
+      }
     },
 
     async authorize(input) {
@@ -230,12 +254,18 @@ export function createToolHandler<Input, Output>(
 ): (input: Input) => Promise<{ content: { type: "text"; text: string }[]; structuredContent: Output; isError?: boolean }> {
   return async (input: Input) => {
     const startedAt = Date.now();
+    const delegationId = (input as { delegationId?: unknown } | null)?.delegationId;
+    const correlation =
+      typeof delegationId === "string"
+        ? await context.correlationForDelegation(delegationId)
+        : undefined;
     try {
       const result = await handler(input);
       await context.telemetry.record(
         buildObservation({
           source: sourceFor(endpoint),
           kind: "mcp_tool_call",
+          ...(correlation ? { correlation } : {}),
           payload: {
             detail: toolName,
             status: "ok",
@@ -261,6 +291,7 @@ export function createToolHandler<Input, Output>(
         buildObservation({
           source: sourceFor(endpoint),
           kind: "mcp_tool_call",
+          ...(correlation ? { correlation } : {}),
           payload: {
             detail: `${toolName}: ${message}`,
             failureCategory:

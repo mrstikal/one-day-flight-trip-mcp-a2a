@@ -154,6 +154,12 @@ export interface TravelPorts {
     /** Activities the traveler arranges themselves: never planned. */
     activitiesSelfArranged: boolean;
   }): Promise<TravelProgramResult>;
+  /** Validate a program without writing (pre-flight for a command batch). */
+  validateProgram(input: {
+    tripId: string;
+    mealSelections: MealSelections;
+    selfArrangedMeals: Meal[];
+  }): Promise<void>;
   /** Phase 07: deterministic hotel/airport transfer and confirmed-meal window check. */
   validateSelectedLogistics(input: { tripId: string }): Promise<TravelLogisticsResult>;
   /** Confirmed flight/hotel progress so a preference change resumes at the right step. */

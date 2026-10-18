@@ -1,4 +1,4 @@
-import type { Express, Request } from "express";
+import type { Express, Request, RequestHandler } from "express";
 import {
   DefaultRequestHandler,
   ServerCallContext,
@@ -64,6 +64,41 @@ export interface MountedA2AServer {
 }
 
 /**
+ * Reject every JSON-RPC method the admission middleware does not already guard
+ * (SendMessage/SendStreamingMessage) when the caller is not the configured
+ * service identity. Without this, the SDK's default handlers answer GetTask,
+ * ListTasks and CancelTask for unauthenticated callers: the task store's owner
+ * is fixed, so those methods would enumerate and cancel the agent's tasks.
+ */
+export function requireServiceIdentity(config: ProtocolConfig): RequestHandler {
+  return (request, response, next) => {
+    const body = request.body as { id?: unknown; method?: unknown } | undefined;
+    if (!body || typeof body !== "object" || typeof body.method !== "string") {
+      next();
+      return;
+    }
+    try {
+      const identity = authenticateServiceRequest(config, request.headers.authorization);
+      if (identity.agentIdentity !== config.selfAgentIdentity) {
+        response.status(403).json({
+          jsonrpc: "2.0",
+          id: body.id ?? null,
+          error: { code: -32600, message: "forbidden" },
+        });
+        return;
+      }
+      next();
+    } catch {
+      response.status(401).json({
+        jsonrpc: "2.0",
+        id: body.id ?? null,
+        error: { code: -32600, message: "unauthorized" },
+      });
+    }
+  };
+}
+
+/**
  * Mount the official card + JSON-RPC handlers on an Express app.
  * `legacyCompat` stays disabled: only the v1.0 interface is served.
  */
@@ -85,6 +120,7 @@ export function mountA2AServer(
   );
   app.use(
     rpcPath,
+    requireServiceIdentity(deps.config),
     jsonRpcHandler({
       requestHandler,
       userBuilder: serviceUserBuilder(deps.config),

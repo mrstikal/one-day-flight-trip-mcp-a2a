@@ -491,11 +491,20 @@ export async function cancelOperation(
       }
     }
 
-    // The trip returns to ready only when no other non-terminal work remains;
-    // a newer queued/running operation keeps its own status and recovery state.
+    // The trip returns to ready only when no other live work remains. Answered
+    // decision operations stay `waiting` forever as audit rows; counting them
+    // would leave a cancelled trip stuck in `queued`/`waiting_user`. A waiting
+    // row only counts while it still owns a pending decision.
     const remaining = await client.query<{ id: string }>(
       `SELECT id FROM odft_app.workflow_operations
-        WHERE trip_id = $1 AND id <> $2 AND status IN ('queued', 'running', 'waiting')
+        WHERE trip_id = $1 AND id <> $2
+          AND (status IN ('queued', 'running')
+               OR (status = 'waiting'
+                   AND EXISTS (
+                        SELECT 1 FROM odft_app.pending_decisions d
+                          JOIN odft_app.coordinator_runs r ON r.id = d.coordinator_run_id
+                         WHERE d.trip_id = $1 AND d.status = 'pending'
+                           AND r.operation_id = odft_app.workflow_operations.id)))
         LIMIT 1`,
       [tripId, operationId],
     );

@@ -61,7 +61,13 @@ function buildChildren(): ChildSpec[] {
   }
 
   const mcpRegistry = requireEnv("ODFT_MCP_REGISTRY_PATH");
+  const accommodationMcpRegistry = requireEnv("ODFT_ACCOMMODATION_AGENT_MCP_REGISTRY_PATH");
+  const cityGuideMcpRegistry = requireEnv("ODFT_CITY_GUIDE_AGENT_MCP_REGISTRY_PATH");
   const mcpReadonlyDatabaseUrl = roleDatabaseUrl("odft_mcp_readonly", "ODFT_MCP_READONLY_PASSWORD");
+  const protocolDatabaseUrl = roleDatabaseUrl(
+    "odft_protocol_service",
+    "ODFT_PROTOCOL_ROLE_PASSWORD",
+  );
   const flightDatabaseUrl = roleDatabaseUrl("odft_flight_agent", "ODFT_FLIGHT_AGENT_PASSWORD");
   const accommodationDatabaseUrl = roleDatabaseUrl(
     "odft_accommodation_agent",
@@ -90,6 +96,7 @@ function buildChildren(): ChildSpec[] {
         ...baseEnv,
         DATABASE_URL: mcpReadonlyDatabaseUrl,
         ODFT_MCP_READONLY_DATABASE_URL: mcpReadonlyDatabaseUrl,
+        ODFT_PROTOCOL_DATABASE_URL: protocolDatabaseUrl,
         ODFT_MCP_AGENT_REGISTRY_PATH: mcpHostRegistry,
       },
     },
@@ -110,7 +117,7 @@ function buildChildren(): ChildSpec[] {
         ...baseEnv,
         DATABASE_URL: accommodationDatabaseUrl,
         ODFT_ACCOMMODATION_AGENT_REGISTRY_PATH: agentRegistry,
-        ODFT_ACCOMMODATION_AGENT_MCP_REGISTRY_PATH: mcpRegistry,
+        ODFT_ACCOMMODATION_AGENT_MCP_REGISTRY_PATH: accommodationMcpRegistry,
       },
     },
     {
@@ -120,7 +127,7 @@ function buildChildren(): ChildSpec[] {
         ...baseEnv,
         DATABASE_URL: cityGuideDatabaseUrl,
         ODFT_CITY_GUIDE_AGENT_REGISTRY_PATH: agentRegistry,
-        ODFT_CITY_GUIDE_AGENT_MCP_REGISTRY_PATH: mcpRegistry,
+        ODFT_CITY_GUIDE_AGENT_MCP_REGISTRY_PATH: cityGuideMcpRegistry,
       },
     },
     {

@@ -191,6 +191,8 @@ npm run reference:load     # upserts the committed offline reference assets
 npm run protocol:roles     # creates restricted protocol/agent DB roles (needs passwords)
 cp agent-registry.example.json agent-registry.json
 cp mcp-registry.example.json mcp-registry.json
+cp mcp-registry.accommodation.example.json mcp-registry.accommodation.json
+cp mcp-registry.city-guide.example.json mcp-registry.city-guide.json
 cp mcp-host-registry.example.json mcp-host-registry.json
 ```
 
@@ -198,10 +200,12 @@ cp mcp-host-registry.example.json mcp-host-registry.json
 `ODFT_MCP_READONLY_PASSWORD`, the three `ODFT_*_AGENT_PASSWORD` values and the
 `ODFT_AGENT_TOKEN_*` values as distinct random secrets; you only need to set them manually
 if you copy `.env.example` yourself. `npm run protocol:roles` needs the five passwords;
-`npm run dev` needs `ODFT_MCP_READONLY_PASSWORD`, the three `ODFT_*_AGENT_PASSWORD` values
-and the `ODFT_AGENT_TOKEN_*` values. The protocol-role password is used only by
-`protocol:roles` in the default local setup. The registries contain identities and
-credential references, never secrets.
+`npm run dev` needs `ODFT_PROTOCOL_ROLE_PASSWORD` (the MCP host's delegation
+authorization pool), `ODFT_MCP_READONLY_PASSWORD`, the three `ODFT_*_AGENT_PASSWORD`
+values and the `ODFT_AGENT_TOKEN_*` values. The registries contain identities and
+credential references, never secrets. Each agent has its own MCP registry because it
+must present its own token; sharing the flight registry makes the other specialists
+authenticate as the flight agent and their MCP calls fail authorization.
 
 `setup:env` never overwrites an existing `.env` and never prints the generated secret. Values in
 `.env.example` are development placeholders, not production defaults.

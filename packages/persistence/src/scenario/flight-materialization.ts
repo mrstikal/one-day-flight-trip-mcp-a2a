@@ -10,6 +10,7 @@ import {
   type SnapshotContext,
 } from "@odft/contracts";
 import { getTrip } from "../trips.js";
+import type { OperationFence } from "../effects.js";
 import { buildRouteInputs, buildSnapshotContext } from "./route-inputs.js";
 import { loadFeasibleRouteApproval } from "./validations.js";
 import { initialSnapshotContent, persistSnapshotVersion, scenarioUuid } from "./snapshots.js";
@@ -43,6 +44,7 @@ export async function materializeFlightSnapshot(
   pool: Pool,
   tripId: string,
   options: { readonly generatedAt?: string } = {},
+  fence?: OperationFence,
 ): Promise<MaterializedFlightSnapshot | undefined> {
   const client = await pool.connect();
   let approval: FeasibleRouteApproval | undefined;
@@ -109,11 +111,15 @@ export async function materializeFlightSnapshot(
     context,
     flights,
   });
-  const { manifest } = await persistSnapshotVersion(pool, {
-    tripId,
-    scenarioId: scenarioUuid(scenarioKey),
-    content,
-  });
+  const { manifest } = await persistSnapshotVersion(
+    pool,
+    {
+      tripId,
+      scenarioId: scenarioUuid(scenarioKey),
+      content,
+    },
+    fence,
+  );
   return {
     scenarioKey,
     snapshotId: manifest.snapshotId,

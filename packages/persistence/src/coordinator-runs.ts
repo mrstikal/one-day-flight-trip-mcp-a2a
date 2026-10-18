@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { z } from "zod";
 import {
   coordinatorRunDataSchema,
@@ -8,6 +8,7 @@ import {
   type CoordinatorStep,
   type CoordinatorWaitReason,
 } from "@odft/contracts";
+import { lockOperationFence, type OperationFencingContext } from "./operations/fencing.js";
 
 /** Accepted (pre-default) run-data shape; the schema fills the defaults. */
 export type CoordinatorRunDataInput = z.input<typeof coordinatorRunDataSchema>;
@@ -109,7 +110,35 @@ export async function insertCoordinatorRun(
       JSON.stringify(runData),
     ],
   );
-  return toRecord(result.rows[0] as CoordinatorRunRow);
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error(`coordinator run for trip ${input.tripId} was not inserted`);
+  }
+  return toRecord(row);
+}
+
+/**
+ * Fenced insert in its own transaction: `FOR SHARE` on the operation row blocks
+ * a concurrent cancellation/token rotation until the run write commits.
+ */
+export async function insertCoordinatorRunFenced(
+  pool: Pool,
+  input: InsertCoordinatorRunInput,
+  fence: OperationFencingContext,
+): Promise<CoordinatorRunRecord> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await lockOperationFence(client, fence);
+    const run = await insertCoordinatorRun(client, input);
+    await client.query("COMMIT");
+    return run;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function getCoordinatorRun(
@@ -182,4 +211,30 @@ export async function updateCoordinatorRun(
     throw new Error(`coordinator run ${input.runId} not found`);
   }
   return toRecord(row);
+}
+
+/**
+ * Fenced cursor update in its own transaction. The `FOR SHARE` lock is what
+ * makes the ownership check atomic with the write: cancellation's token
+ * rotation waits for this commit instead of interleaving between check and
+ * update.
+ */
+export async function updateCoordinatorRunFenced(
+  pool: Pool,
+  input: UpdateCoordinatorRunInput,
+  fence: OperationFencingContext,
+): Promise<CoordinatorRunRecord> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await lockOperationFence(client, fence);
+    const run = await updateCoordinatorRun(client, input);
+    await client.query("COMMIT");
+    return run;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }

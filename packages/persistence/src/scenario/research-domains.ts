@@ -744,11 +744,13 @@ export async function rankTripRecommendations(
     targetDomain === domain ? (input.searchIntent?.objective ?? null) : null;
   const boundFor = (domain: ResearchDomain): BoundOfferReference | undefined =>
     targetDomain === domain ? bound : undefined;
-  const hotelOfferIds = orderSearchCandidates(
-    hotelOffers,
-    objectiveFor("hotel"),
-    await boundFor("hotel"),
-  ).map((offer) => offer.id);
+  // Preserve the specialist's validated order. Re-sorting here discarded an
+  // answered tradeoff (e.g. "closest to the centre" is distance-ordered by the
+  // accommodation agent, not price-ordered by the coordinator).
+  const eligibleHotelIds = new Set(hotelOffers.map((offer) => offer.id));
+  const hotelOfferIds = (byDomain.get("hotel")?.offerIds ?? []).filter((id) =>
+    eligibleHotelIds.has(id),
+  );
 
   const mealOfferIds: Record<Meal, string[]> = { breakfast: [], lunch: [], dinner: [] };
   const eligibleMeals: Record<Meal, { id: string; partyTotalMinor: number }[]> = {

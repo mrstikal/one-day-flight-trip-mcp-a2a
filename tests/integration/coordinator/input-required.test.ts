@@ -116,6 +116,17 @@ describe("coordinator input-required bridge", () => {
     });
     const hotelPark = await driveUntilParked(harness.pools, tripId, 8, { hotelObjective: "cheaper" });
     expect(hotelPark?.waitReason).toBe("hotel_choice");
+    // The answered "closest to the centre" preference must survive persistence:
+    // the stored artifact order is the specialist's distance order, not a
+    // coordinator re-sort by price.
+    const hotelDecision = await pending(tripId);
+    const storedHotel = await harness.pool.query<{ ranked_offers: string[] }>(
+      `SELECT ranked_offers FROM odft_app.recommendation_artifacts
+        WHERE trip_id = $1 AND service_key = 'hotel'
+        ORDER BY created_at DESC LIMIT 1`,
+      [tripId],
+    );
+    expect(storedHotel.rows[0]?.ranked_offers).toEqual(hotelDecision.offers);
 
     // Same task, one input, unchanged revision.
     const after = await harness.pool.query<{ task_id: string; status: string }>(

@@ -17,9 +17,23 @@ loadLocalEnv();
 const PROTOCOL_ROLE = "odft_protocol_service";
 const MCP_READONLY_ROLE = "odft_mcp_readonly";
 const AGENT_ROLES = [
-  { role: "odft_flight_agent", passwordEnv: "ODFT_FLIGHT_AGENT_PASSWORD" },
-  { role: "odft_accommodation_agent", passwordEnv: "ODFT_ACCOMMODATION_AGENT_PASSWORD" },
-  { role: "odft_city_guide_agent", passwordEnv: "ODFT_CITY_GUIDE_AGENT_PASSWORD" },
+  {
+    role: "odft_flight_agent",
+    passwordEnv: "ODFT_FLIGHT_AGENT_PASSWORD",
+    taskTables: ["agent_tasks_flight"],
+  },
+  {
+    role: "odft_accommodation_agent",
+    passwordEnv: "ODFT_ACCOMMODATION_AGENT_PASSWORD",
+    // The optional Agent B implementation intentionally shares this restricted
+    // role, so it needs both accommodation task tables.
+    taskTables: ["agent_tasks_accommodation", "agent_tasks_accommodation_alt"],
+  },
+  {
+    role: "odft_city_guide_agent",
+    passwordEnv: "ODFT_CITY_GUIDE_AGENT_PASSWORD",
+    taskTables: ["agent_tasks_city_guide"],
+  },
 ] as const;
 
 function requirePassword(envName: string): string {
@@ -30,18 +44,41 @@ function requirePassword(envName: string): string {
   return value;
 }
 
-/** Least-privilege profile shared by all three specialist agents. */
-async function grantAgentRole(pool: Pool, role: string): Promise<void> {
+/** Least-privilege profile for one specialist agent role. */
+async function grantAgentRole(
+  pool: Pool,
+  role: string,
+  taskTables: readonly string[],
+): Promise<void> {
   await pool.query(`GRANT USAGE ON SCHEMA odft_protocol TO ${role}`);
-  await pool.query(
-    `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA odft_protocol TO ${role}`,
-  );
+  // Remove the legacy broad grant before applying the narrow one. Without this
+  // an existing database keeps `ALL TABLES` DML on every specialist's tasks.
+  await pool.query(`REVOKE ALL ON ALL TABLES IN SCHEMA odft_protocol FROM ${role}`);
+  // Ownership isolation: an agent role may only touch its OWN task table(s).
+  // The SDK's row scoping is not a security boundary by itself, and `ALL
+  // TABLES` would let one specialist rewrite another specialist's tasks.
+  for (const table of taskTables) {
+    await pool.query(
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON odft_protocol.${table} TO ${role}`,
+    );
+  }
   await pool.query(`GRANT USAGE ON SCHEMA odft_app TO ${role}`);
   await pool.query(
     `GRANT SELECT, INSERT, UPDATE ON odft_app.protocol_inbound_messages,
             odft_app.protocol_task_control, odft_app.protocol_validated_outputs TO ${role}`,
   );
-  await pool.query(`GRANT INSERT ON odft_app.protocol_observations TO ${role}`);
+  // INSERT ... RETURNING reads every returned column; grant SELECT only on the
+  // returned columns instead of the whole observation table (cross-trip reads
+  // stay restricted).
+  await pool.query(
+    `GRANT INSERT ON odft_app.protocol_observations TO ${role}`,
+  );
+  await pool.query(
+    `GRANT SELECT (id, source, kind, trip_id, operation_id, delegation_id, task_id,
+                   context_id, trace_id, payload, payload_hash, occurred_at,
+                   application_event_id, bridge_skipped_at)
+        ON odft_app.protocol_observations TO ${role}`,
+  );
   await pool.query(
     `GRANT SELECT ON odft_app.agent_delegations, odft_app.reference_countries,
             odft_app.reference_cities, odft_app.reference_landmarks,
@@ -137,7 +174,7 @@ async function main(): Promise<void> {
     // functions; NO write privileges on trip/scenario/selection/proposal/
     // decision/reservation tables (proven by the agent write-denial tests).
     for (const entry of AGENT_ROLES) {
-      await grantAgentRole(pool, entry.role);
+      await grantAgentRole(pool, entry.role, entry.taskTables);
     }
     process.stdout.write(
       `protocol roles ready: ${PROTOCOL_ROLE} (protocol schema), ${MCP_READONLY_ROLE} (read-only reference), ` +

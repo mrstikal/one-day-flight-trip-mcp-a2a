@@ -115,6 +115,17 @@ describe("travel-data MCP tools", () => {
     expect(first.snapshotId).toBe(seeded.snapshotId);
     expect(first.counts.hotels).toBeGreaterThan(0);
     expect(second.domainContentHashes).toEqual(first.domainContentHashes);
+    const observations = await pool.query<{
+      trip_id: string | null;
+      delegation_id: string | null;
+    }>(
+      `SELECT trip_id, delegation_id FROM odft_app.protocol_observations
+        WHERE source = 'mcp-travel-data' AND delegation_id = $1
+        ORDER BY id DESC LIMIT 2`,
+      [delegationId],
+    );
+    expect(observations.rows).toHaveLength(2);
+    expect(observations.rows.every((row) => row.trip_id === seeded.tripId)).toBe(true);
   });
 
   it("returns only schedule-valid flight combinations of the delegated approval", async () => {

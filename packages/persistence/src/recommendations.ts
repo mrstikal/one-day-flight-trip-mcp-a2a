@@ -99,8 +99,13 @@ export async function recordRecommendationArtifact(
   }
 }
 
-/** The newest artifact per service for a trip (safe read for projections/tests). */
-export async function listLatestRecommendationArtifacts(
+/**
+ * All recommendation artifacts for a trip, newest first. Callers that need a
+ * specific input revision select by `inputFingerprint`; returning only the
+ * newest per service would hide a freshly re-searched artifact behind an older
+ * synthetic row (for example the preferred-activity artifact).
+ */
+export async function listRecommendationArtifacts(
   client: Queryable,
   tripId: string,
 ): Promise<RecommendationArtifactRecord[]> {
@@ -111,10 +116,10 @@ export async function listLatestRecommendationArtifacts(
     ranked_offers: unknown;
     explanation: string | null;
   }>(
-    `SELECT DISTINCT ON (service_key) id, service_key, input_fingerprint, ranked_offers, explanation
+    `SELECT id, service_key, input_fingerprint, ranked_offers, explanation
        FROM odft_app.recommendation_artifacts
       WHERE trip_id = $1
-      ORDER BY service_key, created_at DESC, id DESC`,
+      ORDER BY created_at DESC, id DESC`,
     [tripId],
   );
   return result.rows.map((row) => ({

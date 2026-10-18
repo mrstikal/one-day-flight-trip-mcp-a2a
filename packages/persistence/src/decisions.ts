@@ -125,6 +125,7 @@ export async function getPendingDecisionForTrip(
             engine, coordinator_run_id
        FROM odft_app.pending_decisions
       WHERE trip_id = $1 AND status = 'pending'
+      ORDER BY created_at DESC
       LIMIT 1`,
     [tripId],
   );

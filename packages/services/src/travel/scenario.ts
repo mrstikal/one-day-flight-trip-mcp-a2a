@@ -10,6 +10,7 @@ import {
 } from "@odft/persistence";
 import type { DomainCommand } from "@odft/contracts";
 import type { OperationAuthority } from "../ai/authority.js";
+import { fencingContextFor } from "../ai/authority.js";
 import { ensureCityLandmarks, type LandmarkDiscoveryOptions } from "./landmark-discovery.js";
 import type {
   MaterializedFlights,
@@ -95,7 +96,11 @@ export function createTravelScenarioService(
       if (trip) {
         await ensureCityLandmarks(pool, trip.destinationCityId, discoveryOptions);
       }
-      const evaluated = await evaluateAndPersistRoute(pool, tripId);
+      const evaluated = await evaluateAndPersistRoute(
+        pool,
+        tripId,
+        fencingContextFor(authority, authority.operationId, tripId),
+      );
       if (!evaluated) {
         throw new Error(`cannot evaluate route for trip ${tripId}: missing reference inputs`);
       }
@@ -103,14 +108,24 @@ export function createTravelScenarioService(
     },
 
     async materializeFlights(tripId) {
-      const materialized = await materializeFlightSnapshot(pool, tripId);
+      const materialized = await materializeFlightSnapshot(
+        pool,
+        tripId,
+        {},
+        fencingContextFor(authority, authority.operationId, tripId),
+      );
       return materialized
         ? { scenarioKey: materialized.scenarioKey, snapshotId: materialized.snapshotId }
         : undefined;
     },
 
     async validateSchedules(input) {
-      const result = await validateAndPersistSchedules(pool, input.tripId, input.snapshotId);
+      const result = await validateAndPersistSchedules(
+        pool,
+        input.tripId,
+        input.snapshotId,
+        fencingContextFor(authority, authority.operationId, input.tripId),
+      );
       if (!result) {
         throw new Error(
           `cannot validate schedules for trip ${input.tripId}: snapshot or approval missing`,
@@ -120,7 +135,11 @@ export function createTravelScenarioService(
     },
 
     async ensureDomains(tripId) {
-      const manifest = await scenarios.ensureDomains(tripId, [...RESEARCH_MATERIALIZED_DOMAINS]);
+      const manifest = await scenarios.ensureDomains(
+        tripId,
+        [...RESEARCH_MATERIALIZED_DOMAINS],
+        fencingContextFor(authority, authority.operationId, tripId),
+      );
       return { materializedDomains: manifest.materializedDomains, snapshotId: manifest.snapshotId };
     },
 

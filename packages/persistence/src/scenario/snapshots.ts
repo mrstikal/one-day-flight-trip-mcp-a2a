@@ -26,6 +26,7 @@ import {
   type SnapshotInput,
 } from "@odft/contracts";
 import { getCuratedLandmarks } from "../reference/repository.js";
+import { assertOperationFence, type OperationFence } from "../effects.js";
 
 /**
  * Scenario snapshot persistence (05 section 7). Snapshots are immutable; a
@@ -237,12 +238,16 @@ export async function persistSnapshotVersion(
     readonly scenarioId: string;
     readonly content: SnapshotContent;
   },
+  fence?: OperationFence,
 ): Promise<{ readonly manifest: ScenarioManifest; readonly reused: boolean }> {
   const content = snapshotContentSchema.parse(input.content);
   assertSnapshotBounded(content);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    if (fence) {
+      await assertOperationFence(client, fence);
+    }
     const latest = await loadLatestSnapshotRow(client, input.tripId);
     if (latest) {
       const latestContent = snapshotContentSchema.parse(latest.inventory);
@@ -269,10 +274,17 @@ export async function persistSnapshotVersion(
 }
 
 /** Append a new snapshot version with the given domain additions. */
-export async function extendSnapshot(pool: Pool, input: ExtensionInput): Promise<ScenarioManifest> {
+export async function extendSnapshot(
+  pool: Pool,
+  input: ExtensionInput,
+  fence?: OperationFence,
+): Promise<ScenarioManifest> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    if (fence) {
+      await assertOperationFence(client, fence);
+    }
     const latest = await loadLatestSnapshotRow(client, input.tripId);
     if (!latest) {
       await client.query("ROLLBACK");
@@ -328,6 +340,7 @@ export class ScenarioService {
   async ensureDomains(
     tripId: string,
     domains: readonly ScenarioDomain[],
+    fence?: OperationFence,
   ): Promise<ScenarioManifest> {
     const client = await this.pool.connect();
     let latest: SnapshotRow | undefined;
@@ -421,7 +434,7 @@ export class ScenarioService {
     if (Object.keys(additions).length === 0) {
       return previousManifest;
     }
-    return extendSnapshot(this.pool, { tripId, additions });
+    return extendSnapshot(this.pool, { tripId, additions }, fence);
   }
 }
 

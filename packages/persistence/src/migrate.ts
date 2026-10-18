@@ -44,6 +44,7 @@ export const MIGRATION_VERSIONS: readonly string[] = [
   "0016-cancel-retries",
   "0017-bridge-skip",
   "0018-archive-langgraph-trips",
+  "0019-agent-identity-binding",
 ];
 
 export interface MigrationResult {

@@ -233,6 +233,54 @@ export async function startItineraryAttempt(
     continuation: null,
   });
 
+  // Replay-safe dispatch: a crash after delivery but before the caller persists
+  // the returned cursor must NOT create a second paid planning task. Reuse the
+  // existing non-terminal delegation for the same operation + attempt (the
+  // input fingerprint binds attempt/feedback), and only deliver when no task is
+  // bound yet.
+  const existing = await deps.pool.query<{ id: string }>(
+    `SELECT id FROM odft_app.agent_delegations
+      WHERE trip_id = $1 AND originating_operation_id = $2 AND skill_id = $3
+        AND input_fingerprint = $4
+        AND status IN ('pending','dispatched','working','input_required','completed')
+      ORDER BY created_at ASC LIMIT 1`,
+    [claim.tripId, claim.operationId, binding.skillId, prepared.inputFingerprint],
+  );
+  const existingId = existing.rows[0]?.id;
+  if (existingId) {
+    const persisted = await loadDelegationDelivery(deps.pool, existingId);
+    if (persisted.delegation && persisted.outbound) {
+      if (!persisted.delegation.taskId) {
+        const delivered = await deliverDelegation(deps.pool, deps.transport, {
+          delegationId: existingId,
+          agentIdentity: binding.agentIdentity,
+          data: persisted.outbound.payload,
+        });
+        if (!delivered.delivered) {
+          deps.logger?.({
+            level: "warn",
+            component: "coordinator",
+            message: "itinerary delegation redelivery failed; the persisted intent will be retried",
+            reason: delivered.reason,
+            operationId: claim.operationId,
+          });
+        }
+      }
+      return {
+        kind: "continue",
+        step: "planning",
+        runData: {
+          ...data,
+          planningAttempt: attempt,
+          feedback: feedback.slice(0, 10),
+          itineraryDelegationId: existingId,
+          itineraryId: null,
+          itineraryReviewFingerprint: null,
+        },
+      };
+    }
+  }
+
   const created = await createOutboundDelegation(deps.pool, {
     tripId: claim.tripId,
     operationId: claim.operationId,
@@ -578,20 +626,18 @@ export async function pollItineraryAttempt(
     };
   }
 
-  // The reviewer call is effect-fenced: a crash after review persistence but
-  // before parking replays the cached review instead of paying for a second one.
-  const review = await deps.ports.runEffect(
-    "coordinator_review_itinerary",
-    `review:${data.planningAttempt}:${data.itineraryReviewFingerprint ?? "none"}`,
-    () =>
-      deps.ports.reviewItinerary({
-        tripId: claim.tripId,
-        operationId: claim.operationId,
-        attempt: data.planningAttempt,
-        atBound: data.planningAttempt >= MAX_ITINERARY_ATTEMPTS,
-        previousRevisionFingerprint: data.itineraryReviewFingerprint,
-      }),
-  );
+  // No outer `runEffect` here: it would hold the operation row lock for the
+  // whole reviewer call. The reviewer service is already effect-fenced
+  // (`ai.review` caches `itinerary:review:<attempt>`), and saving the review is
+  // fenced by the operation, so a crash after persistence replays the cached
+  // review instead of paying for a second one.
+  const review = await deps.ports.reviewItinerary({
+    tripId: claim.tripId,
+    operationId: claim.operationId,
+    attempt: data.planningAttempt,
+    atBound: data.planningAttempt >= MAX_ITINERARY_ATTEMPTS,
+    previousRevisionFingerprint: data.itineraryReviewFingerprint,
+  });
   if (review.verdict === "revise" && data.planningAttempt < MAX_ITINERARY_ATTEMPTS) {
     return startItineraryAttempt(deps, claim, trip, data, [
       ...data.feedback,

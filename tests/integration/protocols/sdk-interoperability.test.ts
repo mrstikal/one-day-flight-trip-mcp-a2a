@@ -390,6 +390,21 @@ describe("A2A interoperability", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects unauthenticated task reads and cancellation", async () => {
+    for (const [method, params] of [
+      ["GetTask", { id: randomUUID(), tenant: "" }],
+      ["ListTasks", { tenant: "" }],
+      ["CancelTask", { id: randomUUID(), tenant: "" }],
+    ] as const) {
+      const response = await fetch(`http://127.0.0.1:${A2A_PORT}/`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "a2a-version": "1.0" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      });
+      expect(response.status).toBe(401);
+    }
+  });
+
   it("retrieves the persisted task after a server restart", async () => {
     const client = new A2AClient({ config: a2aConfig() });
     const task = await sendAndAwaitTask(client, dataMessage(randomUUID(), { payload: { persist: true } }));
