@@ -26,10 +26,16 @@ function main(): void {
   }
 
   // One fresh 48-byte secret per placeholder: SESSION_HMAC_KEY and every
-  // protocol password/token must be distinct, not copies of one value.
-  const contents = readFileSync(EXAMPLE_PATH, "utf8").replaceAll(PLACEHOLDER, () =>
-    randomBytes(48).toString("hex"),
-  );
+  // protocol password/token must be distinct, not copies of one value. Only
+  // value lines are rewritten; comment lines keep their documentation intact.
+  const contents = readFileSync(EXAMPLE_PATH, "utf8")
+    .split("\n")
+    .map((line) =>
+      line.trimStart().startsWith("#")
+        ? line
+        : line.replaceAll(PLACEHOLDER, () => randomBytes(48).toString("hex")),
+    )
+    .join("\n");
   writeFileSync(ENV_PATH, contents, { mode: 0o600 });
   chmodSync(ENV_PATH, 0o600);
   process.stdout.write(

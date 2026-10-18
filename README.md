@@ -189,22 +189,27 @@ docker compose up -d postgres
 npm run db:migrate         # applies SQL migrations (repeat-safe)
 npm run reference:load     # upserts the committed offline reference assets
 npm run protocol:roles     # creates restricted protocol/agent DB roles (needs passwords)
-cp agent-registry.example.json agent-registry.json
-cp mcp-registry.example.json mcp-registry.json
-cp mcp-registry.accommodation.example.json mcp-registry.accommodation.json
-cp mcp-registry.city-guide.example.json mcp-registry.city-guide.json
-cp mcp-host-registry.example.json mcp-host-registry.json
+npm run setup:config       # copies all JSON config templates (never overwrites)
 ```
 
+`npm run setup:config` copies every committed template to its runtime name:
+`ai-profiles.json`, `voice-profiles.json`, `agent-registry.json`,
+`mcp-registry.json`, `mcp-registry.accommodation.json`,
+`mcp-registry.city-guide.json`, `mcp-registry.accommodation-alt.json` and
+`mcp-host-registry.json`. Existing files are left unchanged, so the command is
+safe to re-run after pulling new templates.
+
 `npm run setup:env` generates `SESSION_HMAC_KEY`, `ODFT_PROTOCOL_ROLE_PASSWORD`,
-`ODFT_MCP_READONLY_PASSWORD`, the three `ODFT_*_AGENT_PASSWORD` values and the
-`ODFT_AGENT_TOKEN_*` values as distinct random secrets; you only need to set them manually
-if you copy `.env.example` yourself. `npm run protocol:roles` needs the five passwords;
-`npm run dev` needs `ODFT_PROTOCOL_ROLE_PASSWORD` (the MCP host's delegation
-authorization pool), `ODFT_MCP_READONLY_PASSWORD`, the three `ODFT_*_AGENT_PASSWORD`
-values and the `ODFT_AGENT_TOKEN_*` values. The registries contain identities and
-credential references, never secrets. Each agent has its own MCP registry because it
-must present its own token; sharing the flight registry makes the other specialists
+`ODFT_MCP_READONLY_PASSWORD`, the three primary `ODFT_*_AGENT_PASSWORD` values,
+`ODFT_ACCOMMODATION_ALT_AGENT_PASSWORD`, and every `ODFT_AGENT_TOKEN_*` /
+`ODFT_COORDINATOR_TOKEN` value as distinct random secrets; you only need to set
+them manually if you copy `.env.example` yourself. `npm run protocol:roles` needs
+the five non-optional passwords (protocol, MCP read-only and the three primary
+agents); `npm run dev` needs those plus `ODFT_COORDINATOR_TOKEN`, the three
+primary agent tokens and the MCP registry paths documented in
+[Configuration](#configuration). The registries contain identities and credential
+references, never secrets. Each agent has its own MCP registry because it must
+present its own token; sharing the flight registry makes the other specialists
 authenticate as the flight agent and their MCP calls fail authorization.
 
 `setup:env` never overwrites an existing `.env` and never prints the generated secret. Values in
@@ -248,6 +253,7 @@ npm run test:integration   # requires PostgreSQL at TEST_DATABASE_URL
 npm run build              # packages -> web -> worker -> post-build verification
 npm run test:e2e           # Playwright against `next start` (fixture mode)
 npm run benchmark:baseline # six cases x five repetitions on a disposable stack
+npm run validate:models    # OpenRouter only: validates AI profiles and, if configured, voice profiles
 ```
 
 CI order: `typecheck` -> `lint` -> `test:unit` -> `test:integration` -> `build` -> `test:e2e`.
@@ -359,9 +365,10 @@ for the full list. Key values:
 | Setting                                                | Rule                                                                                                                                                                                                                            |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`                                         | Required; never logged                                                                                                                                                                                                          |
+| `TEST_DATABASE_URL`                                    | Required for `npm run test:integration`; must point at a disposable `*_test` database because the suite resets its schemas                                                                                                      |
 | `PUBLIC_BASE_URL`                                      | Exact origin used by cookie/CSRF checks                                                                                                                                                                                         |
 | `SESSION_HMAC_KEY`                                     | Required random server secret (>= 32 chars)                                                                                                                                                                                     |
-| `ODFT_PROTOCOL_ROLE_PASSWORD`                          | Required before `npm run protocol:roles`; >= 16 chars. Password for the `odft_protocol_service` role (protocol tables, coordinator run/outbound writes). Never commit it.                                                       |
+| `ODFT_PROTOCOL_ROLE_PASSWORD`                          | Required before `npm run protocol:roles` and `npm run dev`; >= 16 chars. Password for the `odft_protocol_service` role (protocol tables, coordinator run/outbound writes). Never commit it.                                     |
 | `ODFT_MCP_READONLY_PASSWORD`                           | Required before `npm run protocol:roles` and `npm run dev`; >= 16 chars. Password for the `odft_mcp_readonly` role used by the MCP host; read-only grants, no write access.                                                     |
 | `ODFT_FLIGHT_AGENT_PASSWORD`                           | Required before `npm run protocol:roles` and `npm run dev`; >= 16 chars. Password for the `odft_flight_agent` role; `npm run dev` derives that agent's restricted `DATABASE_URL` from it.                                       |
 | `ODFT_ACCOMMODATION_AGENT_PASSWORD`                    | Same as above for the `odft_accommodation_agent` role.                                                                                                                                                                          |
@@ -394,7 +401,58 @@ the reference names, never the secret values. Keep `.env` out of version control
 `npm run setup:env` generates a distinct random value for every `replace-me` placeholder,
 including `SESSION_HMAC_KEY` and all protocol passwords/tokens; it never prints them. If you copy
 `.env.example` manually instead, generate long random values (for example `openssl rand -hex 32`)
-yourself.
+yourself. `npm run setup:config` creates the runtime JSON files (AI/voice profiles and the
+registry templates) from the committed examples and never overwrites existing files.
+
+### Protocol stack: agents, MCP host and registries
+
+`npm run dev` starts the MCP host and the three primary A2A agents and gives each child its own
+environment. The settings below are either **required inputs** for `npm run dev`, values **derived**
+for a child process, or **optional/test-only** switches. The same `DATABASE_URL` name means the owner
+role in the web/worker process and the matching restricted role inside an agent process; never start
+an agent with the owner URL.
+
+**Required for `npm run dev`** (the registry files are copied by `npm run setup:config`):
+
+| Variable                                     | Purpose                                                                                                                                                                                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ODFT_AGENT_REGISTRY_PATH`                   | Trusted A2A registry: identities, exact origins, pinned card URLs and `credentialRef` names. Read by the worker/coordinator and by each agent. Default: `agent-registry.json`.                                                             |
+| `ODFT_MCP_AGENT_REGISTRY_PATH`               | Trusted inbound registry for the MCP host: which agent identities may call which endpoint. Required in normal development; `npm run dev` falls back to the protocol test fixture only when it is unset. Default: `mcp-host-registry.json`. |
+| `ODFT_MCP_REGISTRY_PATH`                     | MCP endpoints and credential refs used by the flight agent. Default: `mcp-registry.json`.                                                                                                                                                  |
+| `ODFT_ACCOMMODATION_AGENT_MCP_REGISTRY_PATH` | The accommodation agent's own MCP registry (its own token). Default: `mcp-registry.accommodation.json`.                                                                                                                                    |
+| `ODFT_CITY_GUIDE_AGENT_MCP_REGISTRY_PATH`    | The City Guide agent's own MCP registry (its own token). Default: `mcp-registry.city-guide.json`.                                                                                                                                          |
+
+**Derived by `npm run dev` — set only when starting a service directly:**
+
+| Variable                                 | Meaning when set                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL` (agent process)           | The agent's restricted role connection. `npm run dev` builds it from the owner `DATABASE_URL` and the matching `ODFT_*_AGENT_PASSWORD`. Use `odft_flight_agent`, `odft_accommodation_agent` or `odft_city_guide_agent`; never the owner role. Example: `postgres://odft_flight_agent:odft_local_password@127.0.0.1:5442/odft`. |
+| `ODFT_MCP_READONLY_DATABASE_URL`         | Read-only role connection used by the MCP host's data pool. Required when the MCP host is started directly; `npm run dev` derives it.                                                                                                                                                                                          |
+| `ODFT_PROTOCOL_DATABASE_URL`             | Protocol/auth role connection used by the MCP host for delegation authorization and observations. Optional; falls back to the host's `DATABASE_URL`. `npm run dev` derives it.                                                                                                                                                 |
+| `ODFT_FLIGHT_AGENT_REGISTRY_PATH`        | Inbound A2A registry for a standalone flight agent. `npm run dev` sets it to `ODFT_AGENT_REGISTRY_PATH`.                                                                                                                                                                                                                       |
+| `ODFT_ACCOMMODATION_AGENT_REGISTRY_PATH` | Same for a standalone accommodation agent.                                                                                                                                                                                                                                                                                     |
+| `ODFT_CITY_GUIDE_AGENT_REGISTRY_PATH`    | Same for a standalone City Guide agent.                                                                                                                                                                                                                                                                                        |
+
+**Optional, defaults and test-only:**
+
+| Variable                                                                                                                                                                 | Default / rule                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ODFT_FLIGHT_AGENT_HOST` / `ODFT_FLIGHT_AGENT_PORT`                                                                                                                      | `127.0.0.1` / `4401`.                                                                                                                                                                                         |
+| `ODFT_ACCOMMODATION_AGENT_HOST` / `ODFT_ACCOMMODATION_AGENT_PORT`                                                                                                        | `127.0.0.1` / `4402`.                                                                                                                                                                                         |
+| `ODFT_CITY_GUIDE_AGENT_HOST` / `ODFT_CITY_GUIDE_AGENT_PORT`                                                                                                              | `127.0.0.1` / `4403`.                                                                                                                                                                                         |
+| `ODFT_MCP_HOST` / `ODFT_MCP_GEOGRAPHY_PORT` / `ODFT_MCP_TRAVEL_DATA_PORT` / `ODFT_MCP_ITINERARY_TOOLS_PORT`                                                              | `127.0.0.1` / `4321` / `4322` / `4323`.                                                                                                                                                                       |
+| `ODFT_ACCOMMODATION_ALT_AGENT_PASSWORD`, `ODFT_AGENT_TOKEN_ACCOMMODATION_ALT`                                                                                            | Optional; replacement demo only (Agent B on port 4404).                                                                                                                                                       |
+| `ODFT_ACCOMMODATION_ALT_AGENT_REGISTRY_PATH`, `ODFT_ACCOMMODATION_ALT_AGENT_MCP_REGISTRY_PATH`, `ODFT_ACCOMMODATION_ALT_AGENT_HOST`, `ODFT_ACCOMMODATION_ALT_AGENT_PORT` | Standalone Agent B only. The registry path is required when Agent B runs (example: `agent-registry.json`); the MCP registry is optional (unset = no outbound MCP); host/port default to `127.0.0.1` / `4404`. |
+| `ODFT_ACCOMMODATION_ALT_AI_CONFIG_PATH`                                                                                                                                  | Optional distinct AI profile for Agent B; falls back to `AI_CONFIG_PATH`.                                                                                                                                     |
+| `ODFT_FLIGHT_AGENT_CRASH`, `ODFT_ACCOMMODATION_AGENT_CRASH`, `ODFT_CITY_GUIDE_AGENT_CRASH`, `ODFT_ACCOMMODATION_ALT_AGENT_CRASH`                                         | Test-only; `1` exits after durable admission before any work. Default `0`.                                                                                                                                    |
+| `ODFT_ACCOMMODATION_AGENT_STEP_DELAY_MS`, `ODFT_CITY_GUIDE_AGENT_STEP_DELAY_MS`, `ODFT_ACCOMMODATION_ALT_AGENT_STEP_DELAY_MS`                                            | Test-only artificial per-step delay in milliseconds for parallel-window tests. Default `0`.                                                                                                                   |
+| `ODFT_MCP_TOKEN_GEOGRAPHY`, `ODFT_MCP_TOKEN_TRAVEL_DATA`, `ODFT_MCP_TOKEN_ITINERARY_TOOLS`                                                                               | Test-only credentials the MCP host uses when it acts as an MCP client in protocol tests. Not needed by `npm run dev`.                                                                                         |
+| `ODFT_ALLOW_REMOTE_ROLES`                                                                                                                                                | Set to `1` only to let `npm run protocol:roles` manage roles on a non-local database. Default off (local hosts only).                                                                                         |
+
+The A2A agents share `AI_MODE`/`AI_CONFIG_PATH`: the flight agent needs a validated `recommendation`
+profile in OpenRouter mode, the accommodation agent optionally reuses it for its comparison, and the
+City Guide agent is deterministic. Agent B may use a distinct profile via
+`ODFT_ACCOMMODATION_ALT_AI_CONFIG_PATH`. Fixture mode stays deterministic and free.
 
 Secrets stay on the server. They are never placed in `NEXT_PUBLIC_*` and never sent to the browser;
 `npm run build` scans the client bundle to confirm this.
@@ -455,7 +513,7 @@ endpoint provider slugs allowed to serve the calls. Relative paths resolve from 
 Start from the committed template:
 
 ```bash
-cp ai-profiles.example.json ai-profiles.json
+npm run setup:config
 # edit: model id, allowedEndpointProviderIds, price ceilings
 ```
 
@@ -506,11 +564,16 @@ Example (`ai-profiles.json`, one role shown; all four roles use the same shape):
 
 ```bash
 # 1. .env: AI_MODE=openrouter, OPENROUTER_API_KEY=..., AI_CONFIG_PATH=./ai-profiles.json
-# 2. create the profile file
-cp ai-profiles.example.json ai-profiles.json
-# 3. refresh capability/pricing and validate the profiles
-npm run ai:validate-models
+# 2. copy the committed templates (AI, voice and protocol registries)
+npm run setup:config
+# 3. refresh capability/pricing and validate every configured model profile
+npm run validate:models
 ```
+
+`npm run validate:models` runs `ai:validate-models` first and then
+`voice:validate-models` when `VOICE_CONFIG_PATH` is set (or voice is enabled);
+otherwise it skips voice with a note. The individual `ai:validate-models` and
+`voice:validate-models` commands remain available for targeted runs.
 
 `ai:validate-models` fetches `https://openrouter.ai/api/v1/models/{id}/endpoints` for each configured
 model, writes the verified manifest to `$AI_CONFIG_PATH.capabilities.json`, stamps the manifest's
@@ -589,10 +652,10 @@ Path to a JSON file holding exactly two speech profiles (`stt`, `tts`) plus stri
 Relative paths resolve from the repository root. Start from the committed template:
 
 ```bash
-cp voice-profiles.example.json voice-profiles.json
+npm run setup:config       # creates voice-profiles.json from the committed template
 # optional: narrow the limits; the models, the groq STT endpoint, and the voice
 # alias are documented defaults and are enforced by the validator
-npm run voice:validate-models
+npm run validate:models    # validates AI profiles and, when configured, voice profiles
 ```
 
 `voice-profiles.json` and its generated cache are git-ignored. The validator fetches the public

@@ -24,6 +24,9 @@ test-results/
 # Local protocol registries copied from the committed examples
 /agent-registry.json
 /mcp-registry.json
+/mcp-registry.accommodation.json
+/mcp-registry.city-guide.json
+/mcp-registry.accommodation-alt.json
 /mcp-host-registry.json
 
 # Operator AI configuration (models, price ceilings) and its verified cache
