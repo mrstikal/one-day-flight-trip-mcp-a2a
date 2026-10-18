@@ -1,3 +1,5 @@
+> **Historical planning material.** This document describes the retired LangGraph runtime and is kept for context only. The active architecture is `docs/architecture/coordinator.md`; the final gate is `docs/planning/migration-results.md`. LangGraph/checkpointer commands and test IDs below are historical and are not part of the active runtime.
+
 # Phase 03 analysis — contracts, protocol persistence and SDK interoperability
 
 Analysis pass of the two-pass workflow (ODTF_PLAN.md §4 preamble). **No code was

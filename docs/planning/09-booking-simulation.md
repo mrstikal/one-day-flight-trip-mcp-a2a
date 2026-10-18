@@ -1,6 +1,6 @@
 # Simulated Booking Specification
 
-This document is the authoritative home for the internal demo reservation lifecycle, confirmation and replacement semantics, demo reference generation, and booking UI behavior. It is a specification only. Contracts live in [04 Domain Model](04-domain-model.md); admission and the effect ledger live in [02 Architecture](02-architecture.md) and [03 LangGraph](03-langgraph-design.md); presentation patterns live in [08 Frontend UX](08-frontend-ux.md).
+This document is the authoritative home for the internal demo reservation lifecycle, confirmation and replacement semantics, demo reference generation, and booking UI behavior. It is a specification only. Contracts live in [04 Domain Model](04-domain-model.md); admission and the effect ledger live in [02 Architecture](02-architecture.md) and the [Coordinator design](../architecture/coordinator.md); presentation patterns live in [08 Frontend UX](08-frontend-ux.md).
 
 ## 1. Scope and Non-negotiables
 
@@ -74,7 +74,7 @@ State meanings:
 ## 5. Proposal Flow (Before Any Booking)
 
 1. The user selects or asks for an alternative through a validated command (`propose_selection`, `set_program`, `find_alternatives`) or after a decision.
-2. The graph node `stage_selection` creates the proposal: exact offer refs, dates/nights, party total in EUR, price delta versus the current selection, expiry, and an impact preview listing what would be superseded, cancelled, or revalidated.
+2. The coordinator `stage_selection` step creates the proposal: exact offer refs, dates/nights, party total in EUR, price delta versus the current selection, expiry, and an impact preview listing what would be superseded, cancelled, or revalidated.
 3. The impact preview is deterministic and complete: hotel replacement lists affected transfers and itinerary slots; flight change lists hotel-date, transfer, sightseeing-window, and meal-impact checks; route change lists every incompatible reservation for cancellation approval.
 4. Nothing is confirmed. Budget overage (party total versus `maxBudgetMinor`) is shown as a warning on the proposal; it never triggers an automatic downgrade or replacement.
 5. Cheaper-search semantics: `find_alternatives: cheaper` compares against the selected/confirmed party-total price and preserves that offer's category unless the user explicitly supplies `level`. A global default changed after booking never implies a category downgrade; the proposal states the preserved category and the price baseline it used.
@@ -82,7 +82,7 @@ State meanings:
 
 ## 6. Confirmation Flow (One Transaction)
 
-Resume requests carry `PublicDecisionResponse`; the worker adds the trusted `GraphResumeEnvelope` operation identity/revision before invocation. Authorization uses owner session, origin/CSRF, revision, exact decision/checkpoint binding, proposal state, and fingerprint. Public callers cannot provide the internal `modify` action. See [domain contract](04-domain-model.md#7-decisions-and-resume).
+Resume requests carry `PublicDecisionResponse`; the worker adds the trusted decision-resume envelope (operation identity/revision) before continuing. Authorization uses owner session, origin/CSRF, revision, exact decision/run binding, proposal state, and fingerprint. Public callers cannot provide the internal `modify` action. See [domain contract](04-domain-model.md#7-decisions-and-resume).
 
 The deterministic service then performs, in order:
 
@@ -94,7 +94,7 @@ The deterministic service then performs, in order:
 6. Generate the reference with savepoint-bounded collision handling and insert the new row. Any failure rolls back both changes, keeping the old row active.
 7. Persist confirmation/effect result, selection and proposal/decision lifecycle updates, and event in the same domain transaction.
 
-If the transaction commits and the checkpoint write then fails, recovery replays `commit_booking`: the effect key returns the stored result and the reservation is not duplicated ([02 Architecture](02-architecture.md) section 7, [03 LangGraph](03-langgraph-design.md) section 8).
+If the transaction commits and the coordinator cursor/effect write then fails, recovery replays `commit_booking`: the effect key returns the stored result and the reservation is not duplicated ([02 Architecture](02-architecture.md) section 7, [Coordinator design](../architecture/coordinator.md)).
 
 | Check at confirmation | Failure behavior |
 | --- | --- |
@@ -117,8 +117,8 @@ No-payment enforcement is structural: no payment module, dependency, endpoint, c
 ## 7. Replacement, Cancellation, and Route Change
 
 - Replacement is atomic: `UPDATE old SET status='superseded'` and `INSERT new SET status='confirmed'` in one transaction; the partial unique index remains satisfied at commit time. If the user has not confirmed, the old reservation is untouched.
-- Unrelated services are preserved: replacing a hotel preserves flights and all meal selections/reservations; replacing dinner preserves breakfast, lunch, hotel, flights, and activities; content hashes for untouched domains do not change ([03 LangGraph](03-langgraph-design.md) section 10).
-- Meal replacement preserves adjacent itinerary slots except the affected one; the itinerary is revalidated for that slot and safety ([03 LangGraph](03-langgraph-design.md) section 10).
+- Unrelated services are preserved: replacing a hotel preserves flights and all meal selections/reservations; replacing dinner preserves breakfast, lunch, hotel, flights, and activities; content hashes for untouched domains do not change ([Coordinator design](../architecture/coordinator.md)).
+- Meal replacement preserves adjacent itinerary slots except the affected one; the itinerary is revalidated for that slot and safety ([Coordinator design](../architecture/coordinator.md)).
 - `cancelled` is reached through explicit approved route-change impact. Standalone cancellation UI/API is not part of this POC; dismissing a proposal never cancels an existing reservation.
 - Route changes (origin, city, date, variant) require an impact preview and a `route_change_confirmation` decision naming the affected reservation IDs to cancel/supersede. Confirmed bookings are never silently transferred to the new city. After approval, affected reservations are superseded/cancelled atomically and both feasibility stages rerun; route rejection produces no booking.
 - All replacements/cancellations are user-initiated decisions; the assistant may prepare the proposal and explain it, but it cannot execute it.
@@ -134,22 +134,22 @@ No-payment enforcement is structural: no payment module, dependency, endpoint, c
 | Active reservation invariant | Partial unique index: one `confirmed` row per `(trip_id, service_key)` |
 | Demo reference | Unique index plus bounded regeneration |
 | Concurrent browsers | At most one queued/running operation per trip; same-revision conflicts yield one winner and `409 STALE_REVISION` / `409 OPERATION_IN_PROGRESS` for the loser |
-| Worker safety | Advisory-lock single trip writer, lease + fencing token, commit-before-checkpoint replay |
+| Worker safety | Advisory-lock single trip writer, lease + fencing token, commit-before-cursor replay |
 
-Every repeated confirmation, LangGraph retry, or operation recovery must produce the same stored outcome (brief Scenario M). Concurrent conflicting modifications produce a deterministic winner and no mixed state (brief Scenario N).
+Every repeated confirmation, coordinator retry, or operation recovery must produce the same stored outcome (brief Scenario M). Concurrent conflicting modifications produce a deterministic winner and no mixed state (brief Scenario N).
 
 ## 9. Fault and Recovery Windows
 
 | Window | Expected behavior |
 | --- | --- |
-| Commit succeeds, checkpoint write fails | Replay `commit_booking`; effect key returns stored result; exactly one active reservation |
+| Commit succeeds, cursor/effect write fails | Replay `commit_booking`; effect key returns stored result; exactly one active reservation |
 | Worker crashes mid-confirmation | Lease expires; next claimant recovers the same thread; unfinished nodes rerun idempotently |
 | Browser closes while awaiting booking decision | Pending decision and interrupt binding reload; exact descriptor is re-presented |
-| Backend restart while suspended | Checkpoint + domain rows restored; `getState` used before any resume; stale/failed checkpoints never hand-repaired |
+| Backend restart while suspended | Coordinator run + domain rows restored; persisted decision/task retrieved before any resume; stale/failed state never hand-repaired |
 | Duplicate confirm submitted twice | One reservation; second response returns the same demo reference |
 | Injection overlay active | Only provider/validator behavior changes; reservations are never regenerated (Scenario D) |
 
-Faults are recorded on the same operation and labeled `Simulated failure` in the inspector. Recovery details are owned by [03 LangGraph](03-langgraph-design.md) section 8 and [10 Security and reliability](10-security-reliability.md); this document adds no competing contract.
+Faults are recorded on the same operation and labeled `Simulated failure` in the inspector. Recovery details are owned by the [Coordinator design](../architecture/coordinator.md) and [10 Security and reliability](10-security-reliability.md); this document adds no competing contract.
 
 ## 10. Booking UI (Phases 06-07)
 
@@ -181,7 +181,7 @@ Booking entry points:
 
 - Unit/integration: demo-reference format and collision retry; duplicate confirmation returns one reservation; replacement is atomic; same-offer confirmation is idempotent; one active reservation per service; unrelated hashes unchanged after H/I/J-style changes.
 - Declined booking (2026-10-14): after `decline_booking` no reservation row exists but the `trip_selections` row does; the planned draft contains the airport buffer and the flight/hotel cost items; the later `propose_selection` + confirmation creates the reservation and replans; a confirmed service cannot be declined.
-- Crash/restart: commit-before-checkpoint replay yields one reservation (Scenario M); restart at a pending decision reloads the exact decision (Scenario K/L); concurrent confirmations produce one winner (N).
+- Crash/restart: commit-before-cursor replay yields one reservation (Scenario M); restart at a pending decision reloads the exact decision (Scenario K/L); concurrent confirmations produce one winner (N).
 - UI: both disclaimer sentences are asserted verbatim in the confirmation dialog and after success; submission is blocked without the acknowledgement checkbox.
 - Invariant: no code path creates a payment record or calls a real provider; attempts to confirm via model text fail authorization; the stored terms snapshot plus disclaimer acknowledgement are immutable and are what reads render.
 - These are specified for [11 Testing](11-testing-strategy.md) and scheduled by [12 Roadmap](12-implementation-roadmap.md); this plan does not claim they have run.

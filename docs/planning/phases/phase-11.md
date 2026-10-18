@@ -1,3 +1,5 @@
+> **Historical phase plan.** This plan belongs to the retired LangGraph runtime. The active runtime is `coordinator-v1`; see `docs/architecture/coordinator.md` and `docs/planning/migration-results.md`.
+
 # Phase 11 - Full Selective Invalidation, After-END Re-entry, Preservation, Durable SSE, Graphical Inspector (Scenarios H, I, J, K)
 
 Status: implementation-phase specification, planning-only; contains no application code.

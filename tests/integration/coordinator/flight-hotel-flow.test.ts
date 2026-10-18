@@ -180,4 +180,45 @@ describe("coordinator flight-hotel flow", () => {
     );
     expect(reservations.rows.map((row) => row.service_key)).toEqual(["flights", "hotel"]);
   }, 300_000);
+
+  it("finalizes an infeasible route as a blocked outcome with no unanswerable decision", async () => {
+    const { tripId } = await createCoordinatorTrip(harness.pool, {
+      destinationCityId: "geonames:3077916", // Ceske Budejovice (ground travel preferred)
+      destinationCountryKey: "CZ",
+      travelVariant: "one_night",
+    });
+    const run = await driveUntilParked(harness.pools, tripId, 4);
+    expect(run).toBeUndefined(); // a completed run is no longer "active"
+    const finishedRun = await harness.pool.query<{
+      status: string;
+      wait_reason: string | null;
+    }>(
+      `SELECT status, wait_reason FROM odft_app.coordinator_runs
+        WHERE trip_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [tripId],
+    );
+    expect(finishedRun.rows[0]?.status).toBe("completed");
+    expect(finishedRun.rows[0]?.wait_reason).toBeNull();
+
+    const trip = await harness.pool.query<{
+      workflow_status: string;
+      current_route_validation_id: string | null;
+    }>(
+      `SELECT workflow_status, current_route_validation_id FROM odft_app.trips WHERE id = $1`,
+      [tripId],
+    );
+    expect(trip.rows[0]?.workflow_status).toBe("blocked");
+    const route = await harness.pool.query<{ status: string }>(
+      `SELECT status FROM odft_app.route_validations WHERE id = $1`,
+      [trip.rows[0]?.current_route_validation_id],
+    );
+    expect(route.rows[0]?.status).toBe("INFEASIBLE");
+    // No pending choice can be offered for a route that cannot be flown.
+    const pending = await harness.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM odft_app.pending_decisions
+        WHERE trip_id = $1 AND status = 'pending'`,
+      [tripId],
+    );
+    expect(pending.rows[0]?.count).toBe("0");
+  }, 120_000);
 });

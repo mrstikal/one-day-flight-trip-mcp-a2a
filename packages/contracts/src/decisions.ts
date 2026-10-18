@@ -105,9 +105,9 @@ export const pendingDecisionBaseSchema = z
     id: uuidSchema,
     kind: decisionKindSchema,
     /**
-     * Phase 03 engine binding: graph decisions keep their checkpoint fields;
-     * coordinator decisions bind their run instead and must not invent graph
-     * ids (validated below, persisted by migration 0013).
+     * Engine binding: the `langgraph` branch parses legacy rows as inert
+     * history; every new decision uses `coordinator-v1` and must not invent
+     * graph ids (validated below, persisted by migration 0013).
      */
     engine: engineSchema.default("coordinator-v1"),
     threadId: z.string().min(1).optional(),
@@ -126,9 +126,9 @@ export const pendingDecisionBaseSchema = z
   .strict();
 
 /**
- * The engine-binding-validated pending decision: graph decisions require their
- * checkpoint fields, coordinator decisions require their run and must not carry
- * graph identifiers.
+ * The engine-binding-validated pending decision: legacy graph rows require
+ * their checkpoint fields, coordinator decisions require their run and must not
+ * carry graph identifiers.
  */
 export const pendingDecisionSchema = pendingDecisionBaseSchema.superRefine((decision, context) => {
   if (decision.engine === "langgraph") {

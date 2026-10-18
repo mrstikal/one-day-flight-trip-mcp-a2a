@@ -52,6 +52,7 @@ export const publicInspectorCheckpointSchema = z
     kind: decisionKindSchema,
     status: z.enum(["pending", "resolved", "cancelled"]),
     createdRevision: z.number().int().min(0),
+    /** Legacy graph ids; null for coordinator decisions. */
     checkpointId: z.string().min(1).max(200).nullable(),
     interruptId: z.string().min(1).max(200).nullable(),
     createdAt: instantSchema,

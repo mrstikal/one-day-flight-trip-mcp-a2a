@@ -7,7 +7,7 @@ import {
 } from "@odft/domain";
 
 /**
- * Phase 11 invalidation-matrix dispatch (03-langgraph-design.md section 10).
+ * Phase 11 invalidation-matrix dispatch (docs/architecture/coordinator.md).
  *
  * Maps an accepted command batch to the exact matrix actions per affected
  * domain and to the next work item the graph must run. This is the single

@@ -214,6 +214,8 @@ export async function loadPublicInspector(
           WHERE trip_id = $1 ORDER BY created_at DESC LIMIT $2`,
       [tripId, MAX_ROWS],
     ),
+    // Legacy graph ids are selected for inert history only; coordinator
+    // decisions bind a run and leave both columns null.
     client.query<{
       id: string;
       kind: string;

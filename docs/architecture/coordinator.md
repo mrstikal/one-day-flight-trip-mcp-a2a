@@ -1,136 +1,165 @@
-# Durable application coordinator (Phase 07)
+# Durable coordinator runtime (Phase 12)
 
-The coordinator is a second, independent execution engine for new trips. It
-coexists with LangGraph: the default application stays graph-backed, existing
-trips never change engine, and the two engines cannot claim each other's work.
+The coordinator is the **only** application runtime for new trips. LangGraph and
+its checkpointer are not runtime dependencies; the graph worker, graph state and
+graph decision bindings were removed in Phase 11. Historical rows written by the
+retired graph remain readable as inert history, but no new graph work can be
+claimed or started.
 
-## Engine ownership
+## Runtime ownership
 
-- `trips.engine` (`langgraph` | `coordinator-v1`) is immutable and is the single
-  source of truth; operations and pending decisions carry the same engine.
-- Claims are engine-filtered (`ClaimOptions.engines` joins `trips.engine`): the
-  graph worker loop claims only `langgraph`, the coordinator driver only
-  `coordinator-v1` (`apps/worker/src/worker.ts`, `ODFT_COORDINATOR=1` starts the
-  second loop; every offline test drives `runCoordinatorOperation` directly).
-- New coordinator trips exist only through the server-controlled seam:
-  `createTrip({ engine: "coordinator-v1" })` (fixture/test configuration). The
-  production web default (no option) stays `langgraph`.
-- Graph decisions keep `thread_id`/`graph_version`; coordinator decisions carry
-  `coordinator_run_id` and NULL graph ids (schema constraint from 0013).
+| Concern | Owner |
+| --- | --- |
+| HTTP BFF, session/CSRF, projections, SSE | `apps/web` (Next.js) |
+| Durable operation execution | `apps/worker` (`coordinator-v1`) |
+| MCP reference/scenario/itinerary tools | `apps/mcp-server` |
+| Specialist research/planning | `apps/flight-agent`, `apps/accommodation-agent`, `apps/accommodation-agent-alt`, `apps/city-guide-agent` |
+| Domain truth, operations, decisions, events, protocol evidence | PostgreSQL |
+
+`trips.engine` is `coordinator-v1` for every new trip and is immutable.
+`workflow_operations` and `pending_decisions` carry the same engine; the claim
+filter joins `trips.engine`, so a coordinator worker cannot claim legacy work.
+The worker exposes no public HTTP port; it connects to PostgreSQL and writes a
+heartbeat every 10 seconds.
+
+## Process topology (development defaults)
+
+| Process | Default address | Notes |
+| --- | --- | --- |
+| Web | `http://127.0.0.1:3000` | Production E2E uses `next start` on port 3100 |
+| MCP host | `127.0.0.1:4321-4323` | `/geography/mcp`, `/travel-data/mcp`, `/itinerary-tools/mcp` |
+| Flight agent | `127.0.0.1:4401` | `flight.recommend.v1` |
+| Accommodation agent | `127.0.0.1:4402` | `accommodation.recommend.v1` |
+| City Guide agent | `127.0.0.1:4403` | `city-guide.research.v1`, `itinerary.propose.v1` |
+| Accommodation agent B | `127.0.0.1:4404` | Same skill, independent implementation |
+| Coordinator worker | no public port | Claims queued operations and writes the heartbeat |
+
+The trusted agent registry is the only discovery source. Each agent receives its
+own restricted database role and MCP token; the MCP host reads the inbound agent
+identity from the bearer token, never from a request body.
 
 ## Cursor and transitions
 
-- One active `coordinator_runs` row per trip stores the cursor:
-  `(step, wait_reason, runData)`; `state_version` bumps on every write.
-- `packages/workflow/src/coordinator/state.ts` defines the transition algebra
-  (`continue` / `wait` / `complete` / `fail` / `abandon`); `dispatch.ts` owns the
-  handlers and the loop (max 12 transitions per claim).
+- One active `coordinator_runs` row per trip stores
+  `(step, wait_reason, runData)`; `state_version` increments on every write.
+- `packages/workflow/src/coordinator/state.ts` defines the transition algebra:
+  `continue`, `wait`, `complete`, `fail`, `abandon`.
 - Steps: `initializing → interpreting → validating_route → requesting_flights →
-  researching → planning → awaiting_user` (parks), with `completed`/`failed`
-  terminal. A decision resume re-enters at `interpreting` with the same cursor
+  researching → planning → awaiting_user`; terminal run states are `completed`
+  and `failed`. A decision resume re-enters at `interpreting` with the same cursor
   row and a new operation id.
-- `abandon` leaves the operation `running` without finalizing: the lease expires
-  and the next claim resumes the same step from the saved cursor (saved-task
-  recovery). Delivery attempts are bounded and idempotent.
+- `dispatch.ts` owns the step handlers and a bounded transition budget per claim
+  (12 transitions). A `wait` parks the operation with a pending decision; an
+  `abandon` leaves the operation `running` without finalizing, so the lease
+  expires and the next claim resumes the saved cursor.
+- A completed route rejection or schedule rejection is a **blocked** outcome
+  (`workflow_status = 'blocked'`), not an empty pending decision. The persisted
+  route/schedule validation carries the safe reasons for the UI.
+- An itinerary conflict exposes only finite options. A clarification carries its
+  explicit options; the generic recovery fallback exposes its
+  `recoveryOptionIds` (`change_hotel`/`change_meals`) and maps them to the step
+  that can actually free the conflict.
 
 ## Transaction boundaries
 
-- Every state change is one SHORT fenced transaction (`continue` cursor writes
-  are refused when the claim no longer holds the operation's fencing token):
-  `finalizeWaiting` /
-  `finalizeSuccess` / `finalizeFailure` accept `extraWrites`, so the run cursor
-  is committed together with the operation status and the pending decision
-  (`finalizeWaiting` writes the engine-bound decision row in the same block).
-- Outbound delegation commits BEFORE delivery ("persist before deliver"):
-  `agent_delegations` + `protocol_outbound_messages` (payload + hash + message
-  id) are written first; delivery outcomes are short follow-ups. A re-delivery
-  reuses the persisted message id, so the specialist's admission replays the
-  canonical task instead of executing twice.
-- Artifact ingestion validates the delegation binding (delegation/trip/
-  snapshot/operation/revision) and stores only a reference (`accepted_artifact_hash`
-  on the delegation row, payload hash as the decision fingerprint) — payloads
-  never enter the run data.
-- Booking goes through the SAME `BookingService` as the graph after the accepted
-  response; the confirmation carries a stable `confirmationKey` and a replayed
-  confirmation (proposal already `accepted`/`rejected`) is admitted again and
-  resolved through the service's effect idempotency (commit-before-cursor).
-- Network calls (delivery, task reads) NEVER run inside a transaction.
+- Every state change is one short fenced transaction. `continue` cursor writes
+  are refused when the claim no longer holds the operation's fencing token.
+- `finalizeWaiting`, `finalizeSuccess` and `finalizeFailure` accept
+  `extraWrites`, so the run cursor, operation status, pending decision, assistant
+  message and protocol evidence commit together.
+- Outbound delegation commits **before** delivery: `agent_delegations` +
+  `protocol_outbound_messages` (payload, hash, message id) are written first;
+  delivery outcomes are short follow-ups. Re-delivery reuses the persisted
+  message id, so specialist admission replays the canonical task instead of
+  executing twice.
+- Artifact ingestion validates the delegation binding (delegation, trip,
+  snapshot, operation, revision) and stores only a reference
+  (`accepted_artifact_hash`); payloads never enter run data.
+- Booking uses the same `BookingService` as the rest of the application. The
+  confirmation carries a stable `confirmationKey`; a replayed confirmation is
+  resolved through effect idempotency, so a crash after the booking commit cannot
+  create a second reservation.
+- Network calls (delivery, task reads, MCP calls) never run inside a
+  transaction.
 
-## Drain-before-decision and the question queue
+## Research delegation and MCP
 
-- A specialist task in `input_required` is recorded in the run data's FIFO
-  `questionQueue` (binding only; text/options are re-read from the saved task at
-  promotion) and does NOT block the drain — working siblings keep polling. The
-  queue is persisted with every parked cursor and every abandon, so a question
-  observed during a choice park or a crash is never lost.
-- Only when every submitted sibling is terminal does the coordinator promote
-  exactly ONE validated FIFO question (shifted from the queue) as an
-  `agent_input` decision (`AgentInputDecisionPayload`) at the UNCHANGED trip
-  revision, and always BEFORE parking a choice.
-- The accepted `choose_option` answer is persisted as a new outbound
-  continuation (question `inputGeneration + 1`) and delivered to the ANSWERING
-  task only; unrelated siblings are never touched. The agent consumes the answer
-  exactly once, the coordinator ingests the continuation artifact under the
-  delegation binding, and the remaining queue continues in the run data.
+- The coordinator evaluates Stage A and materializes flights before delegating;
+  the Flight agent ranks only schedule-valid combinations of the delegated frozen
+  snapshot.
+- Hotel/meal/activity/event research is delegated concurrently to the
+  Accommodation and City Guide agents. Each agent reads its authorized domains
+  from the MCP host with the delegation id and exact snapshot id; the active trip
+  pointer is never read by an agent or MCP tool.
+- A specialist `input_required` task is queued (binding only) and does not block
+  working siblings. When every submitted sibling is terminal, exactly one
+  validated FIFO question is promoted as an `agent_input` decision at the
+  unchanged trip revision. The answer is persisted as a new outbound
+  continuation for the answering task only.
+- An unavailable necessary domain opens a typed recovery decision; a completed
+  sibling artifact is retained. A flight failure blocks because no flight choice
+  can be offered.
+
+## Planning loop
+
+- The City Guide agent proposes a planner-compatible day; the coordinator
+  reassembles, validates and reviews it locally. Candidate membership is checked
+  against the locally loaded planning data, so an invented id is rejected before
+  any draft is stored.
+- The loop is bounded to three application attempts. Invalid drafts and
+  `revise` reviews become feedback for the next attempt; at the bound the run
+  opens the existing conflict decision or the approval park. The agent cannot
+  start an internal loop.
+- Typed commands are applied in one deterministic batch. Only affected domains
+  are re-delegated; unaffected artifacts, selections and confirmed reservations
+  are retained.
+- Approving the persisted draft is separate from booking; a stale or superseded
+  itinerary is refused.
+
+## Decisions, cancellation and budget
+
+- Pending decisions are engine-bound rows with a fingerprint over the relevant
+  state. Admission checks the decision id, offered ids, expected revision and
+  request id; a stale decision is refused instead of applied.
+- Cancellation rotates the fence, revokes outstanding delegations and persists a
+  remote-cancel intent in one commit. Late artifacts are inadmissible and a
+  terminal task is never resurrected.
+- LLM calls are reserved before sending and settled after the response; unknown
+  outcomes keep counting against task and trip caps. The per-trip limits are
+  `MAX_LLM_CALLS_PER_TRIP` and `MAX_LLM_COST_USD_PER_TRIP`. Fixture mode writes
+  no billable ledger rows.
 
 ## Recovery
 
-- Startup: claims are lease-based; a crashed operation is re-claimed after its
+- Startup claims are lease-based; a crashed operation is reclaimed after its
   lease expires and resumes from the persisted cursor.
-- Saved tasks: a research step re-reads dispatched delegations and re-`getTask`s
-  them; artifacts are ingested idempotently and stale scopes are rejected.
-- Lost acknowledgements: an unacknowledged outbound intent is re-delivered from
-  the persisted payload (same message identity) — verified by tests.
-- The isolated integration suites are `tests/integration/coordinator/*`; the
-  engine-dispatch proof walks `admission.test.ts` (a coordinator operation is
-  invisible to the `langgraph` claim filter).
+- Research steps re-read dispatched delegations and `getTask` the saved task;
+  artifacts are ingested idempotently and stale scopes are rejected.
+- An unacknowledged outbound intent is re-delivered from the persisted payload
+  with the same message identity.
+- A specialist that dies mid-work is reconciled to an explicit
+  `AGENT_RESTARTED` failure; interrupted computation is never fabricated as a
+  success. `input_required` is a resting state and survives restarts.
+- An owner retry of a terminally failed run reopens the same run at
+  `interpreting`, reuses completed accepted siblings and re-dispatches only the
+  failed scope.
 
-## Phase 08: itinerary, selective replanning, chat and voice parity
+## History
 
-- **City Guide itinerary skill** (`itinerary.propose.v1`): the coordinator sends
-  the compact planner role context plus the deterministic MCP Itinerary Tools
-  context in `queryContext.itinerary` (the agent never reads trip tables). The
-  agent reads candidate facts from the authorized frozen snapshot, runs ONE
-  delegated planner call, rejects an id the MCP tools did not return, and
-  preflights the proposal with `validate_itinerary`. The proposal is
-  planner-compatible stops only; assembly, validation, persistence and the
-  review policy stay coordinator-authoritative (`packages/services/src/travel/
-  itinerary.ts`).
-- **Bounded attempt loop**: one task = one application planning attempt.
-  `packages/workflow/src/coordinator/itinerary.ts` owns the three-attempt bound.
-  An invalid draft or a `revise` review becomes feedback for the next attempt;
-  at the bound the run hands the current version to approval or opens the
-  existing conflict decision. The agent cannot start an internal loop.
-- **Local acceptance**: the full `ItineraryProposalV1` is re-validated in the
-  coordinator, candidate membership is checked against the locally loaded
-  planning data, and an invented id is rejected before any draft is stored.
-- **Selective replanning**: typed commands are applied in one deterministic
-  batch (`packages/workflow/src/routing/command-order.ts`), then
-  `resolveCommandRouting` chooses the affected domains. Only those domains are
-  re-delegated; unaffected artifacts, selections and confirmed reservations are
-  untouched. A completed scoped research pass resumes at its recorded
-  `researchTarget` (program choices, hotel choice or itinerary plan).
-- **Modification takeover**: when a later command operation takes over a parked
-  run, the previous operation's outstanding delegations are revoked and its
-  run data (delegation ids, question queue, attempt counter, feedback and
-  fingerprints) is cleared before any new work. The pending decision itself is
-  retired when the new operation publishes a decision or completes; a failed
-  run cancels it. A decision operation is a continuation (for example an answer
-  to a specialist question) and never revokes its delegations or clears its
-  run data.
-- **Chat**: `interpreting` runs the intent role for `{kind:"chat"}` payloads,
-  applies the validated command batch, opens a bounded clarification when the
-  request is ambiguous, and persists the assistant wording inside the SAME
-  fenced transaction that parks/completes the operation. An unsupported
-  interpretation re-publishes the interrupted decision (when its answer does
-  not depend on the superseded operation's state) instead of completing the run
-  and leaving an unanswerable pending decision.
-- **Route changes**: `set_route` is previewed first; when a confirmed
-  reservation would be cancelled, the coordinator parks
-  `route_change_confirmation` with the exact public preview in
-  `option_payload` (never a selection-proposal FK) and the deferred commands in
-  run data. Nothing is cancelled before the confirmation; accepting it commits
-  the route change and restarts Stage A/B and flight research.
-- **Voice parity**: voice transcription still feeds the same chat admission
-  path, so it uses the same typed commands, authorization, invalidation and
-  attempt bounds as text. No voice-specific business rules exist.
+- `/trips/[id]/history` renders persisted operation, decision and protocol
+  evidence for the owning session; archived trips are read-only.
+- Legacy graph history, when present, is rendered read-only and is never used to
+  resume work.
+- The inspector (`/trips/[id]/inspector`) shows the A2A/MCP/application timeline,
+  operation attempts, AI telemetry and labeled simulated faults without exposing
+  prompts, raw payloads or secrets.
+
+## Evidence
+
+- `tests/integration/coordinator/*` — cursor, admission, decisions, itinerary,
+  recovery, cancellation, history authorization.
+- `tests/integration/protocols/*` — restart, outage, cancellation and
+  replacement races over real HTTP.
+- `tests/e2e/*` — production build, SSE replay, inspector, protocol failures,
+  history and mobile/desktop wizard flows.
+- `docs/planning/migration-results.md` — final gate and benchmark comparison.

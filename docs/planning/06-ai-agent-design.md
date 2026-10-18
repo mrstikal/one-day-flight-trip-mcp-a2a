@@ -4,7 +4,7 @@
 
 AI understands requests, evaluates supplied alternatives, proposes itinerary structure, reviews qualitative tradeoffs, and supplies short explanations. It does not generate authoritative offers, decide flight feasibility, compute final costs, authorize commands, write reservations, mutate preferences, or decide whether an invalid itinerary is acceptable.
 
-Use four configurable roles, not a separate chatbot for each travel service. A role is a prompt/schema/configuration contract invoked by a graph node, not an autonomous agent allowed to spawn other agents.
+Use four configurable roles, not a separate chatbot for each travel service. A role is a prompt/schema/configuration contract invoked by a coordinator step, not an autonomous agent allowed to spawn other agents.
 
 | Role             | Input                                                                                       | Structured output                                             | When called                                                                       |
 | ---------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------- |
@@ -216,14 +216,14 @@ Before dispatch, use a conservative tokenizer/UTF-8-bound estimate plus protocol
 
 ## 8. Durable Call Budgets and Observability
 
-Trip limits: 40 attempted live calls and USD 1.00 by default. Every retry counts. Each operation's provider/planning bounds are separate and defined in [LangGraph](03-langgraph-design.md).
+Trip limits: 40 attempted live calls and USD 1.00 by default. Every retry counts. Each operation's provider/planning bounds are separate and defined in the [coordinator design](../architecture/coordinator.md).
 
 1. Under a short SQL lock reserve one attempt and ceil(inputCap*worstInputRate/1e6 + outputCap*worstTotalOutputRate/1e6 + worstRequestFee), using fixed precision/all tariffs/additive charges. Each retry has its own fee/reservation.
 2. Refuse before transport if trip or role ceiling would be exceeded or pricing is unknown.
 3. Persist call ID, operation/effect scope, role/model/provider, prompt/schema/pricing versions, start time, and reserved amount.
 4. Send with an abort deadline; do not hold a database transaction open over HTTP.
 5. Record latency, input/output/cached/reasoning tokens where present, provider-reported cost or conservative calculated estimate, schema/semantic-validation status, finish reason, and retry count.
-6. Persist a successful validated object under the effect scope before returning to the graph; replay reuses it without another billable call.
+6. Persist a successful validated object under the effect scope before returning to the coordinator; replay reuses it without another billable call.
 7. If a timeout/crash leaves billing unknown, keep the worst-case reservation until explicit reconciliation. A retry reserves another attempt/cost; do not release an uncertain charge as zero.
 
 Elapsed transport time uses a monotonic clock and includes response-body reads. Timeouts, aborts, network
@@ -238,7 +238,7 @@ Public telemetry contains model/role, prompt version, aggregate tokens, latency,
 
 ## 9. Error and Retry Policy
 
-The adapter owns at most one retry for transient 429/5xx/timeout or repairable structured-output errors. Honor a bounded `Retry-After`; otherwise use a short bounded backoff. Persist retry intent so a process restart cannot reset limits. Never stack automatic LangGraph retries on the same call.
+The adapter owns at most one retry for transient 429/5xx/timeout or repairable structured-output errors. Honor a bounded `Retry-After`; otherwise use a short bounded backoff. Persist retry intent so a process restart cannot reset limits. Never stack automatic retries on the same call.
 
 401/403, unsupported parameters/schema/model, input overflow, absent pricing, exhausted budget, and user abort are not automatic retries. Treat 402 as nonretryable unless its machine-readable metadata identifies a transient in-flight-budget case and retry fits the operation/cost bound. Do not infer behavior by matching a human-readable provider error string.
 

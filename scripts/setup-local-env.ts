@@ -3,8 +3,9 @@ import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 /**
  * Create a development-only `.env` from `.env.example` with a random
- * SESSION_HMAC_KEY. Never overwrites an existing `.env` and never prints the
- * generated secret.
+ * SESSION_HMAC_KEY and a distinct random value for every protocol password/token
+ * placeholder. Never overwrites an existing `.env` and never prints the
+ * generated secrets.
  */
 
 const ENV_PATH = ".env";
@@ -24,12 +25,15 @@ function main(): void {
     return;
   }
 
-  const secret = randomBytes(48).toString("hex");
-  const contents = readFileSync(EXAMPLE_PATH, "utf8").replaceAll(PLACEHOLDER, secret);
+  // One fresh 48-byte secret per placeholder: SESSION_HMAC_KEY and every
+  // protocol password/token must be distinct, not copies of one value.
+  const contents = readFileSync(EXAMPLE_PATH, "utf8").replaceAll(PLACEHOLDER, () =>
+    randomBytes(48).toString("hex"),
+  );
   writeFileSync(ENV_PATH, contents, { mode: 0o600 });
   chmodSync(ENV_PATH, 0o600);
   process.stdout.write(
-    `Wrote ${ENV_PATH} with a generated SESSION_HMAC_KEY.\n` +
+    `Wrote ${ENV_PATH} with generated SESSION_HMAC_KEY and protocol secrets.\n` +
       `It is git-ignored; do not commit it. Values are development placeholders only.\n`,
   );
 }

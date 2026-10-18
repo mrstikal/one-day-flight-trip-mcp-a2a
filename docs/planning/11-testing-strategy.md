@@ -1,3 +1,5 @@
+> **Historical planning material.** This document describes the retired LangGraph runtime and is kept for context only. The active architecture is `docs/architecture/coordinator.md`; the final gate is `docs/planning/migration-results.md`. LangGraph/checkpointer commands and test IDs below are historical and are not part of the active runtime.
+
 # Testing Strategy
 
 Status: implementation specification, planning-only. The repository has no application code, package manifest, test runner, or CI as of 2026-10-10. Every test ID below is a planned obligation, not evidence: this document must never be cited as proof that a test exists or passes. Evidence exists only as executed command output and captured artifacts from the phase that implements the test. Requirement IDs (`FR-*`) are owned by [functional requirements](01-functional-requirements.md); behavioral contracts by [LangGraph design](03-langgraph-design.md), [domain model](04-domain-model.md), and [synthetic data design](05-synthetic-data-design.md).

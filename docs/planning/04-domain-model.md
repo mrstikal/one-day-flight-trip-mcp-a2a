@@ -106,7 +106,7 @@ interface Trip {
 }
 ```
 
-`workflowStatus` is a reconciled display projection, not the cursor. Revision advances on admitted business/decision requests only; technical retry reactivates the same existing operation without changing its inputs/revision. If a failed checkpoint is unfinished/uncertain, `recoveryRequired` blocks new ordinary requests. Selected offers are separate records; recommendations are not selections.
+`workflowStatus` is a reconciled display projection, not the cursor. Revision advances on admitted business/decision requests only; technical retry reactivates the same existing operation without changing its inputs/revision. If a failed operation is unfinished/uncertain, `recoveryRequired` blocks new ordinary requests. Selected offers are separate records; recommendations are not selections.
 
 Changing route inputs requires an explicit impact preview if bookings or approved selections become incompatible. The accepted replacement/cancellation transaction preserves historical reservation rows and marks affected ones explicitly; it never deletes history or silently transfers them to the new city.
 
@@ -301,10 +301,15 @@ type DecisionKind =
 interface PendingDecision {
   id: string;
   kind: DecisionKind;
-  threadId: string;
+  engine: "coordinator-v1" | "langgraph";
+  // Coordinator decisions bind the exact run:
+  coordinatorRunId?: string;
+  coordinatorVersion?: "coordinator-v1";
+  // Legacy graph rows (read-only history):
+  threadId?: string;
   interruptId?: string;
   checkpointId?: string;
-  graphVersion: string;
+  graphVersion?: string;
   createdRevision: number;
   sourceFingerprint: string;
   proposalId?: string;
@@ -342,11 +347,11 @@ interface GraphResumeEnvelope {
 }
 ```
 
-The pending-decision table stores the safe payload and the actual checkpoint/interrupt binding surfaced by the worker. Resume is protected by the owner session, same-origin/CSRF validation, current revision, unguessable decision UUID, and exact pending-interrupt/fingerprint checks; an additional browser bearer token is unnecessary. The public schema excludes `modify`. The worker constructs the internal `modify` response and `GraphResumeEnvelope` only from an admitted operation; a browser cannot supply an operation identity or internal modification reference.
+The pending-decision table stores the safe payload and the exact engine binding. Coordinator decisions bind `coordinator_run_id`; legacy graph rows may carry `threadId`/`interruptId`/`checkpointId`/`graphVersion` as read-only history. Resume is protected by the owner session, same-origin/CSRF validation, current revision, unguessable decision UUID, and exact pending-decision/fingerprint checks; an additional browser bearer token is unnecessary. The public schema excludes `modify`. The worker constructs the internal `modify` response and the decision-resume envelope (`GraphResumeEnvelope`, a historical type name) only from an admitted operation; a browser cannot supply an operation identity or internal modification reference.
 
-On resume, the pure interrupt node validates this trusted envelope against invocation context and returns the new operation ID/revision into serial graph state before any later effect. It resets per-operation counters/work scope, while preserving compatible artifacts. Otherwise a resumed graph would retain the old operation ID and mis-key booking effects. Recovery of the same operation retains its existing scope and counters rather than resetting them.
+On resume, the coordinator validates this trusted envelope against the persisted run/decision and records the new operation ID/revision before any later effect. It resets per-operation counters/work scope while preserving compatible artifacts. Otherwise a resumed decision would retain the old operation ID and mis-key booking effects. Recovery of the same operation retains its existing scope and counters rather than resetting them.
 
-Validate a new answer against decision kind, allowed IDs, source fingerprint, proposal state, disclaimer acknowledgment, current ownership, current revision, and the actual pending graph interrupt. `createdRevision` is audit information, not the only freshness check. An unaffected preference request may change the revision while leaving a route approval valid; route changes never do. Recovery of an already admitted identical operation may read its stored decision/effect result even if that operation already resolved the decision; this exception never admits a new request or changed payload.
+Validate a new answer against decision kind, allowed IDs, source fingerprint, proposal state, disclaimer acknowledgment, current ownership, current revision, and the actual pending decision. `createdRevision` is audit information, not the only freshness check. An unaffected preference request may change the revision while leaving a route approval valid; route changes never do. Recovery of an already admitted identical operation may read its stored decision/effect result even if that operation already resolved the decision; this exception never admits a new request or changed payload.
 
 Each interrupt node contains one interrupt and no side effects before it. Decision/proposal creation happens in a preceding idempotent node. Stale, already-resolved, wrong-kind, foreign-thread, or replayed decisions cannot create a new reservation.
 
@@ -367,7 +372,7 @@ A planner-provided trailing filler block (a break or free-time block after the l
 | Table                                 | Authoritative data and required constraints                                                                                              |
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `anonymous_sessions`                  | UUID, token hash unique, CSRF hash, created/expiry; no raw cookie token                                                                  |
-| `trips`                               | Session FK, strict preferences, revision >= 0, current refs, graph version; unique session/creation-request ID and creation payload hash |
+| `trips`                               | Session FK, strict preferences, revision >= 0, current refs, engine/coordinator version; unique session/creation-request ID and creation payload hash |
 | `reference_countries/cities/airports` | Source IDs, admitted scope, coordinates, zones, search indexes                                                                           |
 | `reference_manifests`                 | Source URL, retrieval/version, SHA-256, license, transform version                                                                       |
 | `route_validations`                   | Trip FK, fingerprint, policy version, typed outcome/evidence, immutable                                                                  |
@@ -380,7 +385,7 @@ A planner-provided trailing filler block (a break or free-time block after the l
 | `itineraries`                         | Trip/version unique, bounded event JSONB, validator/reviewer refs, status                                                                |
 | `conversation_messages`               | Trip, sequence unique, role enum, content, interpretation/result refs                                                                    |
 | `conversation_summaries`              | Versioned compact structured summary; no authoritative preferences                                                                       |
-| `pending_decisions`                   | One pending decision per trip; kind, safe payload, checkpoint/interrupt binding, source fingerprint                                      |
+| `pending_decisions`                   | One pending decision per trip; kind, safe payload, coordinator-run binding, source fingerprint; legacy graph rows keep inert ids          |
 | `workflow_operations`                 | Trip/request unique, payload hash, accepted revision, status, lease/fencing/attempts                                                     |
 | `workflow_control_requests`           | Trip/control-request unique, payload hash, original operation FK, stored technical-retry result; no new business revision                |
 | `workflow_effects`                    | Unique operation/node/scope; result and transaction-linked domain effect                                                                 |
@@ -389,7 +394,7 @@ A planner-provided trailing filler block (a break or free-time block after the l
 | `simulation_faults`                   | Trip/operation/domain/fault unique, persisted injection state/counters                                                                   |
 | `rate_limit_buckets`                  | HMAC session/IP scope, endpoint bucket, expiry and atomic count                                                                          |
 | `worker_heartbeats`                   | Worker/process identity, startup and last-seen times, version; readiness only, never a workflow cursor                                   |
-| LangGraph-owned tables                | Official PostgresSaver schema; never hand-patch serialized checkpoints                                                                   |
+| Legacy graph tables (historical)      | Inert PostgresSaver schema; never hand-patch serialized checkpoints; no active runtime reads them                                         |
 
 Use SQL migrations with `pg`, foreign keys, check constraints, indexes on ownership/read paths, and transactional repository methods. Validate JSONB with Zod on both persistence boundaries; SQL constraints cover identities, uniqueness, state enums, and numeric invariants.
 
@@ -404,9 +409,9 @@ Reservation replacement supersedes the previous confirmed row and confirms the n
 
 ## 10. Compatibility and Retention
 
-Persist `graphVersion`, state/schema versions, prompt versions, rule versions, generator/Faker versions, and reference versions. Restart uses the compatible compiled graph. A deployment with incompatible pending checkpoints refuses to run those threads with `GRAPH_VERSION_UNSUPPORTED` and exposes an explicit migration/reset procedure; it never guesses a checkpoint migration.
+Persist `engine`, coordinator/state/schema versions, prompt versions, rule versions, generator/Faker versions, and reference versions. Restart resumes the coordinator from its persisted `coordinator_runs` cursor plus domain state; it never guesses a cursor migration. Legacy graph rows with an incompatible `graphVersion` remain read-only history and are never resumed by an active runtime.
 
-Anonymous sessions expire after 30 days of inactivity. Demo retention is 30 days after session expiry, with an explicit cleanup command for domain rows, events, and associated checkpoint threads. Do not silently delete a still-owned active trip. Checkpointer cleanup uses supported APIs for the pinned version and is covered by an integration test.
+Anonymous sessions expire after 30 days of inactivity. Demo retention is 30 days after session expiry, with an explicit cleanup command for domain rows, events, coordinator runs and legacy graph threads. Do not silently delete a still-owned active trip. Legacy checkpointer rows are historical and never required; any cleanup uses supported APIs for the pinned version and is covered by an integration test.
 
 ## 11. Mandatory Invariants
 
@@ -418,7 +423,7 @@ Anonymous sessions expire after 30 days of inactivity. Demo retention is 30 days
 - A change to one component cannot mutate unrelated selection/reservation/content hashes.
 - Derived artifacts are append-only versions; user-approved and current draft itineraries are distinguishable.
 - Duplicate requests, node replay, and operation recovery have the same stored result.
-- Neither graph state nor model output can bypass ownership, revision, decision, or domain checks.
+- Neither coordinator state nor model output can bypass ownership, revision, decision, or domain checks.
 
 See [test strategy](11-testing-strategy.md) for executable invariant and crash-window tests.
 

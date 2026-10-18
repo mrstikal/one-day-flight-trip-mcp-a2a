@@ -1,6 +1,6 @@
 # Frontend UX Specification
 
-This document is the authoritative home for the traveler UI, design system, pace presentation metrics, map policy, and inspector presentation. It specifies behavior for later implementation; it is not application code. Contracts, admission, graph behavior, and booking authorization are defined in [04 Domain Model](04-domain-model.md), [02 Architecture](02-architecture.md), [03 LangGraph](03-langgraph-design.md), and [09 Booking](09-booking-simulation.md); this document links to them instead of redefining them.
+This document is the authoritative home for the traveler UI, design system, pace presentation metrics, map policy, and inspector presentation. It specifies behavior for later implementation; it is not application code. Contracts, admission, coordinator behavior, and booking authorization are defined in [04 Domain Model](04-domain-model.md), [02 Architecture](02-architecture.md), [Coordinator design](../architecture/coordinator.md), and [09 Booking](09-booking-simulation.md); this document links to them instead of redefining them.
 
 ## 1. UI Principles
 
@@ -107,7 +107,7 @@ flowchart TD
 
 ## 7. Activity Pace (authoritative presentation metrics)
 
-Pace controls intensity, never category. A relaxed itinerary may be all museums; an intensive itinerary may be all parks. Targets are guidelines; duration templates and feasibility override raw counts. Metric names below are the values the deterministic planner and validator use (see [03 LangGraph](03-langgraph-design.md) section 4 and [05 Synthetic data](05-synthetic-data-design.md) section 9).
+Pace controls intensity, never category. A relaxed itinerary may be all museums; an intensive itinerary may be all parks. Targets are guidelines; duration templates and feasibility override raw counts. Metric names below are the values the deterministic planner and validator use (see [Coordinator design](../architecture/coordinator.md) and [05 Synthetic data](05-synthetic-data-design.md) section 9).
 
 | Metric                                                                   | Relaxed                                              | Moderate                       | Intensive                            |
 | ------------------------------------------------------------------------ | ---------------------------------------------------- | ------------------------------ | ------------------------------------ |
@@ -146,8 +146,8 @@ Pace controls intensity, never category. A relaxed itinerary may be all museums;
 ## 10. Inspector
 
 - Route `/trips/[id]/inspector`, same session/ownership checks. Live updates use SSE with polling fallback.
-- Displayed: node inventory and statuses (active, completed, pending, interrupted, failed), retry attempts, checkpoint IDs, resume operations, execution durations, LLM call rows (role, model, prompt version label, tokens, estimated cost, validation status, retries), current scenario mode, and injected faults labeled `Simulated failure`.
-- Render an actual node/edge SVG execution graph, not only a log/list. The worker emits a safe versioned `graph.initialized` definition from the same registry used to build nodes/edges/conditional paths; persist that event and expose it through the projection. Node/task highlights and branch labels come from real execution events. The BFF does not invoke graph APIs or expose compiled nodes; the client imports only the strict public definition DTO.
+- Displayed: coordinator step/status, operation attempts, decision kinds and fingerprints, A2A/MCP protocol observations, execution durations, LLM call rows (role, model, prompt version label, tokens, estimated cost, validation status, retries), current scenario mode, injected faults labeled `Simulated failure`, and legacy checkpoint/interrupt ids explicitly labeled historical when present.
+- Render the persisted protocol/execution timeline plus operation and decision tables from real events; do not recreate a static graph. Legacy graph history, when present, is shown read-only. The BFF never invokes protocol internals; the client imports only public DTOs.
 - Forbidden: prompts, chain-of-thought or any raw model reasoning, provider payloads, SQL, stack traces, cookies, secrets, raw headers. The inspector renders only safe projected event fields ([02 Architecture](02-architecture.md) section 8, [10 Security](10-security-reliability.md)).
 - Simulation controls (`set_simulation`) appear only when `DEMO_CONTROLS_ENABLED`, are visibly demo-only, and submit through the same validated command endpoint. A restart/browser-close recipe is shown as instructions the user performs; the browser never executes server shell commands.
 

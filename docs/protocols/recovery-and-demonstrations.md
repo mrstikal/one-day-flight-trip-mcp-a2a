@@ -1,4 +1,4 @@
-# Recovery, restart, replacement and demonstration evidence (Phase 10)
+# Recovery, restart, replacement and demonstration evidence (Phase 10; final Phase 12)
 
 This document records the Phase 10 recovery semantics, the deterministic kill
 points, the compatible Accommodation Agent B, and the executable evidence for
@@ -85,10 +85,10 @@ fixture used by the replacement tests.
 | F — Streaming | `tests/integration/protocols/sdk-interoperability.test.ts`, `tests/e2e/sse-replay.spec.ts`; real status events and deduped replay. |
 | G — Agent failure | `tests/integration/protocols/failure-recovery.test.ts`; explicit `AGENT_RESTARTED`, preserved hotel, scoped City Guide retry. |
 | H — MCP failure | `tests/integration/protocols/failure-recovery.test.ts` ("MCP outage"); `tests/integration/mcp/*` timeouts. |
-| I — Hotel re-planning | `tests/integration/coordinator/selective*.test.ts`, `tests/e2e/phase-07.spec.ts`; hotel-only refresh and confirmation. |
+| I — Hotel re-planning | `tests/integration/coordinator/itinerary.test.ts`, `tests/e2e/phase-07.spec.ts`; hotel-only refresh and confirmation. |
 | J — Agent replacement | `tests/integration/protocols/agent-replacement.test.ts`, `tests/e2e/agent-replacement.spec.ts`; registry-only switch, old A binding retained. |
 | K — Restart recovery | `tests/integration/protocols/restart.test.ts`, `failure-recovery.test.ts`, `coordinator/recovery.test.ts`; coordinator/agent restarts, canonical task reuse, commit-before-cursor replay (confirm and decline), and owner retry of a terminal failure. |
-| L — Booking safety | `tests/integration/{graph,coordinator}/booking*.test.ts`, `tests/e2e/phase-07.spec.ts`; `DEMO-*` references, explicit consent, one confirmed service, idempotent replay. |
+| L — Booking safety | `tests/integration/coordinator/flight-hotel-flow.test.ts`, `tests/integration/coordinator/recovery.test.ts`, `tests/integration/coordinator/cancellation.test.ts`, `tests/e2e/phase-07.spec.ts`; `DEMO-*` references, explicit consent, one confirmed service, idempotent replay. |
 
 ## 5. Running the evidence
 
@@ -109,3 +109,17 @@ The e2e helper (`tests/e2e/_services.ts`) starts the MCP host, all specialists
 and a coordinator-enabled worker against the same isolated database as the web
 server. It reuses the integration process helpers so the protocol wiring cannot
 drift from the tested configuration.
+
+## 6. Final Phase 12 evidence
+
+The final gate re-ran the complete suite against the coordinator-only build:
+50 integration files / 275 tests, 101 browser tests (1 skipped), and the 30-trial
+comparable benchmark (25/30 completed, negative route PASS). Three coordinator-facing defects
+were proved by the gate and fixed: an infeasible route and an invalid flight
+schedule now finalize as `workflow_status = 'blocked'` instead of parking an
+empty-option clarification, and the generic itinerary recovery fallback now
+exposes and executes its `recoveryOptionIds`. Regression coverage lives in
+`tests/integration/coordinator/flight-hotel-flow.test.ts` (blocked route; the
+schedule branch shares the same finalize path) and
+`tests/integration/coordinator/itinerary.test.ts` (recovery fallback). Full
+results are in [`docs/planning/migration-results.md`](../planning/migration-results.md).

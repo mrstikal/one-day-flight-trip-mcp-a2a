@@ -1,4 +1,4 @@
-# Specialist agents (Phase 05–06)
+# Specialist agents (Phase 05–10; final Phase 12)
 
 Three independently running A2A services — Flight (`flight.recommend.v1`),
 Accommodation (`accommodation.recommend.v1`) and City Guide
@@ -221,3 +221,8 @@ Phase 10 adds `tests/integration/a2a/accommodation-alt.test.ts` (the
 independent replacement executor), `tests/integration/protocols/{failure-recovery,restart,cancellation,agent-replacement}.test.ts`
 (real outage/restart/cancel/replacement races) and
 `tests/e2e/{protocol-failures,agent-replacement}.spec.ts` (browser evidence).
+
+The final Phase 12 gate re-ran all of these suites plus the coordinator benchmark
+(30 trials), which exercises the genuine Accommodation `input_required` branch
+through the public API. See
+[`docs/planning/migration-results.md`](../planning/migration-results.md).

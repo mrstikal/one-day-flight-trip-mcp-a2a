@@ -25,10 +25,11 @@ export interface WaitingSpec {
   readonly kind: DecisionKind;
   readonly fingerprint: string;
   readonly allowedOptionIds: readonly string[];
+  /** Legacy graph value; ignored for coordinator decisions (the column stays null). */
   readonly graphVersion: string;
   readonly createdRevision: number;
-  /** Phase 07: engine binding of the pending decision (default `langgraph`). */
-  readonly engine?: Engine;
+  /** Engine binding of the pending decision; callers must state it explicitly. */
+  readonly engine: Engine;
   /** Required when `engine` is `coordinator-v1` (graph ids stay null then). */
   readonly coordinatorRunId?: string;
   /**
@@ -42,9 +43,9 @@ export interface WaitingSpec {
   readonly allowedOfferIds?: readonly string[];
   /** Server-side clarification question/labels (jsonb; never raw commands to the client). */
   readonly optionPayload?: unknown;
-  /** LangGraph checkpoint id the interrupt was raised at (inspector evidence). */
+  /** Legacy graph checkpoint id (inert history; never written by the coordinator). */
   readonly checkpointId?: string | null;
-  /** LangGraph interrupt id of the awaited interrupt (inspector evidence). */
+  /** Legacy graph interrupt id (inert history; never written by the coordinator). */
   readonly interruptId?: string | null;
 }
 
@@ -120,7 +121,7 @@ export async function finalizeWaiting(
         JSON.stringify(spec.allowedOfferIds ?? []),
         JSON.stringify(spec.allowedOptionIds),
         spec.proposalId ?? null,
-        spec.engine ?? "langgraph",
+        spec.engine,
       ],
     );
     // Insert the current decision; an exact replay (same kind, fingerprint, and
@@ -138,7 +139,7 @@ export async function finalizeWaiting(
         randomUUID(),
         fence.tripId,
         spec.kind,
-        spec.engine ?? "langgraph",
+        spec.engine,
         coordinatorBound ? null : fence.tripId,
         coordinatorBound ? null : spec.graphVersion,
         coordinatorBound ? (spec.coordinatorRunId ?? null) : null,

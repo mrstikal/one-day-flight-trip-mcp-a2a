@@ -12,7 +12,6 @@ import type { TravelVariant } from "@odft/contracts";
  * fingerprint, so the harness records the resolved seed from the isolated
  * database instead of inventing one.
  */
-
 export const BASELINE_RESULT_SCHEMA_VERSION = 1;
 
 export const BASELINE_USER_NAME = "Baseline Traveller";
@@ -103,12 +102,16 @@ export const BASELINE_DECISION_POLICY = [
   "hotel_choice: choose the first allowed offer id (the next one after a recovery reopened the step)",
   "program_choices: submit the server-computed meal defaults; after a recovery reopened the program, submit the next meal offer per category",
   "recovery: choose the first offered option, alternating over the offered option ids (bounded to 3 per trial)",
+  "clarification: choose the first non-budget offered option (bounded to 3 per trial)",
+  "agent_input: choose the first offered option id (a specialist question answered on the same task)",
   "itinerary_approval: approve the exact persisted draft",
   "any other decision kind is recorded as a failed trial",
 ].join("; ");
 
 /** Bounded recovery answers per trial before it is recorded as a failure. */
 export const BASELINE_MAX_RECOVERY_CHOICES = 3;
+/** Bounded packing/ambiguity clarification answers per trial. */
+export const BASELINE_MAX_CLARIFICATION_CHOICES = 3;
 
 /**
  * Refuse destructive benchmark setup outside a dedicated disposable database.

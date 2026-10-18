@@ -214,7 +214,7 @@ function airportLeadMinutes(data: ItineraryPlanningData): number {
   return maxTransferMinutes + AIRPORT_BUFFER_MINUTES;
 }
 
-/** Bounded, deterministic planner context (03-langgraph-design.md section 3). */
+/** Bounded, deterministic planner context (docs/architecture/coordinator.md). */
 function buildPlannerContext(
   data: ItineraryPlanningData,
   feedback: readonly string[],

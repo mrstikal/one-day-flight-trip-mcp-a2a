@@ -167,6 +167,28 @@ export interface CoordinatorDispatchDeps {
 const DEFAULT_DELEGATION_WAIT_MS = 20_000;
 
 /**
+ * The generic itinerary-conflict fallback carries only `recoveryOptionIds` (no
+ * stored option objects). The coordinator still has to make those finite ids
+ * actionable: each one re-opens the step that can actually free the conflict.
+ */
+const RECOVERY_REOPEN_OPTIONS: Readonly<
+  Record<string, { readonly label: string; readonly reopen: "hotel_choice" | "program_choices" }>
+> = {
+  change_hotel: { label: "Adjust the hotel", reopen: "hotel_choice" },
+  change_meals: { label: "Adjust the meals", reopen: "program_choices" },
+  // Defensive: the current fallback emits only change_hotel/change_meals, but a
+  // future recovery decision may use the program-level option.
+  change_program: { label: "Adjust the program", reopen: "program_choices" },
+};
+
+/** Pure mapping used by the recovery-option admission and its unit test. */
+export function recoveryReopenOption(optionId: string):
+  | { readonly label: string; readonly reopen: "hotel_choice" | "program_choices" }
+  | undefined {
+  return RECOVERY_REOPEN_OPTIONS[optionId];
+}
+
+/**
  * Safe application categories a specialist may report through its terminal
  * task text (plan §3.5). Anything else becomes `AGENT_FAILED`; provider stacks,
  * prompts and credentials never reach the coordinator's error envelope.
@@ -1788,24 +1810,23 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
     case "validating_route": {
       const route = await deps.ports.evaluateRoute(context.tripId);
       if (route.status !== "FEASIBLE") {
-        const reasons =
-          "reasons" in route && Array.isArray(route.reasons)
-            ? route.reasons.map((entry) => entry.explanation ?? entry.code)
-            : [];
+        const routeReasons =
+          "reasons" in route && Array.isArray(route.reasons) ? route.reasons : [];
+        const explanation = routeReasons
+          .map((entry) => entry.explanation ?? entry.code)
+          .join("; ");
+        // A rejected route is a terminal blocked outcome, not a pending choice:
+        // there is no option to choose and no downstream work to resume. The
+        // persisted route validation keeps the safe reasons for the flights UI.
         return {
-          kind: "wait",
-          step: "awaiting_user",
-          waitReason: "clarification",
+          kind: "complete",
+          workflowStatus: "blocked",
+          summary:
+            route.status === "INFEASIBLE"
+              ? `No feasible route: ${explanation || "no reason was recorded"}.`
+              : `The route could not be validated: ${explanation || "no reason was recorded"}.`,
+          result: { routeStatus: route.status, reasons: routeReasons },
           runData: runDataWith(data, {}),
-          fingerprint: route.fingerprint,
-          allowedOptionIds: [],
-          optionPayload: {
-            question:
-              route.status === "INFEASIBLE"
-                ? "this destination cannot be reached acceptably; adjust the trip inputs"
-                : "the route could not be validated; adjust the trip inputs",
-            reasons,
-          },
         };
       }
       return { kind: "continue", step: "requesting_flights", runData: runDataWith(data, {}) };
@@ -1846,16 +1867,11 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
       });
       if (schedule.status !== "VALID") {
         return {
-          kind: "wait",
-          step: "awaiting_user",
-          waitReason: "clarification",
+          kind: "complete",
+          workflowStatus: "blocked",
+          summary: `No valid flight schedule exists for this trip: ${schedule.explanation}`,
+          result: { scheduleStatus: schedule.status },
           runData: runDataWith(data, {}),
-          fingerprint: schedule.fingerprint,
-          allowedOptionIds: [],
-          optionPayload: {
-            question: "no valid flight schedule exists for this trip; adjust the inputs",
-            reasons: [schedule.explanation],
-          },
         };
       }
       // Recovery guard: an earlier claim of THIS operation may already have
@@ -2541,7 +2557,18 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           optionCommands?: Record<string, DomainCommand[]>;
           researchFailed?: boolean;
         } | null;
-        const option = optionPayload?.options?.find((entry) => entry.id === optionId);
+        const fallback =
+          decision.kind === "recovery" ? recoveryReopenOption(optionId) : undefined;
+        const option =
+          optionPayload?.options?.find((entry) => entry.id === optionId) ??
+          (fallback
+            ? {
+                id: optionId,
+                label: fallback.label,
+                reopen: fallback.reopen,
+                commands: [],
+              }
+            : undefined);
         if (!option) {
           return {
             kind: "fail",

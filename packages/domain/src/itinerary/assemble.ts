@@ -19,7 +19,7 @@ import {
 } from "./taxonomy.js";
 
 /**
- * Deterministic itinerary assembly (03-langgraph-design.md section 4, Phase 10).
+ * Deterministic itinerary assembly (docs/architecture/coordinator.md and docs/planning/04-domain-model.md).
  *
  * The planner proposes only candidate IDs plus an ordering/time allocation; this
  * module resolves UTC times, locked reservation windows, simulated route

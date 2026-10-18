@@ -8,6 +8,14 @@ import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { loadLocalEnv } from "../../scripts/_load-env.js";
 import { COORDINATOR_VERSION } from "@odft/contracts";
+import { startE2eServices, type E2eServices } from "../e2e/_services.js";
+import { FLIGHT_AGENT_PORT } from "../integration/a2a/_setup.js";
+import {
+  ACCOMMODATION_AGENT_PORT,
+  ACCOMMODATION_ALT_AGENT_PORT,
+  CITY_GUIDE_AGENT_PORT,
+} from "../integration/a2a/_setup-agents.js";
+import { MCP_TEST_PORTS } from "../integration/mcp/_setup.js";
 import {
   assertDisposableDatabaseUrl,
   BASELINE_ACTIVITY_PACE,
@@ -16,6 +24,7 @@ import {
   BASELINE_DEFAULT_SERVICE_LEVEL,
   BASELINE_DECISION_POLICY,
   BASELINE_INTERESTS,
+  BASELINE_MAX_CLARIFICATION_CHOICES,
   BASELINE_MAX_RECOVERY_CHOICES,
   BASELINE_ORIGIN_AIRPORT,
   BASELINE_POLL_INTERVAL_MS,
@@ -34,21 +43,22 @@ import {
 } from "./baseline-cases.js";
 
 /**
- * Phase 01 public-API baseline for the current LangGraph application.
+ * Phase 01 baseline, re-run against the Phase 12 coordinator-only runtime.
  *
- * The harness owns an isolated fixture stack (production web server + the real
- * worker) on one disposable `*_test` database and drives complete trips through
- * the public BFF API only: create session/trip, follow the persisted pending
- * decisions using their allowed ids, acknowledge demo bookings explicitly,
- * submit the deterministic program and approve the exact persisted itinerary.
- * It never reads or manipulates checkpoint state to make a case complete.
+ * The harness owns an isolated fixture stack (production web server, the real
+ * coordinator worker, the MCP host and the three primary A2A agents) on one
+ * disposable `*_test` database and drives complete trips through the public
+ * BFF API only: create session/trip, follow the persisted pending decisions
+ * using their allowed ids, acknowledge demo bookings explicitly, submit the
+ * deterministic program and approve the exact persisted itinerary. It never
+ * reads or manipulates coordinator cursors or specialist task state to make a
+ * case complete.
  *
  * Measured inputs, results and every failure are written as a versioned JSON
- * artifact; see docs/planning/migration-baseline.md for interpretation.
+ * artifact; see docs/planning/migration-results.md for interpretation.
  */
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const TSX = resolve(REPO_ROOT, "node_modules/.bin/tsx");
 
 interface CliOptions {
   readonly outputPath: string;
@@ -66,7 +76,7 @@ function optionValue(argv: readonly string[], index: number, name: string): stri
 }
 
 function parseArgs(argv: readonly string[]): CliOptions {
-  let outputPath = ".cache/benchmarks/langgraph-baseline.json";
+  let outputPath = ".cache/benchmarks/coordinator-baseline.json";
   let repetitions = BASELINE_REPETITIONS;
   let caseFilter: readonly string[] | null = null;
   for (let index = 0; index < argv.length; index += 1) {
@@ -86,7 +96,8 @@ function parseArgs(argv: readonly string[]): CliOptions {
       process.stdout.write(
         "Usage: npm run benchmark:baseline -- [--output <path>] [--repetitions <n>] [--cases <id,id>]\n" +
           "Requires DATABASE_URL pointing at a disposable *_test database, PUBLIC_BASE_URL for the\n" +
-          "dedicated origin, and a prior `npm run build`. The harness owns its web server and worker.\n",
+          "dedicated origin, and a prior `npm run build`. The harness owns its web server, coordinator\n" +
+          "worker, MCP host and three primary A2A agents.\n",
       );
       process.exit(0);
     } else {
@@ -139,23 +150,6 @@ async function assertPortFree(host: string, port: string): Promise<void> {
       socket.destroy();
       resolveCheck();
     });
-  });
-}
-
-function startWorker(context: { databaseUrl: string }): ChildProcess {
-  return spawn(TSX, ["--tsconfig", "tsconfig.json", "apps/worker/src/main.ts"], {
-    cwd: REPO_ROOT,
-    env: {
-      ...process.env,
-      DATABASE_URL: context.databaseUrl,
-      AI_MODE: "fixture",
-      WORKER_CONCURRENCY: "1",
-      // The benchmark uses committed reference assets only: never curate
-      // landmarks over the network during a controlled baseline.
-      WIKIDATA_DISCOVERY: "false",
-    },
-    stdio: ["ignore", "inherit", "inherit"],
-    detached: true,
   });
 }
 
@@ -333,6 +327,8 @@ interface DriverPolicyState {
   hotelSelections: number;
   programSubmissions: number;
   recoveryChoices: number;
+  clarificationChoices: number;
+  agentInputAnswers: number;
 }
 
 /** Deterministic offer/option pick: the index-th id, wrapping around. */
@@ -425,6 +421,34 @@ function decideResponse(
         return null;
       }
       policy.recoveryChoices += 1;
+      return { response: { action: "choose_option", optionId }, chosenId: optionId };
+    }
+    case "agent_input": {
+      // A genuine specialist question (A2A input-required) answered on the same
+      // task at the unchanged trip revision; the fixed policy takes the first
+      // server-offered option so a deterministic case cannot branch forever.
+      const optionId = pickNth(decision.allowedOptionIds, policy.agentInputAnswers);
+      if (!optionId) {
+        return null;
+      }
+      policy.agentInputAnswers += 1;
+      return { response: { action: "choose_option", optionId }, chosenId: optionId };
+    }
+    case "clarification": {
+      // Packing/ambiguity clarification (e.g. the fixed Paris one-night inputs
+      // cannot fit the requested visits around the fixed meal times). It is a
+      // legitimate bounded application decision, so the fixed policy takes the
+      // first server-offered option instead of failing the trial. Budget-raising
+      // options are excluded: the harness must never buy completion by silently
+      // changing the traveler's stated budget.
+      const optionId = pickNth(
+        decision.allowedOptionIds.filter((id) => !/budget/i.test(id)),
+        policy.clarificationChoices,
+      );
+      if (!optionId) {
+        return null;
+      }
+      policy.clarificationChoices += 1;
       return { response: { action: "choose_option", optionId }, chosenId: optionId };
     }
     case "itinerary_approval": {
@@ -678,6 +702,8 @@ async function runTrial(
     hotelSelections: 0,
     programSubmissions: 0,
     recoveryChoices: 0,
+    clarificationChoices: 0,
+    agentInputAnswers: 0,
   };
 
   const recordPendingStep = (outcome: string): void => {
@@ -767,9 +793,21 @@ async function runTrial(
             failureReason = "recovery_limit_reached";
             break;
           }
+          if (
+            decision.kind === "clarification" &&
+            policy.clarificationChoices >= BASELINE_MAX_CLARIFICATION_CHOICES
+          ) {
+            failureReason = "clarification_limit_reached";
+            break;
+          }
           const decided = decideResponse(decision, projection, policy);
           if (!decided) {
-            failureReason = `unsupported_decision:${decision.kind}`;
+            failureReason =
+              decision.kind === "clarification" &&
+              decision.allowedOptionIds.length > 0 &&
+              decision.allowedOptionIds.every((id) => /budget/i.test(id))
+                ? "clarification_budget_only"
+                : `unsupported_decision:${decision.kind}`;
             break;
           }
           const resumed = await apiPost(context.origin, `/api/trips/${tripId}/resume`, session, {
@@ -1076,6 +1114,17 @@ async function main(): Promise<void> {
   }
   try {
     await assertPortFree(new URL(origin).hostname, port);
+    for (const servicePort of [
+      MCP_TEST_PORTS.geography,
+      MCP_TEST_PORTS.travelData,
+      MCP_TEST_PORTS.itineraryTools,
+      FLIGHT_AGENT_PORT,
+      ACCOMMODATION_AGENT_PORT,
+      CITY_GUIDE_AGENT_PORT,
+      ACCOMMODATION_ALT_AGENT_PORT,
+    ]) {
+      await assertPortFree("127.0.0.1", String(servicePort));
+    }
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }
@@ -1086,30 +1135,32 @@ async function main(): Promise<void> {
     application_name: "odft-baseline-metrics",
   });
   let server: ChildProcess | null = null;
-  let worker: ChildProcess | null = null;
+  let stack: E2eServices | null = null;
   let exitCode = 0;
 
-  const cleanup = (): void => {
-    stopChild(worker);
+  const cleanup = async (): Promise<void> => {
     stopChild(server);
+    if (stack) {
+      await stack.stop().catch(() => undefined);
+    }
   };
   process.on("SIGINT", () => {
-    cleanup();
-    process.exit(130);
+    void cleanup().finally(() => process.exit(130));
   });
   process.on("SIGTERM", () => {
-    cleanup();
-    process.exit(143);
+    void cleanup().finally(() => process.exit(143));
   });
 
   try {
     process.stdout.write(
       `benchmark: database=${database.name} origin=${origin} cases=${cases.length} repetitions=${options.repetitions}\n`,
     );
-    worker = startWorker({ databaseUrl });
+    await probePool.end();
+    // Own the complete runtime: coordinator worker + MCP host + the three
+    // primary A2A agents, all in fixture mode against the disposable database.
+    stack = await startE2eServices();
     server = startWebServer({ databaseUrl, origin, port });
     await waitForReady(origin, server);
-    await probePool.end();
 
     const referenceSession = await createSession(origin);
     const referenceIds = new Map<string, { originAirportId: string; destinationCityId: string }>();
@@ -1168,6 +1219,14 @@ async function main(): Promise<void> {
         wikidataDiscovery: false,
         workerConcurrency: 1,
         webServerPort: port,
+        services: [
+          "web (next start)",
+          "coordinator worker",
+          "mcp host (geography/travel-data/itinerary-tools)",
+          "flight agent",
+          "accommodation agent",
+          "city guide agent",
+        ],
         pollIntervalMs: BASELINE_POLL_INTERVAL_MS,
         trialTimeoutMs: BASELINE_TRIAL_TIMEOUT_MS,
         measurementScope:
@@ -1213,6 +1272,9 @@ async function main(): Promise<void> {
         "Latency is wall-clock around public HTTP calls with " +
           `${BASELINE_POLL_INTERVAL_MS} ms` +
           " polling, single worker, single server, one database.",
+        "The coordinator-only runtime is multi-process: the measured stack includes the MCP host " +
+          "and the three primary A2A agents, so latency and database activity include real " +
+          "protocol HTTP calls that the Phase 01 in-process graph did not have.",
         "pg_stat_statements is not installed in the local PostgreSQL 17 container, so per-statement SQL counts are not claimed.",
         "pg_stat_* deltas include the harness's own metric queries and projection polling (measurement overhead).",
         "The historical application database was not used or mutated; results come exclusively from the disposable *_test target.",
@@ -1233,7 +1295,7 @@ async function main(): Promise<void> {
     );
     exitCode = 1;
   } finally {
-    cleanup();
+    await cleanup();
     await probePool.end().catch(() => undefined);
     await pool.end().catch(() => undefined);
   }

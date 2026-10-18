@@ -1,3 +1,5 @@
+> **Historical phase plan.** This plan belongs to the retired LangGraph runtime. The active runtime is `coordinator-v1`; see `docs/architecture/coordinator.md` and `docs/planning/migration-results.md`.
+
 # Phase 08 - AI Role Profiles, Fixture/Live Adapters, Structured Intent, Clarification, Persistent Chat, and Cost Governance
 
 Status: implementation-phase specification, planning-only; contains no application code.

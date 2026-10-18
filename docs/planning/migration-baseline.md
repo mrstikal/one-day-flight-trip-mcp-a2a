@@ -1,6 +1,8 @@
+> **Historical baseline.** Sections 1-8 are the Phase 01/02 baseline of the retired LangGraph runtime; the `checkpointer:setup` and graph commands there are no longer runnable. Section 9 records the Phase 12 coordinator comparison; full results are in `docs/planning/migration-results.md`.
+
 # Migration baseline (Phase 01)
 
-Controlled, reproducible baseline of the **current** LangGraph application
+Controlled, reproducible baseline of the **then-current** LangGraph application
 (`travel-graph-v7`, 29 nodes) for the one-day-flight-trip migration. Everything
 below was executed on 2026-10-16 against the isolated stack described here; raw
 artifacts are preserved under `.cache/` (gitignored) and every failure is kept
@@ -284,3 +286,27 @@ Raw artifact of the post-extraction benchmark:
 Conclusion: the extraction is behavior-preserving on every observable axis the
 baseline pinned (completion, step transitions, seeds/fingerprints, reservations,
 latencies within noise).
+
+## 9. Phase 12 final comparison (2026-10-18)
+
+The final Phase 12 gate re-ran the same six cases × five repetitions against the
+coordinator-only runtime, with the complete fixture stack (web, worker, MCP host,
+three primary A2A agents) on one disposable `*_test` database. The full results,
+gate counts, runtime defects and the 25-condition checklist are in
+[migration-results.md](migration-results.md).
+
+| Check | Phase 01 graph | Phase 12 coordinator |
+| --- | --- | --- |
+| Benchmark | 20/30, p50 5215 ms / p95 5832 ms | **25/30, p50 4817 ms / p95 5059 ms** |
+| `prg-paris-one-night` | 0/5 | 0/5 (same fixed-input infeasibility; explicit bounded clarification/recovery) |
+| `prg-paris-two-nights` | 0/5 | **5/5** |
+| Negative route case | PASS | PASS |
+| Fixture AI | 0 paid calls; 1 planner + 1 reviewer | unchanged |
+| Engine | travel-graph-v7 | `coordinator-v1` (LangGraph removed) |
+
+The completed-trial decision sequence is unchanged
+(`flight_choice → booking_confirmation → hotel_choice → booking_confirmation →
+program_choices → itinerary_approval → completed`), and the six scenario seeds
+remain derived from the same persisted route fingerprints. The coordinator is
+faster in fixture mode and completes the Paris two-night case that the graph
+rejected; Paris one-night remains deterministic and is reported, not hidden.

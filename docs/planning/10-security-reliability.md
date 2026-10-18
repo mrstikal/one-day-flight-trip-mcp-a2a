@@ -1,6 +1,6 @@
 # Security and Reliability Specification
 
-This document is the authoritative home for session/security controls, ownership and CSRF rules, rate limiting, LLM input hardening, inspector redaction, and the operational error-recovery model. Architecture (admission transaction, leases, effect ledger, SSE) is owned by [02 Architecture](02-architecture.md); graph crash/stale-checkpoint recovery by [03 LangGraph](03-langgraph-design.md); decision authorization contracts by [04 Domain Model](04-domain-model.md). This document links to those contracts instead of restating them.
+This document is the authoritative home for session/security controls, ownership and CSRF rules, rate limiting, LLM input hardening, inspector redaction, and the operational error-recovery model. Architecture (admission transaction, leases, effect ledger, SSE) is owned by [02 Architecture](02-architecture.md); coordinator crash/cursor recovery by the [Coordinator design](../architecture/coordinator.md); decision authorization contracts by [04 Domain Model](04-domain-model.md). This document links to those contracts instead of restating them.
 
 ## 1. Trust Model and Data Classes
 
@@ -70,8 +70,8 @@ Endpoint check matrix (`E` = enabled requirement):
 - Requests for trips that do not exist or belong to another session return `404` with a uniform body, so trip IDs are not an existence oracle.
 - Authorization is per trip, not per resource ID. An offer ID, proposal ID, decision ID, or demo reference is never sufficient authority on its own; membership and ownership are re-checked server-side.
 - The pending decision and its interrupt binding are scoped to the owning session and thread; validation of a resume response follows [04 Domain Model](04-domain-model.md) section 7 exactly, including the decision UUID, revision, source fingerprint, and actual current interrupt. An additional browser decision bearer token is deliberately not used.
-- A model or checkpoint cannot bypass ownership: worker nodes execute under the operation's admitted session context, and `getState`/checkpoint data is treated as data, not authorization.
-- Worker-internal repositories and checkpointer access are never exposed through browser routes; LangGraph APIs are not reachable from any Route Handler.
+- A model or persisted cursor cannot bypass ownership: coordinator steps execute under the operation's admitted session context, and coordinator state is treated as data, not authorization.
+- Worker-internal repositories and coordinator state are never exposed through browser routes; no graph/checkpoint API is reachable from any Route Handler.
 
 ## 4. CSRF and Origin Checking
 
@@ -108,18 +108,18 @@ Exceeded limits return `429` with `Retry-After`; counters never replace domain c
 
 ## 7. Secrets and Configuration
 
-- All credentials are server-side environment variables validated at startup ([02 Architecture](02-architecture.md) section 9). Nothing sensitive is prefixed `NEXT_PUBLIC_`; client bundles are checked in CI/tests for `pg`, LangGraph server modules, and secret names.
+- All credentials are server-side environment variables validated at startup ([02 Architecture](02-architecture.md) section 9). Nothing sensitive is prefixed `NEXT_PUBLIC_`; client bundles are checked in CI/tests for `pg`, legacy graph server modules, and secret names.
 - Startup validates required secrets/config syntax; OpenRouter mode additionally requires credentials and role profiles. Endpoint/schema/capability/pricing validation occurs before the first billable call, as specified in [AI design](06-ai-agent-design.md), without blocking unrelated deterministic wizard work.
 - Logs redact cookies, CSRF tokens, `DATABASE_URL`, API keys, and full headers; errors returned to the browser use the safe envelope `{ code, message, retryable, currentRevision?, operationId? }`, never raw provider or database exceptions.
 - Production uses HTTPS, secure cookies, an explicit `PUBLIC_BASE_URL`, and a least-privilege database role. Local `.env` files are ignored; `.env.example` holds placeholders only.
 - Demo controls default off outside explicit local/demo deployment and require the flag plus an owned trip. `MAP_TILE_URL` is optional public configuration, never a place for a secret; reject credentialed URLs and invalid/non-HTTPS production schemes.
 - Prompt versions and model IDs are server configuration; the inspector may display role/model labels and prompt _version identifiers_, but never prompt text.
-- Client bundle exposure check: the production build is scanned to prove that no server secret, `DATABASE_URL`, `OPENROUTER_API_KEY`, `pg`, or LangGraph server module is present in client chunks; only public display flags reach the browser.
+- Client bundle exposure check: the production build is scanned to prove that no server secret, `DATABASE_URL`, `OPENROUTER_API_KEY`, `pg`, or legacy graph server module is present in client chunks; only public display flags reach the browser.
 - Rendered assistant output is plain text with no HTML, no script, and no client-side markdown execution; any link is server-generated and allowlisted.
 
 ## 8. Inspector Redaction
 
-Allowed in the inspector: node names/statuses, attempts, checkpoint IDs, interrupt IDs, operation IDs, durations, scenario mode, injected-fault labels, and LLM telemetry rows (role, model, prompt version label, tokens, estimated cost, structured-validation status, retry count).
+Allowed in the inspector: coordinator step/status, attempts, decision IDs, run IDs, operation IDs, durations, scenario mode, injected-fault labels, and LLM telemetry rows (role, model, prompt version label, tokens, estimated cost, structured-validation status, retry count).
 
 Forbidden, without exception: prompt text, raw model output beyond validated structured fields, chain-of-thought or reasoning traces, provider request/response payloads, SQL text, stack traces, cookies, secrets, and raw headers. Events are projected before persistence; the inspector cannot reveal what was never stored ([02 Architecture](02-architecture.md) section 8). Tests assert these fields never appear in event payloads or the DOM.
 
@@ -132,7 +132,7 @@ Forbidden, without exception: prompt text, raw model output beyond validated str
 | Body too large               | 413                         | No state change                                                                        |
 | Stale revision               | 409 `STALE_REVISION`        | UI refreshes; command is not replayed                                                  |
 | Operation in progress        | 409 `OPERATION_IN_PROGRESS` | UI waits for current operation                                                         |
-| Unfinished failed checkpoint | 409 `RECOVERY_REQUIRED`     | Retry the same operation through the technical control; preserve unsent ordinary input |
+| Unfinished failed operation | 409 `RECOVERY_REQUIRED`     | Retry the same operation through the technical control; preserve unsent ordinary input |
 | Stale/expired decision       | 409 `STALE_DECISION`        | Refresh projection; no resume executed                                                 |
 | Rate limit                   | 429                         | `Retry-After`, safe message                                                            |
 | Ownership                    | 404                         | Uniform body                                                                           |
@@ -140,15 +140,15 @@ Forbidden, without exception: prompt text, raw model output beyond validated str
 | Dependency unavailable       | 502/503                     | Retryable envelope; operation remains durable                                          |
 | Internal                     | 500                         | Safe message; operation marked failed with recovery path                               |
 
-Trip operations return `202` with operation ID/revision; session creation/renewal returns `200`, and identical request replay returns its stored outcome/status. No `202` is rendered as success. A booking transaction is atomic, but a fully committed booking may precede checkpoint failure: display the saved booking and recovery-needed workflow honestly, never claim that the failed workflow had no domain effect.
+Trip operations return `202` with operation ID/revision; session creation/renewal returns `200`, and identical request replay returns its stored outcome/status. No `202` is rendered as success. A booking transaction is atomic, but a fully committed booking may precede cursor/effect failure: display the saved booking and recovery-needed workflow honestly, never claim that the failed workflow had no domain effect.
 
-## 10. Restart, Fault, and Stale-Checkpoint Handling
+## 10. Restart, Fault, and Stale-Decision Handling
 
-- Single trip writer: only the worker invokes graph threads, under an advisory lock and lease/fencing token; the web tier never calls the same thread concurrently ([02 Architecture](02-architecture.md) section 6).
-- Invocation selection follows the state/operation table in [03 LangGraph](03-langgraph-design.md) section 8: plain input for new runs, `Command(resume)` only for an exact current interrupt, `null` only for unfinished recovery work, never to start a modification.
-- Stale approvals: route/schedule/itinerary fingerprints are re-checked against current domain inputs before generation, booking, and approval; a checkpoint cannot supply feasibility proof. The PRG -> Rome -> city-change regression is mandatory ([05 Synthetic data](05-synthetic-data-design.md) section 5).
-- Checkpoint errors are never converted to fabricated success; checkpoint versions incompatible with the compiled graph are refused with `GRAPH_VERSION_UNSUPPORTED` and an explicit migration/reset procedure ([04 Domain Model](04-domain-model.md) section 10).
-- Crash windows: commit-before-checkpoint replay reads the effect ledger; checkpoint-written-but-unreconciled recovery repairs projection/events without duplicating effects ([02 Architecture](02-architecture.md) section 7).
+- Single trip writer: only the worker runs coordinator steps, under an advisory lock and lease/fencing token; the web tier never runs the same trip concurrently ([02 Architecture](02-architecture.md) section 6).
+- Decision admission follows the coordinator state/operation contract: a new operation for new input, a resume only for an exact current pending decision, and a technical retry only for the recorded unfinished operation; a modification never starts a second run beside a pending decision.
+- Stale approvals: route/schedule/itinerary fingerprints are re-checked against current domain inputs before generation, booking, and approval; a persisted cursor/decision cannot supply feasibility proof. The PRG -> Rome -> city-change regression is mandatory ([05 Synthetic data](05-synthetic-data-design.md) section 5).
+- Coordinator cursor errors are never converted to fabricated success; incompatible legacy graph versions remain read-only history and are never resumed ([04 Domain Model](04-domain-model.md) section 10).
+- Crash windows: commit-before-cursor replay reads the effect ledger; cursor-written-but-unreconciled recovery repairs projection/events without duplicating effects ([02 Architecture](02-architecture.md) section 7).
 - Graceful shutdown stops claims, aborts or finishes within 30 seconds, and leaves unfinished operations recoverable by lease expiry.
 - LLM/network calls carry deadlines below the lease and an abort signal; simulated provider failures are tagged domain results that preserve sibling research results.
 
@@ -161,13 +161,13 @@ Trip operations return `202` with operation ID/revision; session creation/renewa
 | SSE unavailable                             | Polling fallback via `GET /api/trips/:id`; operations are unaffected                                                                    |
 | PostgreSQL unavailable                      | Writes fail with a safe retryable error and no partial booking; the worker stops claiming while writes fail                             |
 | Worker stopped or crashed                   | Commands still queue (`202`) and display as `queued`; after restart, lease expiry recovers the same operations                          |
-| Checkpointer schema missing or incompatible | Readiness check fails; the worker does not claim; run the explicit setup/migration procedure                                            |
+| Coordinator migrations/cursor missing or incompatible | Readiness check fails; the worker does not claim; run `npm run db:migrate`                                       |
 
 ## 11. Privacy, Retention, and Data Hygiene
 
 - Collected data is minimal: first name, anonymous session, trip inputs, synthetic trip data, conversation messages, and telemetry. No email, password, phone, or payment data is collected.
-- Sessions expire after 30 days of inactivity; demo data retention is 30 days after session expiry, removed by an explicit documented cleanup command covering domain rows, events, and checkpoint threads. Active owned trips are never silently deleted.
-- Cleanup uses supported checkpointer APIs for the pinned version and is covered by an integration test.
+- Sessions expire after 30 days of inactivity; demo data retention is 30 days after session expiry, removed by an explicit documented cleanup command covering domain rows, events, coordinator runs and legacy graph threads. Active owned trips are never silently deleted.
+- Cleanup removes coordinator runs/domain rows; legacy graph checkpoint rows are historical and never required, and any cleanup uses supported APIs for the pinned version.
 - Telemetry (`llm_calls`, `execution_events`) is retained with the trip and removed by the same cleanup; it contains no prompt text, reasoning, or credentials.
 - Backups of the local demo database are out of scope; operators must not place real personal data into a demo instance.
 
@@ -182,7 +182,7 @@ Specified for [11 Testing](11-testing-strategy.md) and scheduled by [12 Roadmap]
 - Injection: adversarial chat text cannot emit executable booking/confirmation commands; confirmation cannot originate from model output.
 - 202 semantics: a queued response never renders success before the operation outcome event.
 - Recovery: worker restart at a pending decision resumes the exact decision; duplicate confirmation after a crash creates one reservation; stale route approval cannot be reused after a city change.
-- Redaction: inspector DOM/events contain no prompts, reasoning, provider payloads, SQL, secrets, or cookies; client bundles contain no server secrets or `pg`/LangGraph server modules.
+- Redaction: inspector DOM/events contain no prompts, reasoning, provider payloads, SQL, secrets, or cookies; client bundles contain no server secrets or `pg`/legacy graph server modules.
 - No-payment invariant: no payment provider package, endpoint, or record exists; the booking service cannot construct a payment intent.
 
 ## Voice security and reliability addendum (2026-10-15)

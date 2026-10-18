@@ -6,8 +6,8 @@ const src = (path: string): string => fileURLToPath(new URL(path, import.meta.ur
 /**
  * Unit tests exercise shared-package source (fast, no build required).
  * Integration tests require a disposable PostgreSQL 17 database via
- * TEST_DATABASE_URL and exercise real SQL migrations and the official
- * LangGraph checkpointer.
+ * TEST_DATABASE_URL and exercise real SQL migrations, the coordinator runtime
+ * and the official A2A/MCP SDKs.
  */
 const alias = {
   "@odft/contracts": src("./packages/contracts/src/index.ts"),

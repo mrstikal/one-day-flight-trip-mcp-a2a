@@ -1,3 +1,5 @@
+> **Historical phase plan.** This plan belongs to the retired LangGraph runtime. The active runtime is `coordinator-v1`; see `docs/architecture/coordinator.md` and `docs/planning/migration-results.md`.
+
 # Phase 01: Repository and Runtime Foundation
 
 ## 1. Goal

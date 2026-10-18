@@ -133,6 +133,21 @@ export function pickRecorderMimeType(isTypeSupported: (type: string) => boolean)
   return null;
 }
 
+/**
+ * An immediate manual stop can flush a container-only blob (no decodable audio
+ * frames), and a browser can reject its own recorder container. Both are "no
+ * speech", not a failed voice request: the user stopped before anything usable
+ * was captured, and the same retry/type affordance applies.
+ */
+function isUndecodableRecording(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error.name === "EncodingError" || error.name === "NotSupportedError")
+  );
+}
+
 export function createCaptureController(ports: CaptureControllerPorts): CaptureController {
   let machine: CaptureState = INITIAL_CAPTURE_STATE;
   let recorder: RecorderLike | null = null;
@@ -287,7 +302,9 @@ export function createCaptureController(ports: CaptureControllerPorts): CaptureC
       }
     } catch (error) {
       if (!ports.isAbort(error) && active(generation)) {
-        ports.callbacks.onError(ports.describeError(error));
+        ports.callbacks.onError(
+          isUndecodableRecording(error) ? VOICE_COPY.noSpeech : ports.describeError(error),
+        );
       }
     } finally {
       if (transcribeAbort === controller) {

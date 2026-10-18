@@ -24,7 +24,8 @@ function toOperationRecord(row: OperationRow): OperationRecord {
     acceptedRevision: row.accepted_revision,
     status: row.status,
     attempts: row.attempts,
-    engine: row.engine ?? "langgraph",
+    // The column is NOT NULL; the defensive fallback matches the active engine.
+    engine: row.engine ?? "coordinator-v1",
   };
 }
 

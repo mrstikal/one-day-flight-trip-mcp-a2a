@@ -1,3 +1,5 @@
+> **Historical phase plan.** This plan belongs to the retired LangGraph runtime. The active runtime is `coordinator-v1`; see `docs/architecture/coordinator.md` and `docs/planning/migration-results.md`.
+
 # Phase 06 - Welcome, Destination, Origin/Date/Variant Wizard, Flight Gating, and Booking UI
 
 Status: implementation plan (planning only). No application code or test exists on 2026-10-10. All code blocks are

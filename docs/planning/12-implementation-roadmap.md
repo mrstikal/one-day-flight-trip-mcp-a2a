@@ -1,3 +1,5 @@
+> **Historical source material.** This document describes the retired LangGraph runtime and is kept for context only. The active architecture is `docs/architecture/coordinator.md`; the final gate is `docs/planning/migration-results.md`.
+
 # Implementation Roadmap and Execution Gates
 
 ## 1. Phase Rules

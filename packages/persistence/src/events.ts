@@ -72,6 +72,7 @@ const EVENT_FIELD_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
   "node.updated": ["node"],
   // Atomic conversation delivery metadata only; content/interpretation never.
   "conversation.message_added": ["messageId", "sequence", "role"],
+  // Legacy graph event retained for historical projections; the coordinator never emits it.
   "graph.initialized": ["graphVersion", "nodes", "edges"],
   "route_change.previewed": ["proposalId", "affectedReservationIds"],
   "route_change.committed": ["proposalId", "affectedReservationIds", "cancelledReservationIds"],

@@ -2,7 +2,7 @@ import type { ResearchDomain } from "@odft/contracts";
 
 /**
  * Phase 11 affected-domain computation for selective changes
- * (03-langgraph-design.md section 10).
+ * (docs/architecture/coordinator.md).
  *
  * The research fan-out still re-derives its dispatch from per-domain input
  * fingerprints; this module names the *targeted* subset a single accepted change

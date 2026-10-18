@@ -1,10 +1,14 @@
-# MCP services (Phase 04)
+# MCP services (Phase 04; final Phase 12)
 
 Three read-only MCP endpoints expose the existing reference, scenario and
 itinerary-math capabilities over real Streamable HTTP. They own no trip
 progression, no scenario materialization, no reservations and no LLM reasoning;
 every tool call is a parameterized query against a frozen snapshot or the
 reference data.
+
+The development defaults are ports `4321-4323`. The isolated test/E2E/benchmark
+stack starts the same host on `4421-4423` so it cannot collide with a running
+development stack; only the ports differ, never the endpoints or contracts.
 
 ## Endpoints and identities
 
@@ -108,3 +112,7 @@ flights), membership rejection, the delegation-scoped manifest resource
 denials, host/origin rejection, unavailable-endpoint timeouts, observation
 sanitization, all-pages schedule-valid enforcement and the read-only role's
 write denial.
+
+The final Phase 12 gate re-ran this suite as part of 50 integration files / 275
+tests (all passing); see
+[`docs/planning/migration-results.md`](../planning/migration-results.md).

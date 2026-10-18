@@ -1,3 +1,5 @@
+> **Historical planning material.** The active runtime is coordinator-only (`coordinator-v1`); LangGraph references in this document are superseded by Phase 11. See `docs/architecture/coordinator.md` and `docs/planning/migration-results.md`.
+
 # Functional Requirements and Traceability
 
 Status: implementation specification, planning-only. No application code, tooling, or tests may be created while fulfilling this plan (`ODFT_BRIEF.md` final constraints). This document owns stable feature IDs (`FR-*`), scope boundaries, acceptance signals, and full traceability from `ODFT_BRIEF.md` sections, the 30 success criteria, the mandatory route-feasibility addendum, and scenarios A-N. Contracts and algorithms are owned by [architecture](02-architecture.md), [LangGraph design](03-langgraph-design.md), [domain model](04-domain-model.md), and [synthetic data design](05-synthetic-data-design.md); this file links to them instead of restating them. Test IDs are defined in the [testing strategy](11-testing-strategy.md); all of them are planned obligations, because no application or test code exists on 2026-10-10.

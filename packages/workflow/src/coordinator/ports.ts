@@ -37,7 +37,7 @@ import type {
  * Server-side dependencies for the coordinator dispatcher. They are built per
  * claimed operation, never persisted, and never a security boundary. All
  * domain/persistence access goes through these ports so the coordinator stays
- * orchestration-only (03-langgraph-design.md section 5).
+ * orchestration-only (docs/architecture/coordinator.md).
  *
  * Phase 11: the file moved out of the removed legacy travel graph; the port
  * shapes are still the canonical service types from `@odft/services`.

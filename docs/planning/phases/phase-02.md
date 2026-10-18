@@ -1,3 +1,5 @@
+> **Historical phase plan.** This plan belongs to the retired LangGraph runtime. The active runtime is `coordinator-v1`; see `docs/architecture/coordinator.md` and `docs/planning/migration-results.md`.
+
 # Phase 02 - Offline Geographic Reference Data
 
 Status: implementation plan (planning only). No application code, migration, test, or dependency exists on

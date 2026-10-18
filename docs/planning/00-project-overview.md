@@ -1,3 +1,5 @@
+> **Historical planning material.** The active runtime is coordinator-only (`coordinator-v1`); LangGraph references in this document are superseded by Phase 11. See `docs/architecture/coordinator.md` and `docs/planning/migration-results.md`.
+
 # AI Travel Planner: Project Overview
 
 ## 1. Scope and Baseline

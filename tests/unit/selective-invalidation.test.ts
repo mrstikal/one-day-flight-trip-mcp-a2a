@@ -18,7 +18,7 @@ import {
 import { projectSafeEvent } from "../../packages/persistence/src/events.js";
 
 /**
- * Phase 11 invalidation matrix (03-langgraph-design.md section 10) and the safe
+ * Phase 11 invalidation matrix (docs/architecture/coordinator.md) and the safe
  * event projection (10-security-reliability.md section 8).
  */
 

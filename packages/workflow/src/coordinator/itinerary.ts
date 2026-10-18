@@ -333,6 +333,21 @@ function feedbackFromIssues(issues: readonly { code: string; message: string }[]
 }
 
 /**
+ * The finite option ids of an itinerary conflict. A clarification carries its
+ * explicit options; the recovery fallback carries only `recoveryOptionIds`,
+ * which must still be answerable through the same `choose_option` admission
+ * (otherwise the pending decision renders with no buttons).
+ */
+function conflictOptionIds(conflict: {
+  readonly options: readonly { readonly id: string }[];
+  readonly recoveryOptionIds: readonly string[];
+}): string[] {
+  return conflict.options.length > 0
+    ? conflict.options.map((option) => option.id)
+    : [...conflict.recoveryOptionIds];
+}
+
+/**
  * Poll the current attempt and either accept its proposal (local validation and
  * review policy) or start the next bounded attempt with feedback.
  */
@@ -558,7 +573,7 @@ export async function pollItineraryAttempt(
         attempt: data.planningAttempt,
         errors: plan.errors.map((error) => error.code).sort(),
       }),
-      allowedOptionIds: conflict.options.map((option) => option.id),
+      allowedOptionIds: conflictOptionIds(conflict),
       optionPayload: conflict,
     };
   }
@@ -591,7 +606,7 @@ export async function pollItineraryAttempt(
       waitReason: conflict.kind === "clarification" ? "clarification" : "recovery",
       runData: { ...data, itineraryId: plan.itineraryId },
       fingerprint: review.revisionFingerprint,
-      allowedOptionIds: conflict.options.map((option) => option.id),
+      allowedOptionIds: conflictOptionIds(conflict),
       optionPayload: conflict,
     };
   }

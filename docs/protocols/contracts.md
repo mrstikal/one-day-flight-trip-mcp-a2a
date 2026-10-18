@@ -121,12 +121,13 @@ state and is never turned into a failure.
 
 ## 6. Engine identity
 
-`trips`/`workflow_operations`/`pending_decisions` carry `engine`
-(`langgraph` default, `coordinator-v1`). Coordinator decisions bind
-`coordinator_run_id` and must NOT carry graph checkpoint ids; graph decisions
-require `thread_id` + `graph_version` and must not bind a run (enforced by
-`pending_decisions_engine_binding_check` and by the Zod contract). Existing
-records and the production default engine are unchanged by Phase 03.
+`trips`/`workflow_operations`/`pending_decisions` carry `engine`. Every new trip
+is `coordinator-v1`; LangGraph is no longer a runtime dependency and no new
+`langgraph` work can be claimed. Coordinator decisions bind `coordinator_run_id`
+and must NOT carry graph checkpoint ids; historical graph rows keep
+`thread_id` + `graph_version` and are read-only. The
+`pending_decisions_engine_binding_check` constraint and the Zod contract still
+enforce the two shapes for historical data.
 
 ## 7. Running the checks
 
@@ -135,3 +136,7 @@ npm run test:unit                                     # contracts + boundary tes
 npx vitest run --project integration tests/integration/protocols   # real HTTP SDK tests
 npm run protocol:roles                                # optional role setup (env passwords)
 ```
+
+The final Phase 12 gate ran the full unit, integration, build and E2E suites; the
+counts and evidence are recorded in
+[`docs/planning/migration-results.md`](../planning/migration-results.md).

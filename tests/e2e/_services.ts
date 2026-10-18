@@ -50,9 +50,29 @@ export interface E2eServices {
 }
 
 export function databaseUrlOrThrow(): string {
-  const url = process.env.DATABASE_URL;
+  const url = process.env.DATABASE_URL?.trim();
   if (!url) {
-    throw new Error("DATABASE_URL is required for the Phase 10 e2e stack");
+    throw new Error("DATABASE_URL is required for the e2e/benchmark stack");
+  }
+  let databaseName: string;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") {
+      throw new Error("unsupported protocol");
+    }
+    databaseName = parsed.pathname.replace(/^\//, "");
+  } catch {
+    throw new Error("DATABASE_URL must be a valid postgres:// or postgresql:// URL");
+  }
+  // The stack resets odft_app/odft_protocol before every spec. Never let a
+  // mis-pointed command destroy the application database.
+  if (!databaseName) {
+    throw new Error("DATABASE_URL must include a database name");
+  }
+  if (!databaseName.endsWith("_test")) {
+    throw new Error(
+      `the e2e/benchmark stack requires a disposable database whose name ends in _test (got ${databaseName})`,
+    );
   }
   return url;
 }

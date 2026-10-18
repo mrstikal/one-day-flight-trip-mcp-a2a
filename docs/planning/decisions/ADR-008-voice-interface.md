@@ -1,3 +1,5 @@
+> **Historical decision.** This ADR describes the retired LangGraph runtime. The active decisions are `MCPA2A-001`..`MCPA2A-012`; see `docs/architecture/coordinator.md` and `docs/planning/migration-results.md`.
+
 # ADR-008: Optional Voice Interface (Speech-to-Text and Spoken Replies)
 
 Status: accepted; V00-V06 implemented 2026-10-15 (plan 2026-10-14). Verification limits listed below.

@@ -1,3 +1,5 @@
+> **Historical phase plan.** This plan belongs to the retired LangGraph runtime. The active runtime is `coordinator-v1`; see `docs/architecture/coordinator.md` and `docs/planning/migration-results.md`.
+
 # Phase 12 - Hardening, Full Regression, Restart/Concurrency Evidence, A-N Runbook, Operator README, and Live-AI Acceptance Status
 
 Status: implementation-phase specification, planning-only; contains no application code.

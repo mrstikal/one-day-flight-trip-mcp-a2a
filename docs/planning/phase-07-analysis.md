@@ -1,3 +1,5 @@
+> **Historical planning material.** This document describes the retired LangGraph runtime and is kept for context only. The active architecture is `docs/architecture/coordinator.md`; the final gate is `docs/planning/migration-results.md`. LangGraph/checkpointer commands and test IDs below are historical and are not part of the active runtime.
+
 # Phase 07 analysis — durable application coordinator
 
 Status: produced before implementation (plan Phase 07 requires an approved

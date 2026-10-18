@@ -101,6 +101,13 @@ export async function seedDelegatedSnapshot(
     throw new Error("fixture trip has no materialized flight snapshot");
   }
   await scenario.validateSchedules({ tripId, snapshotId: materialized.snapshotId });
+  // MCP/A2A evidence needs the hotel, meal, attraction and event domains of the
+  // SAME frozen snapshot, exactly like the coordinator's research step extends
+  // it before delegating. Extending changes the active snapshot, so Stage B is
+  // revalidated on the extended version (the original setup ran the graph
+  // research fan-out, which did this implicitly).
+  const ensured = await scenario.ensureDomains(tripId);
+  await scenario.validateSchedules({ tripId, snapshotId: ensured.snapshotId });
   const trip = await getTrip(pool, tripId);
   const snapshotId = trip?.activeScenarioSnapshotId;
   if (!snapshotId) {

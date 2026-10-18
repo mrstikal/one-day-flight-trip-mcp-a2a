@@ -66,7 +66,8 @@ export function toTripRecord(row: TripRow): TripRecord {
     ...(row.last_unfinished_operation_id
       ? { lastUnfinishedOperationId: row.last_unfinished_operation_id }
       : {}),
-    engine: row.engine ?? "langgraph",
+    // The column is NOT NULL; the defensive fallback matches the active engine.
+    engine: row.engine ?? "coordinator-v1",
     ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
     ...(row.archive_reason ? { archiveReason: row.archive_reason } : {}),
   };
@@ -102,6 +103,10 @@ export interface InsertTripInput {
   readonly sightseeingDate: string;
   readonly travelVariant: TravelVariant;
   readonly preferences: TripPreferences;
+  /**
+   * Legacy column name retained for schema compatibility. Coordinator trips
+   * store `COORDINATOR_VERSION` here; legacy graph rows keep `travel-graph-v7`.
+   */
   readonly graphVersion: string;
   readonly creationRequestId: string;
   readonly creationPayloadHash: string;

@@ -1,3 +1,5 @@
+> **Historical decision.** This ADR describes the retired LangGraph runtime. The active decisions are `MCPA2A-001`..`MCPA2A-012`; see `docs/architecture/coordinator.md` and `docs/planning/migration-results.md`.
+
 # ADR-006: Offline Geography and Immutable Seeded Demo Data
 
 Status: accepted for implementation planning; not yet implemented. Date: 2026-10-10.

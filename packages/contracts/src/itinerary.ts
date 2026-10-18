@@ -13,7 +13,7 @@ import {
 
 /**
  * Itinerary and validator contracts (04-domain-model.md section 8,
- * 03-langgraph-design.md section 4, Phase 10).
+ * docs/architecture/coordinator.md and docs/planning/04-domain-model.md).
  *
  * An immutable itinerary version contains the date/zone, source fingerprints,
  * selected/booked offer refs, travel variant, pace, the deterministic party cost

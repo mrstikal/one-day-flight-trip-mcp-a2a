@@ -2,7 +2,7 @@ import type { BookableKey, ResearchDomain } from "@odft/contracts";
 import type { InvalidationChange, InvalidationRefs } from "./fingerprint-scope.js";
 
 /**
- * Phase 11 preservation helpers (03-langgraph-design.md section 10, T-INV-04/07).
+ * Phase 11 preservation helpers (docs/architecture/coordinator.md, T-INV-04/07).
  *
  * These functions name what a selective change must NOT touch, so graph routing
  * and tests can assert the preservation invariant instead of trusting wording:

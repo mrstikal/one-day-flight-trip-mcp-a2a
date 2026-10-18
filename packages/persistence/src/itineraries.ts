@@ -31,7 +31,7 @@ type Queryable = Pick<PoolClient, "query">;
 /**
  * Immutable itinerary persistence (Phase 10): planning inputs, append-only
  * versions, reviewer findings, and the fenced approval that binds the current
- * source fingerprints (03-langgraph-design.md section 9).
+ * source fingerprints (docs/architecture/coordinator.md).
  */
 
 /** Typed itinerary persistence failure carrying a safe error code. */

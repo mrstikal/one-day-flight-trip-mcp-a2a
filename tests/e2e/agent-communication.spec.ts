@@ -60,16 +60,16 @@ async function createTrip(page: import("@playwright/test").Page): Promise<string
     },
   });
   expect(created.status()).toBe(201);
-  const { id } = (await created.json()) as { id: string };
+  const { tripId } = (await created.json()) as { tripId: string };
   expect(sessionId).toBeTruthy();
-  return id;
+  return tripId;
 }
 
 test("inspector shows real A2A, MCP, and application rows with distinct edges", async ({
   page,
 }) => {
   const tripId = await createTrip(page);
-  expect(tripId).not.toBe("");
+  expect(tripId).toBeTruthy();
   // Persist one delegation + MCP + application observation directly, then let
   // the production worker reconcile loop bridge them (no test-only shortcut).
   await withPool(async (pool) => {
@@ -109,7 +109,13 @@ test("inspector shows real A2A, MCP, and application rows with distinct edges", 
           row.source,
           row.kind,
           tripId,
-          JSON.stringify({ detail: row.detail, status: "ok", counters: {} }),
+          JSON.stringify({
+            detail: row.detail,
+            status: "ok",
+            failureCategory: null,
+            durationMs: null,
+            counters: {},
+          }),
           "b".repeat(64),
         ],
       );

@@ -1,3 +1,5 @@
+> **Historical source material.** This document describes the retired LangGraph runtime and is kept for context only. The active architecture is `docs/architecture/coordinator.md`; the final gate is `docs/planning/migration-results.md`.
+
 # Runtime and Application Architecture
 
 Status: implementation specification, not application code. Source: `ODFT_BRIEF.md`, including the mandatory route-feasibility addendum.

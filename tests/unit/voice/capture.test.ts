@@ -61,6 +61,7 @@ interface FakeEnvironment {
   loadVadMode: "ok" | "fail" | "deferred";
   destroyAlwaysFails: boolean;
   normalizeBounded: boolean;
+  normalizeError: Error | null;
 }
 
 function createEnvironment(): FakeEnvironment {
@@ -129,6 +130,7 @@ function createEnvironment(): FakeEnvironment {
     loadVadMode: "ok",
     destroyAlwaysFails: false,
     normalizeBounded: false,
+    normalizeError: null,
     ports: {
       acquireStream: () => {
         acquires += 1;
@@ -204,10 +206,15 @@ function createEnvironment(): FakeEnvironment {
         };
         return vad;
       },
-      normalize: async (_blob, _context, _maxSamples) => ({
-        audio: new Uint8Array([1, 2, 3, 4]),
-        bounded: env.normalizeBounded,
-      }),
+      normalize: async (_blob, _context, _maxSamples) => {
+        if (env.normalizeError) {
+          throw env.normalizeError;
+        }
+        return {
+          audio: new Uint8Array([1, 2, 3, 4]),
+          bounded: env.normalizeBounded,
+        };
+      },
       transcribe: (input) =>
         new Promise<{ text: string }>((resolve, reject) => {
           transcribeCalls.push({
@@ -392,6 +399,23 @@ describe("capture controller (mocked browser)", () => {
     expect(env.vadDestroyed()).toBe(1);
     expect(env.streamTracksStopped()).toBe(true);
   });
+
+  it.each(["EncodingError", "NotSupportedError"])(
+    "reports no speech when an immediate stop produces an undecodable recording (%s)",
+    async (name) => {
+      const env = createEnvironment();
+      env.normalizeError = new DOMException("Unable to decode audio data", name);
+      await started(env);
+      env.emitChunk();
+      env.vadCallbacks[0]?.onSpeechRealStart();
+      env.vadCallbacks[0]?.onSpeechEnd();
+      await vi.waitFor(() => expect(env.errors).toEqual([VOICE_COPY.noSpeech]));
+      expect(env.transcribeCount()).toBe(0);
+      expect(env.phases.at(-1)).toBe("idle");
+      expect(env.contextClosed()).toBe(1);
+      expect(env.streamTracksStopped()).toBe(true);
+    },
+  );
 
   it("reports device loss and still transcribes the captured audio", async () => {
     const env = createEnvironment();

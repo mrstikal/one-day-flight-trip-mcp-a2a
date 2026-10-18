@@ -14,14 +14,14 @@ import type { TravelPorts } from "@odft/workflow";
 import { createFencedEventWriter, createFencedRunEffect } from "../driver.js";
 
 /**
- * Phase 02 compatibility adapter: build the production travel-graph ports for
- * one claimed operation by composing the extracted `@odft/services` layer.
+ * Build the production `TravelPorts` for one claimed coordinator operation by
+ * composing the extracted `@odft/services` layer.
  *
- * The graph-facing shapes are unchanged (the service types are the canonical
- * definitions the workflow ports re-export), the effect runner and fenced event
- * writer still come from the driver, and every service is bound to the explicit
- * operation authority of this invocation — a stale or misrouted task can never
- * borrow another operation's fencing token.
+ * The workflow-facing shapes are the canonical service types re-exported by the
+ * coordinator ports; the effect runner and fenced event writer come from the
+ * driver, and every service is bound to the explicit operation authority of
+ * this invocation — a stale or misrouted task can never borrow another
+ * operation's fencing token.
  */
 export function createTravelPortsFactory(
   pool: Pool,

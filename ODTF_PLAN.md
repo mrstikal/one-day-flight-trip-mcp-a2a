@@ -1,3 +1,5 @@
+> **Status: implemented through Phase 12 (2026-10-18).** The coordinator-only runtime is active; LangGraph is removed. This plan is retained as migration history. Current runtime: `docs/architecture/coordinator.md`; final results: `docs/planning/migration-results.md`.
+
 # AI Travel Planner — MCP/A2A Migration Plan
 
 **Planning date:** 2026-10-16  

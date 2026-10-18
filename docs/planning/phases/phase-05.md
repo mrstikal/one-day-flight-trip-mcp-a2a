@@ -1,3 +1,5 @@
+> **Historical phase plan.** This plan belongs to the retired LangGraph runtime. The active runtime is `coordinator-v1`; see `docs/architecture/coordinator.md` and `docs/planning/migration-results.md`.
+
 # Phase 05 - Durable Graph Core: Worker, PostgreSQL Queue, Fencing, and Official Checkpointer
 
 Status: implementation plan (planning only). No application code, worker, or test exists on 2026-10-10. All code

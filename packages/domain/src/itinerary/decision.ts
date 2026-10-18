@@ -10,7 +10,7 @@ import { DENSER_PACE, PACE_PROFILES } from "./taxonomy.js";
 import { formatEur } from "./validate.js";
 
 /**
- * Deterministic conflict decision builder (03-langgraph-design.md section 6,
+ * Deterministic conflict decision builder (docs/architecture/coordinator.md,
  * Phase 10 section 5 steps 4-5).
  *
  * Budget conflicts stop the loop with lower-cost alternatives or a raise-budget

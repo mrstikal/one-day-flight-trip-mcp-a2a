@@ -240,6 +240,7 @@ export async function claimCoordinator(pools: WorkerPools): Promise<ClaimedOpera
 /** Create a coordinator-engine fixture trip and return its ids. */
 export async function createCoordinatorTrip(
   pool: Pool,
+  overrides: Parameters<typeof fixtureCreationInput>[0] = {},
 ): Promise<{ tripId: string; operationId: string; sessionId: string }> {
   const sessionClient = await pool.connect();
   let sessionId: string;
@@ -250,7 +251,7 @@ export async function createCoordinatorTrip(
   }
   const created = await createTrip(pool, {
     sessionId,
-    input: fixtureCreationInput(),
+    input: fixtureCreationInput(overrides),
   });
   if (!("tripId" in created)) {
     throw new Error("fixture createTrip failed");

@@ -178,8 +178,8 @@ export function InspectorView({ tripId }: { readonly tripId: string }): React.JS
               <th className="py-1 pr-3">Decision</th>
               <th className="py-1 pr-3">Kind</th>
               <th className="py-1 pr-3">Status</th>
-              <th className="py-1 pr-3">Checkpoint</th>
-              <th className="py-1 pr-3">Interrupt</th>
+              <th className="py-1 pr-3">Legacy checkpoint</th>
+              <th className="py-1 pr-3">Legacy interrupt</th>
               <th className="py-1">Created</th>
             </tr>
           </thead>
@@ -202,6 +202,10 @@ export function InspectorView({ tripId }: { readonly tripId: string }): React.JS
             ))}
           </tbody>
         </table>
+        <p className="mt-2 text-xs text-ink-muted">
+          Checkpoint and interrupt ids are inert legacy history. Coordinator decisions bind a
+          persisted run instead.
+        </p>
       </section>
 
       <CommunicationMap communications={inspector.communications} />

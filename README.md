@@ -2,6 +2,10 @@
 
 A hybrid graphical/conversational planner for one sightseeing day in a European city.
 
+> **Sibling project.** This project was created as a sibling of the LangGraph demo:
+> https://github.com/mrstikal/one-day-flight-trip-langgraph — the same assignment, but with
+> different target technologies.
+
 **DEMO APPLICATION - No real reservations are made and no payments are processed.**
 
 ## What This Demo Demonstrates as a Proof of Concept
@@ -16,6 +20,34 @@ read-only **MCP host**. Every user decision is persisted; an operation can resum
 restart from its durable operation/decision rows instead of an in-process graph checkpoint. This
 makes a multi-step process explicit, testable, and observable instead of hiding it inside one large
 prompt.
+
+### Why MCP and A2A?
+
+The demo deliberately uses two open protocols instead of one monolithic prompt or a pile of
+service-specific adapters. They solve different problems and complement each other:
+
+| Protocol | What it is | Role in this demo | Why it helps |
+| --- | --- | --- | --- |
+| **MCP (Model Context Protocol)** | An open protocol for exposing tools, resources and prompts to AI applications through a standard client/server contract. | A read-only MCP host publishes three capability endpoints: `geography`, `travel-data` and `itinerary-tools`. Agents discover and call those capabilities over Streamable HTTP. | Standard discovery and invocation instead of bespoke tool glue; one capability can serve several agents; least-privilege read-only boundaries; replaceable implementations; bounded, auditable calls; no agent needs direct SQL or ownership of business state. |
+| **A2A (Agent2Agent)** | An open protocol for discovering agents and delegating tasks to them, with a real task lifecycle, streaming updates, artifacts and `input-required` continuations. | The coordinator delegates flight, hotel/meal and city-guide research to independent A2A services, each publishing an Agent Card and returning a versioned artifact. | Loose coupling and independent deployment or replacement; specialist autonomy behind a stable contract; parallel research; explicit task state and provenance; real retry, cancel and recovery semantics; one agent can be swapped through the registry without changing the coordinator or UI. |
+
+MCP answers "what capabilities can an agent use?" while A2A answers "which specialist should do this
+piece of work, and how do we track it?". Keeping the two separate means the coordinator owns business
+rules, feasibility, booking and publication; agents own research and proposals; MCP services own
+read-only reference and scenario data. The result is easier to test, observe and secure than a single
+agent with unrestricted tools, and it avoids duplicating business rules in every specialist.
+
+Both are real network protocols here: the official A2A and MCP SDKs run over HTTP between separate
+processes, not as local function wrappers pretending to be a protocol. That is what makes the
+delegation, discovery, streaming, `input-required`, cancellation and recovery behavior testable at
+the protocol boundary.
+
+The trade-off is operational: more processes and network hops, explicit identity and registry
+configuration, and protocol-level failure handling. The demo keeps that visible (trusted local
+registry, bearer identity, delegation-scoped reads, fixture mode) instead of hiding it behind a
+framework. See [the MCP contract](docs/protocols/mcp.md),
+[the agent contract](docs/protocols/agents.md) and
+[the coordinator design](docs/architecture/coordinator.md).
 
 This demo applies those capabilities to:
 
@@ -99,8 +131,10 @@ The plan and detailed contracts are in [ODFT_PLAN.md](ODFT_PLAN.md) and
 retired LangGraph runtime (notably [03-langgraph-design.md](docs/planning/03-langgraph-design.md))
 are retained as historical design material; the active coordinator is specified by
 [ODFT_PLAN.md](ODTF_PLAN.md) phases 07-11. See also
-[reference data and generators](docs/planning/05-synthetic-data-design.md) and
-[AI roles](docs/planning/06-ai-agent-design.md).
+[reference data and generators](docs/planning/05-synthetic-data-design.md),
+[AI roles](docs/planning/06-ai-agent-design.md),
+[final migration results](docs/planning/migration-results.md) and the
+[MCPA2A architecture decisions](docs/planning/decisions/MCPA2A-001-a2a-sdk.md).
 
 **Demo limitations:** Broader application performance tuning and responsive-design validation
 remain future tasks. This is not a production-ready
@@ -150,7 +184,7 @@ See the [Inspector specification](docs/planning/08-frontend-ux.md#10-inspector).
 
 ```bash
 npm ci                     # reproducible install from the committed lockfile
-npm run setup:env          # writes a git-ignored .env with a random SESSION_HMAC_KEY
+npm run setup:env          # writes a git-ignored .env with random secrets
 docker compose up -d postgres
 npm run db:migrate         # applies SQL migrations (repeat-safe)
 npm run reference:load     # upserts the committed offline reference assets
@@ -160,9 +194,13 @@ cp mcp-registry.example.json mcp-registry.json
 cp mcp-host-registry.example.json mcp-host-registry.json
 ```
 
-Set `ODFT_PROTOCOL_ROLE_PASSWORD`, `ODFT_MCP_READONLY_PASSWORD`, the three
-`ODFT_*_AGENT_PASSWORD` values and the `ODFT_AGENT_TOKEN_*` values in `.env` before
-`npm run protocol:roles` and `npm run dev`. The registries contain identities and
+`npm run setup:env` generates `SESSION_HMAC_KEY`, `ODFT_PROTOCOL_ROLE_PASSWORD`,
+`ODFT_MCP_READONLY_PASSWORD`, the three `ODFT_*_AGENT_PASSWORD` values and the
+`ODFT_AGENT_TOKEN_*` values as distinct random secrets; you only need to set them manually
+if you copy `.env.example` yourself. `npm run protocol:roles` needs the five passwords;
+`npm run dev` needs `ODFT_MCP_READONLY_PASSWORD`, the three `ODFT_*_AGENT_PASSWORD` values
+and the `ODFT_AGENT_TOKEN_*` values. The protocol-role password is used only by
+`protocol:roles` in the default local setup. The registries contain identities and
 credential references, never secrets.
 
 `setup:env` never overwrites an existing `.env` and never prints the generated secret. Values in
@@ -205,9 +243,109 @@ npm run test:unit          # no services required
 npm run test:integration   # requires PostgreSQL at TEST_DATABASE_URL
 npm run build              # packages -> web -> worker -> post-build verification
 npm run test:e2e           # Playwright against `next start` (fixture mode)
+npm run benchmark:baseline # six cases x five repetitions on a disposable stack
 ```
 
 CI order: `typecheck` -> `lint` -> `test:unit` -> `test:integration` -> `build` -> `test:e2e`.
+The final Phase 12 gate result is 62 unit files / 532 tests, 50 integration files / 275
+tests, 101 E2E tests (1 skipped) and a 25/30 benchmark; see
+[docs/planning/migration-results.md](docs/planning/migration-results.md).
+
+## Operations
+
+### Processes and ports
+
+`npm run dev` starts the complete development stack and forwards `Ctrl+C` to every
+child. The coordinator worker has no public port; it claims queued operations from
+PostgreSQL and writes a heartbeat every 10 seconds.
+
+| Process | Default address | Purpose |
+| --- | --- | --- |
+| Web | `http://127.0.0.1:3000` | Next.js BFF, wizard, inspector, SSE |
+| MCP host | `127.0.0.1:4321-4323` | geography, travel-data and itinerary-tools endpoints |
+| Flight agent | `127.0.0.1:4401` | flight recommendations |
+| Accommodation agent | `127.0.0.1:4402` | hotel/meal recommendations |
+| City Guide agent | `127.0.0.1:4403` | attractions/events research and itinerary proposals |
+| Accommodation agent B | `127.0.0.1:4404` | independent replacement implementation |
+| Coordinator worker | no port | durable operation execution |
+
+Start/stop:
+
+```bash
+npm run dev                 # full stack, fixture AI by default
+# Ctrl+C stops every child; then:
+docker compose down         # preserves the database volume
+```
+
+### Roles, grants and migrations
+
+```bash
+docker compose up -d postgres
+npm run db:migrate          # repeat-safe, checksummed migrations
+npm run reference:load      # committed offline assets only
+npm run protocol:roles      # restricted protocol/agent roles; passwords from .env
+```
+
+`protocol:roles` needs `ODFT_PROTOCOL_ROLE_PASSWORD`, `ODFT_MCP_READONLY_PASSWORD`
+and the three `ODFT_*_AGENT_PASSWORD` values; `npm run dev` also needs the
+`ODFT_AGENT_TOKEN_*` values. The agent roles have no write grants on
+trip/scenario/reservation tables; the MCP read-only role has no write grants at all. Never point
+`TEST_DATABASE_URL` or `DATABASE_URL` at a database you care about when running the destructive
+suites.
+
+### Registry swap (specialist replacement)
+
+1. Start the replacement service (for example `accommodation-agent-alt` on port
+   4404 with `ODFT_AGENT_TOKEN_ACCOMMODATION_ALT` and its own task table).
+2. Replace the accommodation entry in `agent-registry.json` with the replacement
+   identity/endpoint/skill, or put it first. The coordinator selects the first
+   trusted entry advertising the required skill.
+3. Restart the worker so the registry is re-read. Tasks already bound to the old
+   agent keep their persisted endpoint/task id; new work goes to the replacement.
+
+`agent-registry.example.json` contains both entries; the switched fixture used by
+the replacement tests is `tests/fixtures/protocols/agent-registry-coordinator-alt.json`.
+
+### Budget, cancellation, restart and recovery
+
+- **Budget:** `MAX_LLM_CALLS_PER_TRIP` and `MAX_LLM_COST_USD_PER_TRIP` bound paid
+  work; each specialist also has per-task call/token/USD limits. Unknown provider
+  outcomes keep their reservation. Fixture mode is free and writes no billable rows.
+- **Cancellation:** cancelling an operation rotates the fence, revokes outstanding
+  delegations and records a remote-cancel intent in one commit. Late artifacts are
+  rejected; a terminal task is never resurrected.
+- **Restart:** stop and restart the worker or any agent independently. Operations
+  are lease-based; a crashed operation is reclaimed and resumes from the persisted
+  coordinator cursor. Agents reconcile interrupted tasks to `AGENT_RESTARTED`
+  instead of pretending they finished.
+- **Recovery:** an owner can retry a terminally failed operation; the same run
+  reopens at `interpreting`, completed accepted siblings are reused, and only the
+  failed scope is re-dispatched. `input_required` questions survive restarts.
+- **History:** `/trips/<id>/history` is read-only for archived trips and never
+  resumes work. Legacy graph rows, when present, are rendered as inert history.
+
+### Isolated E2E and benchmark databases
+
+The E2E helper and benchmark refuse to run against a non-`*_test` database and
+start their own full stack. A typical disposable setup:
+
+```bash
+psql "$ADMIN_DATABASE_URL" -c 'CREATE DATABASE odft_e2e_test'
+DATABASE_URL=postgres://.../odft_e2e_test npm run db:migrate
+DATABASE_URL=postgres://.../odft_e2e_test npm run reference:load
+
+DATABASE_URL=postgres://.../odft_e2e_test \
+PUBLIC_BASE_URL=http://localhost:3100/ \
+npx playwright test
+
+DATABASE_URL=postgres://.../odft_phase12_test \
+PUBLIC_BASE_URL=http://localhost:3100/ \
+npm run benchmark:baseline -- --output .cache/benchmarks/coordinator-phase12.json
+```
+
+The benchmark owns ports `3100` and `4421-4423`/`4431-4434`; stop any leftover
+test stack first. It resets the target schemas, so use a dedicated disposable
+database.
 
 ## Configuration
 
@@ -219,6 +357,16 @@ for the full list. Key values:
 | `DATABASE_URL`                                         | Required; never logged                                                                                                                                                                                                          |
 | `PUBLIC_BASE_URL`                                      | Exact origin used by cookie/CSRF checks                                                                                                                                                                                         |
 | `SESSION_HMAC_KEY`                                     | Required random server secret (>= 32 chars)                                                                                                                                                                                     |
+| `ODFT_PROTOCOL_ROLE_PASSWORD`                          | Required before `npm run protocol:roles`; >= 16 chars. Password for the `odft_protocol_service` role (protocol tables, coordinator run/outbound writes). Never commit it.                                                        |
+| `ODFT_MCP_READONLY_PASSWORD`                           | Required before `npm run protocol:roles` and `npm run dev`; >= 16 chars. Password for the `odft_mcp_readonly` role used by the MCP host; read-only grants, no write access.                                                      |
+| `ODFT_FLIGHT_AGENT_PASSWORD`                           | Required before `npm run protocol:roles` and `npm run dev`; >= 16 chars. Password for the `odft_flight_agent` role; `npm run dev` derives that agent's restricted `DATABASE_URL` from it.                                       |
+| `ODFT_ACCOMMODATION_AGENT_PASSWORD`                    | Same as above for the `odft_accommodation_agent` role.                                                                                                                                                                          |
+| `ODFT_CITY_GUIDE_AGENT_PASSWORD`                       | Same as above for the `odft_city_guide_agent` role.                                                                                                                                                                             |
+| `ODFT_ACCOMMODATION_ALT_AGENT_PASSWORD`                | Optional; only for the replacement demo. Password for the `odft_accommodation_agent` role connection used by Accommodation Agent B on port 4404.                                                                                 |
+| `ODFT_AGENT_TOKEN_FLIGHT`                              | Required before `npm run dev`; bearer token referenced by the registries for the flight agent (inbound identity and outbound MCP calls). Registries contain only the `credentialRef` name, never the token.                       |
+| `ODFT_AGENT_TOKEN_ACCOMMODATION`                       | Same as above for the accommodation agent.                                                                                                                                                                                      |
+| `ODFT_AGENT_TOKEN_CITY_GUIDE`                          | Same as above for the city guide agent.                                                                                                                                                                                         |
+| `ODFT_AGENT_TOKEN_ACCOMMODATION_ALT`                   | Optional; bearer token for Accommodation Agent B and the replacement demo.                                                                                                                                                       |
 | `DEMO_CONTROLS_ENABLED`                                | `true` enables the Inspector and protected simulation controls for owned trips in a local/demo deployment                                                                                                                       |
 | `WIKIDATA_DISCOVERY`                                   | Optional (`true`): on the first trip to a city without reviewed landmarks, curate its notable attractions from Wikidata once and store them in the reference tables (see "Reference landmarks"); default off, tests never fetch |
 | `AI_MODE`                                              | `fixture` (default, no credentials) or `openrouter`                                                                                                                                                                             |
@@ -229,6 +377,19 @@ for the full list. Key values:
 | `OPENROUTER_STT_API_KEY`                               | Required only for live speech-to-text; a **separate** OpenRouter key restricted to Groq — never the shared `OPENROUTER_API_KEY`                                                                                                 |
 | `MAX_LLM_CALLS_PER_TRIP` / `MAX_LLM_COST_USD_PER_TRIP` | Bounded AI usage (defaults 40 calls / 1.00 USD)                                                                                                                                                                                 |
 | `MAP_TILE_URL`                                         | Optional `{z}/{x}/{y}` tile URL template for the itinerary map; unset → labeled SVG fallback (see below)                                                                                                                        |
+
+`npm run protocol:roles` creates or updates the restricted `odft_protocol_service`, `odft_mcp_readonly`,
+`odft_flight_agent`, `odft_accommodation_agent` and `odft_city_guide_agent` roles, and requires the
+five non-optional passwords above (each at least 16 characters). `npm run dev` derives each process's
+restricted database URL from those passwords, so the agents and MCP host never use the owner
+`DATABASE_URL`. The optional Accommodation Agent B password and token are needed only for the
+replacement demo. The bearer tokens are referenced by `credentialRef` entries in
+`agent-registry.json`, `mcp-registry.json` and `mcp-host-registry.json`; the registry files contain
+the reference names, never the secret values. Keep `.env` out of version control.
+`npm run setup:env` generates a distinct random value for every `replace-me` placeholder,
+including `SESSION_HMAC_KEY` and all protocol passwords/tokens; it never prints them. If you copy
+`.env.example` manually instead, generate long random values (for example `openssl rand -hex 32`)
+yourself.
 
 Secrets stay on the server. They are never placed in `NEXT_PUBLIC_*` and never sent to the browser;
 `npm run build` scans the client bundle to confirm this.
@@ -473,7 +634,8 @@ must be refused) and the real serving/billing with a short non-sensitive recordi
   seconds/characters); they never count as LLM calls and never change trip revisions, decisions, or
   bookings.
 - **Current verification status.** Fixture-mode behavior is covered by the unit/integration/E2E suites
-  (unit 504, voice integration 24, voice E2E 14 desktop / 13 mobile, plus the affected regressions). A
+  (the final Phase 12 gate ran 532 unit tests, including the voice suites; the voice-specific subset is
+  24 integration tests and 14 desktop / 13 mobile E2E cases, plus the affected regressions). A
   provider-level live smoke ran on 2026-10-15: real transcript from a short synthetic recording, Groq
   serving evidence with the documented 10-second minimum (`usage.seconds = 10`), and an ElevenLabs
   `eleven-v4-turbo-20260930` MP3 at the expected cost. Still pending: the assigned-guardrail

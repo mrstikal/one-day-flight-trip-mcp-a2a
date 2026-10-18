@@ -71,6 +71,7 @@ describe("shared transaction locking", () => {
         allowedOptionIds: [],
         graphVersion: "travel-graph-v7",
         createdRevision: 1,
+        engine: "langgraph",
       }),
       finalizeSuccess(pool, { tripId: seeded.tripId, operationId, fencingToken: fence }, {
         result: { summary: "concurrent" },
@@ -131,6 +132,7 @@ describe("shared transaction locking", () => {
         allowedOptionIds: ["keep", "change"],
         graphVersion: "travel-graph-v7",
         createdRevision: 1,
+        engine: "langgraph",
       }),
     ]);
     for (const result of results) {

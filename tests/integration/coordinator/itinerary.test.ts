@@ -637,4 +637,46 @@ describe("coordinator itinerary flow", () => {
     );
     expect(pace.rows[0]?.preferences.activityPace).toBe("relaxed");
   }, 420_000);
+
+  it("keeps the generic itinerary recovery fallback answerable by reopening the program", async () => {
+    const { tripId, sessionId } = await createCoordinatorTrip(harness.pool, {
+      destinationCityId: "geonames:2988507", // Paris: the fixed one-night program
+      destinationCountryKey: "FR", // cannot fit the airport buffer.
+      travelVariant: "one_night",
+    });
+    const { program } = await driveToProgramChoices(tripId, sessionId);
+    await submitProgram(tripId, sessionId, program);
+
+    const clarificationPark = await driveUntilParked(harness.pools, tripId, 20);
+    let recovery: PendingDecision;
+    if (clarificationPark?.waitReason === "clarification") {
+      const clarification = await pendingDecision(tripId);
+      expect(clarification.allowedOptionIds.length).toBeGreaterThan(0);
+      await resume(tripId, sessionId, clarification.id, {
+        action: "choose_option",
+        optionId: clarification.allowedOptionIds[0],
+      });
+      const recoveryPark = await driveUntilParked(harness.pools, tripId, 20);
+      expect(recoveryPark?.waitReason).toBe("recovery");
+      recovery = await pendingDecision(tripId);
+    } else {
+      // The selected program has no supported denser pace, so the bounded loop
+      // reaches the generic recovery fallback directly.
+      expect(clarificationPark?.waitReason).toBe("recovery");
+      recovery = await pendingDecision(tripId);
+    }
+    expect(recovery.kind).toBe("recovery");
+    // The generic fallback stores only recoveryOptionIds; the pending decision
+    // must still expose exactly those finite ids to admission and the UI.
+    expect([...recovery.allowedOptionIds].sort()).toEqual(["change_hotel", "change_meals"]);
+
+    await resume(tripId, sessionId, recovery.id, {
+      action: "choose_option",
+      optionId: "change_meals",
+    });
+    const reopened = await driveUntilParked(harness.pools, tripId, 6);
+    expect(reopened?.waitReason).toBe("program_choices");
+    const programAgain = await pendingDecision(tripId);
+    expect(programAgain.kind).toBe("program_choices");
+  }, 420_000);
 });

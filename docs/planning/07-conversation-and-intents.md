@@ -13,13 +13,13 @@ flowchart LR
     Clarify -->|owner answers| Schema
     Schema --> Authorize[Ownership, revision, preservation and source checks]
     Authorize --> Execute[Deterministic command service]
-    Execute --> Work[Selective graph work and validators]
+    Execute --> Work[Selective coordinator work and validators]
     Work --> Outcome[Persist actual outcome/proposals]
     Outcome --> Response[Outcome template and validated explanations]
     Response --> Panel[Persistent English assistant panel]
 ```
 
-The BFF admits an operation before the asynchronous interpreter runs. An acknowledgment states that the request was received. After schema and semantic validation, the graph applies safe preference/search commands. It asks a clarification only for genuine ambiguity/conflict, not for every harmless change.
+The BFF admits an operation before the asynchronous interpreter runs. An acknowledgment states that the request was received. After schema and semantic validation, the coordinator applies safe preference/search commands. It asks a clarification only for genuine ambiguity/conflict, not for every harmless change.
 
 ## 2. Request Envelopes
 
@@ -38,7 +38,7 @@ interface CommandRequest {
 
 `commands` contains 1..4 compatible strict commands. Chat messages are 1..2000 trimmed characters. Neither envelope accepts model profile changes, confirmation flags, a foreign thread/operation ID, arbitrary execution targets, SQL, code, or tool definitions.
 
-The public resume schema and decision-kind/action restrictions are defined in [domain contracts](04-domain-model.md). They use owner session, CSRF/origin, current revision, decision ID, and the worker's actual checkpoint/interrupt binding. Only an explicit booking review/confirmation response can commit a booking.
+The public resume schema and decision-kind/action restrictions are defined in [domain contracts](04-domain-model.md). They use owner session, CSRF/origin, current revision, decision ID, and the worker's exact coordinator decision/run binding. Only an explicit booking review/confirmation response can commit a booking.
 
 Commands emitted by a model are validated against a restricted conversational schema even though the broader deterministic dispatcher also supports protected demo controls. `set_simulation` cannot be smuggled into a chat result.
 
@@ -156,9 +156,9 @@ Personalize with the escaped first name when useful, not in every sentence. Do n
 
 ## 8. Re-entrant Interaction
 
-A completed graph is not kept permanently suspended. A new authorized request invokes the same trip thread with plain new-operation input, resets per-operation counters, hydrates current domain state, and applies the [invalidation matrix](03-langgraph-design.md#10-selective-invalidation-matrix).
+A completed coordinator run is not kept permanently suspended. A new authorized request is admitted as a new operation, resets per-operation counters, hydrates current domain state, and applies the [invalidation matrix](../architecture/coordinator.md).
 
-If a decision is already pending, admit only supported answers/modifications. The worker resumes that exact interrupt with a typed internal modification reference, explicitly resolves/cancels the old decision, and routes into interpretation/command application. Do not run a second invocation beside it or erase a checkpoint manually.
+If a decision is already pending, admit only supported answers/modifications. The worker resumes that exact decision with a typed internal modification reference, explicitly resolves/cancels the old decision, and routes into interpretation/command application. Do not run a second operation beside it or erase coordinator state manually.
 
 A change that invalidates an earlier step (a pace or activity change after the hotel is confirmed, a rejected proposal) re-derives that step's decision instead of restarting the wizard, and a reselection keeps its explicit target: `change_hotel` reopens the hotel step even though the confirmed hotel would otherwise derive the program step, and `change_meals` reopens the program step (2026-10-13). Reopened decisions reuse the current offers/choices so the user only re-confirms what changed. The exceptions are the ACTIVITY-preference changes with an applied program — pace, interests, and numeric activity requirements (including a chat like "add one more museum"): the program is authoritative, so the affected attractions are refreshed and the day is replanned directly, and the user confirms it at the itinerary approval — never by re-saving the meals (2026-10-13/14, product decision).
 
@@ -172,7 +172,7 @@ If another operation is active, show a busy conflict and preserve the typed mess
 - Unknown/injected executable operations and foreign offer IDs are rejected before domain execution.
 - An ambiguity executes no partial command before the clarification is answered.
 - Multi-target results explain partial progress without claiming an unconfirmed replacement.
-- New messages after final approval restart the graph correctly and remain on the owned trip.
+- New messages after final approval start a new coordinator operation correctly and remain on the owned trip.
 - Fixture mode is visibly scripted; credentialed live mode uses the configured role and real validated model output.
 
 See [tests](11-testing-strategy.md), [booking lifecycle](09-booking-simulation.md), and [Phase 08](phases/phase-08.md).

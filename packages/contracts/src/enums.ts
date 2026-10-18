@@ -110,9 +110,9 @@ export const delegationDomainSchema = z.enum([
 export type DelegationDomain = z.infer<typeof delegationDomainSchema>;
 
 /**
- * Phase 03: execution engine of a trip/operation/decision. Existing records
- * default to `langgraph`; `coordinator-v1` is used only by explicitly created
- * migration-test trips until the production default switches (Phase 11).
+ * Execution engine of a trip/operation/decision. New records are always
+ * `coordinator-v1`; `langgraph` exists only to read legacy rows as inert
+ * history after the Phase 11 cutover.
  */
 export const engineSchema = z.enum(["langgraph", "coordinator-v1"]);
 export type Engine = z.infer<typeof engineSchema>;

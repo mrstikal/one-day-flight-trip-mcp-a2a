@@ -57,7 +57,7 @@ export interface InsertDecisionInput {
   readonly id?: string;
   readonly tripId: string;
   readonly kind: DecisionKind;
-  /** Phase 03: engine binding; graph decisions require threadId/graphVersion. */
+  /** Engine binding; legacy graph rows require threadId/graphVersion. */
   readonly engine?: Engine;
   readonly threadId?: string;
   readonly graphVersion?: string;

@@ -183,9 +183,10 @@ export const agentInputDecisionPayloadSchema = z
 export type AgentInputDecisionPayload = z.infer<typeof agentInputDecisionPayloadSchema>;
 
 /**
- * Engine-discriminated binding carried by every persisted pending decision:
- * graph decisions keep their checkpoint fields; coordinator decisions bind the
- * exact run instead (and must NOT invent graph ids).
+ * Engine-discriminated binding carried by every persisted pending decision.
+ * The `langgraph` branch exists only to parse legacy rows as inert history;
+ * every new decision uses the `coordinator-v1` branch and must NOT invent graph
+ * ids.
  */
 export const decisionEngineBindingSchema = z.discriminatedUnion("engine", [
   z
