@@ -1,20 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { admitOperation, admitResume, cancelOperation, getTrip } from "@odft/persistence";
 import {
-  admitOperation,
-  admitResume,
-  cancelOperation,
-  getTrip,
-} from "@odft/persistence";
-import {
-  createGraphTestPool,
-  createHarnessTrip,
+  createTestPool,
+  createFixtureTrip,
   createWorkerPools,
   endWorkerPools,
-  resetGraphDatabase,
+  resetDatabase,
   type WorkerPools,
-} from "../graph/_setup.js";
+} from "../_setup.js";
 
 /**
  * Phase 09 plan-named history authorization (ODTF_PLAN.md Phase 09 tests):
@@ -28,12 +23,12 @@ describe("phase 09 history authorization", () => {
   let pools: WorkerPools;
 
   beforeAll(async () => {
-    pool = createGraphTestPool();
+    pool = createTestPool();
     pools = createWorkerPools();
   });
 
   beforeEach(async () => {
-    await resetGraphDatabase(pool);
+    await resetDatabase(pool);
   });
 
   afterAll(async () => {
@@ -42,7 +37,7 @@ describe("phase 09 history authorization", () => {
   });
 
   async function archivedTrip(): Promise<{ tripId: string; sessionId: string }> {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await pool.query(
       `UPDATE odft_app.trips SET archived_at = now(), archive_reason = 'history test' WHERE id = $1`,
       [tripId],

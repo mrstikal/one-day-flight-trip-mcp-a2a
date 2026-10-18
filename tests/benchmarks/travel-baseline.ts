@@ -7,8 +7,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { loadLocalEnv } from "../../scripts/_load-env.js";
-import { TRAVEL_GRAPH_NODES, TRAVEL_GRAPH_EDGE_GROUPS } from "../../packages/workflow/src/travel/graph-definition.js";
-import { TRAVEL_GRAPH_VERSION, TRAVEL_SCHEMA_VERSION } from "../../packages/workflow/src/travel/state.js";
+import { COORDINATOR_VERSION } from "@odft/contracts";
 import {
   assertDisposableDatabaseUrl,
   BASELINE_ACTIVITY_PACE,
@@ -160,7 +159,11 @@ function startWorker(context: { databaseUrl: string }): ChildProcess {
   });
 }
 
-function startWebServer(context: { databaseUrl: string; origin: string; port: string }): ChildProcess {
+function startWebServer(context: {
+  databaseUrl: string;
+  origin: string;
+  port: string;
+}): ChildProcess {
   return spawn("npm", ["run", "start", "-w", "@odft/web"], {
     cwd: REPO_ROOT,
     env: {
@@ -192,7 +195,9 @@ async function waitForReady(origin: string, server: ChildProcess): Promise<void>
   const deadline = Date.now() + 120_000;
   for (;;) {
     if (server.exitCode !== null || server.signalCode !== null) {
-      throw new Error(`web server exited before becoming ready (exit ${server.exitCode ?? server.signalCode})`);
+      throw new Error(
+        `web server exited before becoming ready (exit ${server.exitCode ?? server.signalCode})`,
+      );
     }
     try {
       const response = await fetch(`${origin}/api/health/ready`);
@@ -291,14 +296,26 @@ interface ProjectionLike {
   };
   readonly meals: readonly { readonly id: string; readonly meal: string }[];
   readonly program: {
-    readonly mealDefaults: { breakfast: string | null; lunch: string | null; dinner: string | null };
+    readonly mealDefaults: {
+      breakfast: string | null;
+      lunch: string | null;
+      dinner: string | null;
+    };
     readonly dinnerNotIncludedReason: string | null;
   } | null;
-  readonly itinerary: { readonly id: string; readonly version: number; readonly approvedVersion: number | null } | null;
+  readonly itinerary: {
+    readonly id: string;
+    readonly version: number;
+    readonly approvedVersion: number | null;
+  } | null;
   readonly proposal: { readonly id: string } | null;
 }
 
-async function getProjection(origin: string, session: SessionContext, tripId: string): Promise<ProjectionLike> {
+async function getProjection(
+  origin: string,
+  session: SessionContext,
+  tripId: string,
+): Promise<ProjectionLike> {
   const result = await apiGet(origin, `/api/trips/${tripId}`, session);
   if (result.status !== 200) {
     throw new Error(`projection read failed with HTTP ${result.status}`);
@@ -423,7 +440,7 @@ function decideResponse(
 
 /* ---- Database metrics ------------------------------------------------------- */
 
-const METRIC_SCHEMAS = "('odft_app','odft_checkpoint')";
+const METRIC_SCHEMAS = "('odft_app')";
 
 async function readDbMetrics(pool: Pool): Promise<BaselineDbMetrics> {
   const database = await pool.query<{
@@ -576,7 +593,11 @@ async function readTrialDetail(pool: Pool, tripId: string): Promise<TrialDetail>
 
 /* ---- Trials ----------------------------------------------------------------- */
 
-function caseInput(caseDef: BaselineCaseDefinition, originAirportId: string, destinationCityId: string) {
+function caseInput(
+  caseDef: BaselineCaseDefinition,
+  originAirportId: string,
+  destinationCityId: string,
+) {
   return {
     creationRequestId: randomUUID(),
     userName: BASELINE_USER_NAME,
@@ -608,7 +629,8 @@ async function resolveReferenceIds(
     `/api/reference/airports?q=${encodeURIComponent(BASELINE_ORIGIN_AIRPORT.query)}&limit=20`,
     session,
   );
-  const airportItems = (airports.body as { items?: { id: string; iata: string }[] } | null)?.items ?? [];
+  const airportItems =
+    (airports.body as { items?: { id: string; iata: string }[] } | null)?.items ?? [];
   const airport = airportItems.find((item) => item.iata === BASELINE_ORIGIN_AIRPORT.query);
   if (airport?.id !== BASELINE_ORIGIN_AIRPORT.expectedId) {
     throw new Error(
@@ -652,7 +674,11 @@ async function runTrial(
   let observedDecisionId: string | null = null;
   let waitingWithoutDecisionSince: number | null = null;
   let finalItinerary: { version: number; approvedVersion: number | null } | null = null;
-  const policy: DriverPolicyState = { hotelSelections: 0, programSubmissions: 0, recoveryChoices: 0 };
+  const policy: DriverPolicyState = {
+    hotelSelections: 0,
+    programSubmissions: 0,
+    recoveryChoices: 0,
+  };
 
   const recordPendingStep = (outcome: string): void => {
     if (pendingSubmitted) {
@@ -677,7 +703,12 @@ async function runTrial(
 
   try {
     const session = await createSession(context.origin);
-    const created = await apiPost(context.origin, "/api/trips", session, caseInput(caseDef, referenceIds.originAirportId, referenceIds.destinationCityId));
+    const created = await apiPost(
+      context.origin,
+      "/api/trips",
+      session,
+      caseInput(caseDef, referenceIds.originAirportId, referenceIds.destinationCityId),
+    );
     if (created.status !== 201) {
       throw new Error(`trip creation failed with HTTP ${created.status}`);
     }
@@ -729,7 +760,10 @@ async function runTrial(
         waitingWithoutDecisionSince = null;
         if (decision.id !== observedDecisionId) {
           recordPendingStep(decision.kind);
-          if (decision.kind === "recovery" && policy.recoveryChoices >= BASELINE_MAX_RECOVERY_CHOICES) {
+          if (
+            decision.kind === "recovery" &&
+            policy.recoveryChoices >= BASELINE_MAX_RECOVERY_CHOICES
+          ) {
             failureReason = "recovery_limit_reached";
             break;
           }
@@ -751,7 +785,11 @@ async function runTrial(
             break;
           }
           observedDecisionId = decision.id;
-          pendingSubmitted = { kind: decision.kind, action: decided.response.action as string, chosenId: decided.chosenId };
+          pendingSubmitted = {
+            kind: decision.kind,
+            action: decided.response.action as string,
+            chosenId: decided.chosenId,
+          };
           pendingStart = Date.now();
         }
       }
@@ -926,7 +964,10 @@ interface CaseSummary {
   readonly failures: { repetition: number; reason: string }[];
 }
 
-function summarizeCase(caseDef: BaselineCaseDefinition, trials: readonly BaselineTrialResult[]): CaseSummary {
+function summarizeCase(
+  caseDef: BaselineCaseDefinition,
+  trials: readonly BaselineTrialResult[],
+): CaseSummary {
   const completedTrials = trials.filter((trial) => trial.completed);
   const stepLatencies = new Map<string, number[]>();
   for (const trial of completedTrials) {
@@ -953,7 +994,10 @@ function summarizeCase(caseDef: BaselineCaseDefinition, trials: readonly Baselin
   };
 }
 
-function printSummary(caseSummaries: readonly CaseSummary[], trials: readonly BaselineTrialResult[]): void {
+function printSummary(
+  caseSummaries: readonly CaseSummary[],
+  trials: readonly BaselineTrialResult[],
+): void {
   const total = trials.length;
   const completed = trials.filter((trial) => trial.completed).length;
   process.stdout.write(`\n=== Baseline summary ===\n`);
@@ -962,11 +1006,15 @@ function printSummary(caseSummaries: readonly CaseSummary[], trials: readonly Ba
     process.stdout.write(
       `${summary.caseId}: ${summary.completed}/${summary.trials} completed` +
         (totalLatency ? `, total p50 ${totalLatency.p50} ms / p95 ${totalLatency.p95} ms` : "") +
-        (summary.failures.length > 0 ? `, failures: ${summary.failures.map((f) => f.reason).join(", ")}` : "") +
+        (summary.failures.length > 0
+          ? `, failures: ${summary.failures.map((f) => f.reason).join(", ")}`
+          : "") +
         "\n",
     );
   }
-  const overall = summarizeLatencies(trials.filter((trial) => trial.completed).map((trial) => trial.totalLatencyMs));
+  const overall = summarizeLatencies(
+    trials.filter((trial) => trial.completed).map((trial) => trial.totalLatencyMs),
+  );
   process.stdout.write(
     `overall: ${completed}/${total} completed` +
       (overall ? `, total p50 ${overall.p50} ms / p95 ${overall.p95} ms` : "") +
@@ -1010,7 +1058,11 @@ async function main(): Promise<void> {
 
   // Isolation preconditions: refuse before any mutation when another process
   // (a live application stack) is attached to the disposable target.
-  const probePool = new Pool({ connectionString: databaseUrl, max: 1, application_name: "odft-baseline-probe" });
+  const probePool = new Pool({
+    connectionString: databaseUrl,
+    max: 1,
+    application_name: "odft-baseline-probe",
+  });
   const otherConnections = await probePool.query<{ count: string }>(
     `SELECT count(*) AS count FROM pg_stat_activity
       WHERE datname = current_database() AND pid <> pg_backend_pid()`,
@@ -1028,7 +1080,11 @@ async function main(): Promise<void> {
     fail(error instanceof Error ? error.message : String(error));
   }
 
-  const pool = new Pool({ connectionString: databaseUrl, max: 2, application_name: "odft-baseline-metrics" });
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    max: 2,
+    application_name: "odft-baseline-metrics",
+  });
   let server: ChildProcess | null = null;
   let worker: ChildProcess | null = null;
   let exitCode = 0;
@@ -1068,7 +1124,9 @@ async function main(): Promise<void> {
     const allTrials: BaselineTrialResult[] = [];
     const caseSummaries: CaseSummary[] = [];
     for (const caseDef of cases) {
-      const ids = referenceIds.get(`${caseDef.destination.countryKey}:${caseDef.destination.cityQuery}`);
+      const ids = referenceIds.get(
+        `${caseDef.destination.countryKey}:${caseDef.destination.cityQuery}`,
+      );
       if (!ids) {
         throw new Error(`no resolved reference ids for ${caseDef.id}`);
       }
@@ -1089,17 +1147,17 @@ async function main(): Promise<void> {
       `  ${negativeCase.caseId}: ${negativeCase.pass ? "PASS" : "FAIL"} (route ${negativeCase.routeStatus}, offers ${negativeCase.flightOffers}, snapshots ${negativeCase.scenarioSnapshots})\n`,
     );
 
-    const overall = summarizeLatencies(allTrials.filter((trial) => trial.completed).map((trial) => trial.totalLatencyMs));
+    const overall = summarizeLatencies(
+      allTrials.filter((trial) => trial.completed).map((trial) => trial.totalLatencyMs),
+    );
     const document = {
       schemaVersion: BASELINE_RESULT_SCHEMA_VERSION,
-      kind: "odft-langgraph-travel-baseline",
+      kind: "odft-coordinator-travel-baseline",
       generatedAt: new Date().toISOString(),
       git: gitState(),
-      graph: {
-        version: TRAVEL_GRAPH_VERSION,
-        stateSchemaVersion: TRAVEL_SCHEMA_VERSION,
-        nodeCount: TRAVEL_GRAPH_NODES.length,
-        edgeGroupCount: TRAVEL_GRAPH_EDGE_GROUPS.length,
+      runtime: {
+        engine: "coordinator-v1",
+        version: COORDINATOR_VERSION,
       },
       environment: {
         node: process.version,
@@ -1113,12 +1171,16 @@ async function main(): Promise<void> {
         pollIntervalMs: BASELINE_POLL_INTERVAL_MS,
         trialTimeoutMs: BASELINE_TRIAL_TIMEOUT_MS,
         measurementScope:
-          "pg_stat_database (whole database) and pg_stat_user_tables summed over schemas odft_app and odft_checkpoint, " +
+          "pg_stat_database (whole database) and pg_stat_user_tables summed over schema odft_app, " +
           "per-trial deltas; polling GET /api/trips/[id] every " +
           `${BASELINE_POLL_INTERVAL_MS} ms is included in the measured activity.`,
       },
       inputs: {
-        cases: cases.map((caseDef) => ({ id: caseDef.id, variant: caseDef.variant, destination: caseDef.destination })),
+        cases: cases.map((caseDef) => ({
+          id: caseDef.id,
+          variant: caseDef.variant,
+          destination: caseDef.destination,
+        })),
         userName: BASELINE_USER_NAME,
         adults: BASELINE_ADULTS,
         sightseeingDate: BASELINE_SIGHTSEEING_DATE,
@@ -1139,13 +1201,18 @@ async function main(): Promise<void> {
       overall: {
         trials: allTrials.length,
         completed: allTrials.filter((trial) => trial.completed).length,
-        completionRate: completionRate(allTrials.filter((trial) => trial.completed).length, allTrials.length),
+        completionRate: completionRate(
+          allTrials.filter((trial) => trial.completed).length,
+          allTrials.length,
+        ),
         totalLatencyMs: overall,
       },
       negativeCase,
       limitations: [
         "Fixture AI mode: no paid model calls and zero LLM USD; fixture planner/reviewer invocations are counted from persisted execution events.",
-        "Latency is wall-clock around public HTTP calls with " + `${BASELINE_POLL_INTERVAL_MS} ms` + " polling, single worker, single server, one database.",
+        "Latency is wall-clock around public HTTP calls with " +
+          `${BASELINE_POLL_INTERVAL_MS} ms` +
+          " polling, single worker, single server, one database.",
         "pg_stat_statements is not installed in the local PostgreSQL 17 container, so per-statement SQL counts are not claimed.",
         "pg_stat_* deltas include the harness's own metric queries and projection polling (measurement overhead).",
         "The historical application database was not used or mutated; results come exclusively from the disposable *_test target.",
@@ -1161,7 +1228,9 @@ async function main(): Promise<void> {
       exitCode = 1;
     }
   } catch (error) {
-    process.stderr.write(`benchmark failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.stderr.write(
+      `benchmark failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+    );
     exitCode = 1;
   } finally {
     cleanup();

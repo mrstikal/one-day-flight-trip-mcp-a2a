@@ -7,17 +7,17 @@ import { useTripEvents } from "@/lib/use-sse";
 import { hasSavedProgram, nextTripStep } from "@/lib/trip-step";
 import { AgentCard } from "./agent-card";
 import { CommunicationMap } from "./communication-map";
-import { ExecutionGraph } from "./execution-graph";
 import { ProtocolTimeline } from "./protocol-timeline";
 import { SimulationControls } from "./simulation-controls";
 
 /**
  * Phase 11 execution inspector (08-frontend-ux.md section 10).
  *
- * Everything rendered here comes from the safe projection: the persisted graph
- * definition, real node/operation/checkpoint events, the LLM cost ledger, and
+ * Everything rendered here comes from the safe projection: operation/decision
+ * rows, the A2A/MCP communication map and timeline, the LLM cost ledger, and
  * labeled fault rows. There are no prompts, no reasoning, no provider payloads,
- * no SQL, and no secrets — they were never stored. The inspector is read-only
+ * no SQL, and no secrets — they were never stored. Legacy LangGraph trips keep
+ * their inert node/checkpoint history read-only. The inspector is read-only
  * apart from the flag/owner-protected scenario controls.
  */
 
@@ -97,49 +97,42 @@ export function InspectorView({ tripId }: { readonly tripId: string }): React.JS
           </Link>
         </div>
         <p className="text-xs text-ink-muted">
-          Graph {inspector.graph?.graphVersion ?? "not yet initialized"} · scenario mode{" "}
-          {inspector.scenarioMode} · read-only projection from persisted safe rows.
+          Coordinator-only runtime · scenario mode {inspector.scenarioMode} · read-only projection
+          from persisted safe rows.
         </p>
       </header>
 
-      <section aria-label="Execution graph">
-        <h2 className="text-base font-semibold">Graph</h2>
-        {inspector.graph ? (
-          <div className="mt-2">
-            <ExecutionGraph definition={inspector.graph} nodes={inspector.nodes} />
-          </div>
-        ) : (
-          <p className="mt-1 text-sm text-ink-muted">
-            No persisted graph definition yet; run one operation first.
+      {inspector.nodes.length > 0 ? (
+        <section aria-label="Legacy node events">
+          <h2 className="text-base font-semibold">Legacy node events</h2>
+          <p className="mt-1 text-xs text-ink-muted">
+            Inert history from a legacy LangGraph trip; the coordinator does not emit node events.
           </p>
-        )}
-      </section>
 
-      <section aria-label="Nodes">
-        <h2 className="text-base font-semibold">Nodes</h2>
-        <table className="mt-2 w-full border-collapse text-left text-xs" data-testid="node-table">
-          <thead>
-            <tr className="border-b border-border text-ink-muted">
-              <th className="py-1 pr-3">Node</th>
-              <th className="py-1 pr-3">Status</th>
-              <th className="py-1 pr-3">Events</th>
-              <th className="py-1">Last event</th>
-            </tr>
-          </thead>
-          <tbody>
-            {inspector.nodes.map((node) => (
-              <tr key={node.name} className="border-b border-border/50">
-                <td className="py-1 pr-3 font-mono">{node.name}</td>
-                <td className="py-1 pr-3">
-                  <StatusBadge status={node.status} />
-                </td>
-                <td className="py-1 pr-3">{node.occurrences}</td>
-                <td className="py-1">{node.lastAt ? formatTime(node.lastAt) : "—"}</td>
+          <table className="mt-2 w-full border-collapse text-left text-xs" data-testid="node-table">
+            <thead>
+              <tr className="border-b border-border text-ink-muted">
+                <th className="py-1 pr-3">Node</th>
+                <th className="py-1 pr-3">Status</th>
+                <th className="py-1 pr-3">Events</th>
+                <th className="py-1">Last event</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+            </thead>
+            <tbody>
+              {inspector.nodes.map((node) => (
+                <tr key={node.name} className="border-b border-border/50">
+                  <td className="py-1 pr-3 font-mono">{node.name}</td>
+                  <td className="py-1 pr-3">
+                    <StatusBadge status={node.status} />
+                  </td>
+                  <td className="py-1 pr-3">{node.occurrences}</td>
+                  <td className="py-1">{node.lastAt ? formatTime(node.lastAt) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
 
       <section aria-label="Operations">
         <h2 className="text-base font-semibold">Operations</h2>
@@ -174,8 +167,8 @@ export function InspectorView({ tripId }: { readonly tripId: string }): React.JS
         </table>
       </section>
 
-      <section aria-label="Checkpoints and resumes">
-        <h2 className="text-base font-semibold">Checkpoints &amp; resumes</h2>
+      <section aria-label="Decisions and resumes">
+        <h2 className="text-base font-semibold">Decisions &amp; resumes</h2>
         <table
           className="mt-2 w-full border-collapse text-left text-xs"
           data-testid="checkpoint-table"

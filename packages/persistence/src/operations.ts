@@ -37,7 +37,7 @@ export interface InsertOperationInput {
   readonly payload: unknown;
   readonly id?: string;
   readonly status?: OperationStatus;
-  /** Phase 03: engine owning the operation (defaults to the legacy graph). */
+  /** Phase 11: engine owning the operation (defaults to the coordinator). */
   readonly engine?: Engine;
 }
 
@@ -59,7 +59,7 @@ export async function insertOperation(
       input.status ?? "queued",
       input.kind,
       JSON.stringify(input.payload),
-      input.engine ?? "langgraph",
+      input.engine ?? "coordinator-v1",
     ],
   );
   return toOperationRecord(result.rows[0] as OperationRow);
@@ -82,7 +82,9 @@ export async function getOperationByRequestId(
     [tripId, requestId],
   );
   const row = result.rows[0];
-  return row ? { record: toOperationRecord(row), payload: row.payload, result: row.result } : undefined;
+  return row
+    ? { record: toOperationRecord(row), payload: row.payload, result: row.result }
+    : undefined;
 }
 
 export async function getActiveOperation(
@@ -129,7 +131,12 @@ export async function loadOperationById(
   );
   const row = result.rows[0];
   return row
-    ? { id: row.id, tripId: row.trip_id, status: row.status, acceptedRevision: row.accepted_revision }
+    ? {
+        id: row.id,
+        tripId: row.trip_id,
+        status: row.status,
+        acceptedRevision: row.accepted_revision,
+      }
     : undefined;
 }
 

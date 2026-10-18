@@ -12,7 +12,7 @@ import {
   StaleFencingError,
 } from "@odft/persistence";
 import { assertTelemetrySafe, toPublicLlmCall } from "@odft/ai";
-import { createGraphTestPool, resetGraphDatabase } from "../graph/_setup.js";
+import { createTestPool, resetDatabase } from "../_setup.js";
 import { createFixtureSession } from "../../fixtures/session.js";
 import { createTrip } from "@odft/persistence";
 import { fixtureCreationInput } from "../../fixtures/trip.js";
@@ -28,11 +28,11 @@ describe("LLM call ledger (real PostgreSQL)", () => {
   let tripId: string;
 
   beforeAll(async () => {
-    pool = createGraphTestPool();
+    pool = createTestPool();
   });
 
   beforeEach(async () => {
-    await resetGraphDatabase(pool);
+    await resetDatabase(pool);
     const sessionClient = await pool.connect();
     let sessionId: string;
     try {

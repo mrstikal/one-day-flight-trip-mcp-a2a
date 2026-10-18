@@ -1,6 +1,5 @@
-import type { ChildProcess } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
-import { startWorker, stopWorker, resetRateLimits } from "./_worker.js";
+import { startWorker, stopWorker, resetRateLimits, type E2eServices } from "./_worker.js";
 
 /**
  * AC-08-1/2/3: the assistant rail shows the persisted conversation in fixture
@@ -12,11 +11,11 @@ const ORIGIN = process.env.PUBLIC_BASE_URL ?? "http://localhost:3000";
 test.use({ baseURL: ORIGIN });
 test.setTimeout(240_000);
 
-let worker: ChildProcess | undefined;
+let worker: E2eServices | undefined;
 
 test.beforeAll(async () => {
   await resetRateLimits();
-  worker = startWorker();
+  worker = await startWorker();
 });
 
 test.afterAll(async () => {

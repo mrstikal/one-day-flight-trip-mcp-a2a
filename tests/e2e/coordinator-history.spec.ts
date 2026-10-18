@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { ChildProcess } from "node:child_process";
 import { Pool } from "pg";
 import { expect, test } from "@playwright/test";
-import { startWorker, stopWorker, resetRateLimits } from "./_worker.js";
+import { startWorker, stopWorker, resetRateLimits, type E2eServices } from "./_worker.js";
 
 /**
  * Phase 09 coordinator history (ODTF_PLAN.md Phase 09 tests): an archived trip
@@ -15,11 +14,11 @@ const ORIGIN = process.env.PUBLIC_BASE_URL ?? "http://localhost:3000";
 test.use({ baseURL: ORIGIN });
 test.setTimeout(240_000);
 
-let worker: ChildProcess | undefined;
+let worker: E2eServices | undefined;
 
 test.beforeAll(async () => {
   await resetRateLimits();
-  worker = startWorker();
+  worker = await startWorker();
 });
 
 test.afterAll(async () => {
@@ -57,7 +56,7 @@ test("archived trips are read-only history in UI and API", async ({ page }) => {
     },
   });
   expect(created.status()).toBe(201);
-  const { id: tripId } = (await created.json()) as { id: string };
+  const { tripId } = (await created.json()) as { tripId: string };
 
   await withPool(async (pool) => {
     await pool.query(
@@ -80,7 +79,7 @@ test("archived trips are read-only history in UI and API", async ({ page }) => {
     data: {
       requestId: randomUUID(),
       expectedRevision: 1,
-      chat: { message: "hello from history" },
+      chat: "hello from history",
     },
   });
   expect(denied.status()).toBe(403);

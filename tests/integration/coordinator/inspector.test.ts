@@ -1,18 +1,15 @@
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildObservation } from "@odft/protocols";
+import { insertProtocolObservation, loadPublicInspector } from "@odft/persistence";
 import {
-  insertProtocolObservation,
-  loadPublicInspector,
-} from "@odft/persistence";
-import {
-  createGraphTestPool,
-  createHarnessTrip,
+  createTestPool,
+  createFixtureTrip,
   createWorkerPools,
   endWorkerPools,
-  resetGraphDatabase,
+  resetDatabase,
   type WorkerPools,
-} from "../graph/_setup.js";
+} from "../_setup.js";
 import { fixtureDelegation } from "./_delegation-fixture.js";
 
 /**
@@ -27,12 +24,12 @@ describe("phase 09 inspector communication sections", () => {
   let pools: WorkerPools;
 
   beforeAll(async () => {
-    pool = createGraphTestPool();
+    pool = createTestPool();
     pools = createWorkerPools();
   });
 
   beforeEach(async () => {
-    await resetGraphDatabase(pool);
+    await resetDatabase(pool);
   });
 
   afterAll(async () => {
@@ -41,7 +38,7 @@ describe("phase 09 inspector communication sections", () => {
   });
 
   it("renders distinct a2a/mcp/application edges from persisted rows", async () => {
-    const { tripId } = await createHarnessTrip(pool);
+    const { tripId } = await createFixtureTrip(pool);
     const created = await pool.query<{ id: string }>(
       `SELECT id FROM odft_app.workflow_operations WHERE trip_id = $1`,
       [tripId],
@@ -82,9 +79,7 @@ describe("phase 09 inspector communication sections", () => {
     );
 
     const inspector = await loadPublicInspector(pool, tripId);
-    expect(
-      inspector.communications.some((row) => row.agentIdentity === "flight-agent"),
-    ).toBe(true);
+    expect(inspector.communications.some((row) => row.agentIdentity === "flight-agent")).toBe(true);
     expect(inspector.mcpCalls.some((row) => row.edge === "mcp")).toBe(true);
     const edges = new Set(inspector.timeline.map((row) => row.edge));
     expect(edges.has("a2a")).toBe(true);
@@ -93,7 +88,7 @@ describe("phase 09 inspector communication sections", () => {
   });
 
   it("labels card discovery as an A2A edge, never an MCP call", async () => {
-    const { tripId } = await createHarnessTrip(pool);
+    const { tripId } = await createFixtureTrip(pool);
     await insertProtocolObservation(
       pool,
       buildObservation({
@@ -109,7 +104,7 @@ describe("phase 09 inspector communication sections", () => {
   });
 
   it("keeps durations null (never fabricated zero) and shows attempts", async () => {
-    const { tripId } = await createHarnessTrip(pool);
+    const { tripId } = await createFixtureTrip(pool);
     const created = await pool.query<{ id: string }>(
       `SELECT id FROM odft_app.workflow_operations WHERE trip_id = $1`,
       [tripId],

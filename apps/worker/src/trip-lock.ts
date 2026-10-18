@@ -48,7 +48,8 @@ export async function acquireTripLock(
       client.release();
       return undefined;
     }
-    (lock as { releaseListener?: () => void }).releaseListener = () => client.removeListener("error", onError);
+    (lock as { releaseListener?: () => void }).releaseListener = () =>
+      client.removeListener("error", onError);
     return lock;
   } catch (error) {
     client.removeListener("error", onError);

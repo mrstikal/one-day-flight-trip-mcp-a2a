@@ -26,11 +26,7 @@ import {
 } from "../../../apps/web/src/lib/voice-routes.js";
 import { createVoiceService } from "../../../apps/web/src/lib/voice-service.js";
 import { encodePcmWav, inspectCanonicalWav } from "../../../apps/web/src/lib/voice-audio.js";
-import {
-  createGraphTestPool,
-  requireTestDatabaseUrl,
-  resetGraphDatabase,
-} from "../graph/_setup.js";
+import { createTestPool, requireTestDatabaseUrl, resetDatabase } from "../_setup.js";
 import { fixtureCreationInput } from "../../fixtures/trip.js";
 
 /**
@@ -315,12 +311,12 @@ describe("voice BFF routes", () => {
   let tempDir: string;
 
   beforeAll(async () => {
-    pool = createGraphTestPool(4);
+    pool = createTestPool(4);
     tempDir = mkdtempSync(join(tmpdir(), "voice-bff-"));
   });
 
   beforeEach(async () => {
-    await resetGraphDatabase(pool);
+    await resetDatabase(pool);
   });
 
   afterAll(async () => {

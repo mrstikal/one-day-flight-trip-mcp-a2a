@@ -3,7 +3,7 @@ import { ConfigError, checkReadiness, createPool, parseServerConfig } from "@odf
 
 /**
  * Readiness probe. Returns 200 only when the database is reachable, migrations
- * and the checkpointer schema are present, and the worker heartbeat is recent.
+ * are applied, and the worker heartbeat is recent.
  * Liveness is local and never calls OpenRouter or map tiles. No secret is
  * included in the response.
  */

@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { decisionKindSchema, engineSchema, type DecisionKind } from "./enums.js";
 import { fingerprintSchema, nonEmptyStringSchema, uuidSchema } from "./primitives.js";
-import { mealSelectionsSchema, refineProgramSelection, selfArrangedMealsSchema } from "./preferences.js";
+import {
+  mealSelectionsSchema,
+  refineProgramSelection,
+  selfArrangedMealsSchema,
+} from "./preferences.js";
 
 /** Decision responses and resume envelopes (04-domain-model.md section 7). */
 
@@ -50,9 +54,7 @@ const approveItinerary = z
 const chooseOption = z
   .object({ action: z.literal("choose_option"), optionId: nonEmptyStringSchema })
   .strict();
-const modify = z
-  .object({ action: z.literal("modify"), commandOperationId: uuidSchema })
-  .strict();
+const modify = z.object({ action: z.literal("modify"), commandOperationId: uuidSchema }).strict();
 
 const publicMembers = [
   chooseOffer,
@@ -107,7 +109,7 @@ export const pendingDecisionBaseSchema = z
      * coordinator decisions bind their run instead and must not invent graph
      * ids (validated below, persisted by migration 0013).
      */
-    engine: engineSchema.default("langgraph"),
+    engine: engineSchema.default("coordinator-v1"),
     threadId: z.string().min(1).optional(),
     interruptId: z.string().min(1).optional(),
     checkpointId: z.string().min(1).optional(),
@@ -129,28 +131,34 @@ export const pendingDecisionBaseSchema = z
  * graph identifiers.
  */
 export const pendingDecisionSchema = pendingDecisionBaseSchema.superRefine((decision, context) => {
-    if (decision.engine === "langgraph") {
-      if (!decision.threadId) {
-        context.addIssue({ code: "custom", message: "graph decisions require a threadId" });
-      }
-      if (!decision.graphVersion) {
-        context.addIssue({ code: "custom", message: "graph decisions require a graphVersion" });
-      }
-      if (decision.coordinatorRunId !== undefined) {
-        context.addIssue({ code: "custom", message: "graph decisions cannot bind a coordinator run" });
-      }
-      return;
+  if (decision.engine === "langgraph") {
+    if (!decision.threadId) {
+      context.addIssue({ code: "custom", message: "graph decisions require a threadId" });
     }
-    if (!decision.coordinatorRunId) {
-      context.addIssue({ code: "custom", message: "coordinator decisions require a coordinatorRunId" });
+    if (!decision.graphVersion) {
+      context.addIssue({ code: "custom", message: "graph decisions require a graphVersion" });
     }
-    if (decision.threadId !== undefined || decision.graphVersion !== undefined) {
+    if (decision.coordinatorRunId !== undefined) {
       context.addIssue({
         code: "custom",
-        message: "coordinator decisions cannot carry graph checkpoint identifiers",
+        message: "graph decisions cannot bind a coordinator run",
       });
     }
-  });
+    return;
+  }
+  if (!decision.coordinatorRunId) {
+    context.addIssue({
+      code: "custom",
+      message: "coordinator decisions require a coordinatorRunId",
+    });
+  }
+  if (decision.threadId !== undefined || decision.graphVersion !== undefined) {
+    context.addIssue({
+      code: "custom",
+      message: "coordinator decisions cannot carry graph checkpoint identifiers",
+    });
+  }
+});
 export type PendingDecision = z.infer<typeof pendingDecisionSchema>;
 
 /** Which public actions each decision kind accepts (09-booking-simulation.md section 6). */

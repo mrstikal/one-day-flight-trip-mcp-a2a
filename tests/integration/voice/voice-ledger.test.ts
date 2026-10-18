@@ -12,7 +12,7 @@ import {
   sumTripVoiceCostUsd,
   type ReserveVoiceCallInput,
 } from "@odft/persistence";
-import { createGraphTestPool, createHarnessTrip, resetGraphDatabase } from "../graph/_setup.js";
+import { createTestPool, createFixtureTrip, resetDatabase } from "../_setup.js";
 
 /**
  * T-IT-VOICE-04/05 (VOICE_CONTROLL.md section 15): real PostgreSQL proves
@@ -47,8 +47,8 @@ describe("voice-call ledger", () => {
   let pool: Pool;
 
   beforeAll(async () => {
-    pool = createGraphTestPool(8);
-    await resetGraphDatabase(pool);
+    pool = createTestPool(8);
+    await resetDatabase(pool);
   });
 
   afterAll(async () => {
@@ -56,7 +56,7 @@ describe("voice-call ledger", () => {
   });
 
   async function freshTrip(): Promise<string> {
-    const { tripId } = await createHarnessTrip(pool);
+    const { tripId } = await createFixtureTrip(pool);
     return tripId;
   }
 
@@ -181,7 +181,7 @@ describe("voice-call ledger", () => {
     expect(await sumTripVoiceCostUsd(pool, tripId)).toBe(4_000_000n);
 
     // A restart can only observe rows: the reservation is never auto-zeroed.
-    const restarted = createGraphTestPool(2);
+    const restarted = createTestPool(2);
     try {
       expect(await sumTripVoiceCostUsd(restarted, tripId)).toBe(4_000_000n);
       expect(await countTripVoiceCalls(restarted, tripId)).toBe(1);

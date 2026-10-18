@@ -47,6 +47,20 @@ async function workspacePackageJsonPaths(): Promise<string[]> {
   return paths;
 }
 
+async function listTypeScriptFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await listTypeScriptFiles(full)));
+    } else if (entry.isFile() && (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx"))) {
+      files.push(full);
+    }
+  }
+  return files;
+}
+
 describe("dependency audit", () => {
   it("declares no payment or real-travel-provider SDK", async () => {
     const violations: string[] = [];
@@ -70,5 +84,36 @@ describe("dependency audit", () => {
       }
     }
     expect(violations).toEqual([]);
+  });
+
+  it("removes LangGraph from manifests and source imports (Phase 11 cutover)", async () => {
+    const manifestViolations: string[] = [];
+    for (const relativePath of await workspacePackageJsonPaths()) {
+      const raw = await readFile(join(repoRoot, relativePath), "utf8");
+      const manifest = JSON.parse(raw) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      for (const name of [
+        ...Object.keys(manifest.dependencies ?? {}),
+        ...Object.keys(manifest.devDependencies ?? {}),
+      ]) {
+        if (name.includes("langchain")) {
+          manifestViolations.push(`${relativePath}: ${name}`);
+        }
+      }
+    }
+    expect(manifestViolations).toEqual([]);
+
+    const sourceViolations: string[] = [];
+    for (const group of ["apps", "packages"]) {
+      for (const file of await listTypeScriptFiles(join(repoRoot, group))) {
+        const source = await readFile(file, "utf8");
+        if (/from\s+["']@langchain\/|require\(\s*["']@langchain\//.test(source)) {
+          sourceViolations.push(file.slice(repoRoot.length));
+        }
+      }
+    }
+    expect(sourceViolations).toEqual([]);
   });
 });

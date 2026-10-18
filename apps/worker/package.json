@@ -10,10 +10,6 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "@langchain/core": "1.2.17",
-    "@langchain/langgraph": "1.4.21",
-    "@langchain/langgraph-checkpoint": "1.1.6",
-    "@langchain/langgraph-checkpoint-postgres": "1.0.6",
     "@odft/ai": "*",
     "@odft/contracts": "*",
     "@odft/data": "*",

@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { Pool } from "pg";
 import { createTrip } from "@odft/persistence";
+import { resetDatabase } from "../integration/_setup.js";
 import { createFixtureSession } from "../fixtures/session.js";
 import { fixtureCreationInput } from "../fixtures/trip.js";
 import {
@@ -56,7 +57,11 @@ export function databaseUrlOrThrow(): string {
   return url;
 }
 
-async function waitForWorkerHeartbeat(pool: Pool, startedAt: number, timeoutMs = 60_000): Promise<void> {
+async function waitForWorkerHeartbeat(
+  pool: Pool,
+  startedAt: number,
+  timeoutMs = 60_000,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const result = await pool.query<{ fresh: boolean }>(
@@ -83,7 +88,6 @@ function startCoordinatorWorker(registryPath: string): ChildProcess {
       DATABASE_URL: databaseUrl,
       AI_MODE: "fixture",
       WORKER_CONCURRENCY: "1",
-      ODFT_COORDINATOR: "1",
       ODFT_AGENT_REGISTRY_PATH: registryPath,
       ODFT_AGENT_TOKEN_FLIGHT: AGENT_TOKENS.flight,
       ODFT_AGENT_TOKEN_ACCOMMODATION: AGENT_TOKENS.accommodation,
@@ -96,16 +100,23 @@ function startCoordinatorWorker(registryPath: string): ChildProcess {
   });
 }
 
-export async function startE2eServices(options: {
-  readonly registry?: "primary" | "replacement";
-  readonly crashingCityGuide?: boolean;
-} = {}): Promise<E2eServices> {
+export async function startE2eServices(
+  options: {
+    readonly registry?: "primary" | "replacement";
+    readonly crashingCityGuide?: boolean;
+  } = {},
+): Promise<E2eServices> {
   const databaseUrl = databaseUrlOrThrow();
   // The integration helpers read TEST_DATABASE_URL at call time; point them at
   // the same isolated database the web server and worker use.
   process.env.TEST_DATABASE_URL = databaseUrl;
-  setupProtocolRoles();
   const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  // Every spec starts from a clean, migrated database: the Phase 11 stack owns
+  // the coordinator/agents/MCP and must not inherit another spec's trips.
+  // Roles/grants are (re)applied AFTER the schema reset, otherwise the fresh
+  // tables would have no privileges for the restricted agent roles.
+  await resetDatabase(pool);
+  setupProtocolRoles();
   const mcpHost = startMcpHost();
   await waitForHostReady(mcpHost);
   const flightAgent = startFlightAgent();
@@ -193,7 +204,6 @@ export async function seedCoordinatorTrip(
   const created = await createTrip(pool, {
     sessionId,
     input: fixtureCreationInput(),
-    engine: "coordinator-v1",
   });
   if (!("tripId" in created)) {
     throw new Error(`coordinator trip creation failed: ${JSON.stringify(created)}`);
@@ -205,7 +215,9 @@ export async function seedCoordinatorTrip(
 export async function pendingDecision(
   pool: Pool,
   tripId: string,
-): Promise<{ id: string; kind: string; allowedOfferIds: string[]; proposalId: string | null } | undefined> {
+): Promise<
+  { id: string; kind: string; allowedOfferIds: string[]; proposalId: string | null } | undefined
+> {
   const result = await pool.query<{
     id: string;
     kind: string;

@@ -21,6 +21,11 @@ test-results/
 .env.*
 !.env.example
 
+# Local protocol registries copied from the committed examples
+/agent-registry.json
+/mcp-registry.json
+/mcp-host-registry.json
+
 # Operator AI configuration (models, price ceilings) and its verified cache
 /ai-profiles.json
 /ai-profiles*.capabilities.json

@@ -327,7 +327,12 @@ export async function finalizeFailure(
 export async function finalizeConflict(
   pool: Pool,
   fence: FinalizeFence,
-  spec: { code: string; message: string; unfinishedOperationId?: string },
+  spec: {
+    code: string;
+    message: string;
+    unfinishedOperationId?: string;
+    extraWrites?: (client: Pick<PoolClient, "query">) => Promise<void>;
+  },
 ): Promise<boolean> {
   const client = await pool.connect();
   try {
@@ -370,6 +375,9 @@ export async function finalizeConflict(
           WHERE id = $1`,
         [fence.tripId],
       );
+    }
+    if (spec.extraWrites) {
+      await spec.extraWrites(client);
     }
     await insertEvent(client, {
       tripId: fence.tripId,

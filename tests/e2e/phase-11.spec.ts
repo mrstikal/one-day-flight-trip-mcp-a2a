@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { ChildProcess } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
-import { startWorker, stopWorker, resetRateLimits } from "./_worker.js";
+import { startWorker, stopWorker, resetRateLimits, type E2eServices } from "./_worker.js";
 
 /**
  * Phase 11 end-to-end:
@@ -20,10 +19,10 @@ const ORIGIN = process.env.PUBLIC_BASE_URL ?? "http://localhost:3000";
 test.use({ baseURL: ORIGIN });
 test.setTimeout(300_000);
 
-let worker: ChildProcess | undefined;
+let worker: E2eServices | undefined;
 
 test.beforeAll(async () => {
-  worker = startWorker();
+  worker = await startWorker();
 });
 
 test.beforeEach(async () => {
@@ -180,7 +179,8 @@ test("scenario K: reloading at a pending decision restores the exact descriptor"
           reservations: { serviceKey: string; status: string }[];
         };
         return projection.reservations.filter(
-          (reservation) => reservation.serviceKey === "flights" && reservation.status === "confirmed",
+          (reservation) =>
+            reservation.serviceKey === "flights" && reservation.status === "confirmed",
         ).length;
       },
       { timeout: 60_000, intervals: [1_000, 2_000] },
@@ -219,7 +219,10 @@ test("scenario H: a cheaper hotel search keeps bookings and replaces only on con
   await page.waitForTimeout(12_000);
   // The replacement is committed asynchronously; wait for the new reference.
   await expect
-    .poll(() => readHotelReference(page, tripId), { timeout: 120_000, intervals: [2_000, 3_000, 5_000] })
+    .poll(() => readHotelReference(page, tripId), {
+      timeout: 120_000,
+      intervals: [2_000, 3_000, 5_000],
+    })
     .not.toBe(hotelReference);
 });
 
@@ -348,7 +351,9 @@ test("an unbooked route change applies directly and yields a fresh flight choice
   const tripId = ((await created.json()) as { tripId: string }).tripId;
 
   await page.goto(`/trips/${tripId}/flights`);
-  await expect(page.getByRole("heading", { name: "No feasible flight for this route" })).toBeVisible({
+  await expect(
+    page.getByRole("heading", { name: "No feasible flight for this route" }),
+  ).toBeVisible({
     timeout: 90_000,
   });
   // The route-fix form submits a real `set_route` on a trip without reservations
@@ -378,8 +383,7 @@ test("route-change impact card names the reservations and cancels only after con
   const revision = await page.request
     .get(`/api/trips/${tripId}`, { headers: { origin: ORIGIN } })
     .then(
-      async (response) =>
-        ((await response.json()) as { trip: { revision: number } }).trip.revision,
+      async (response) => ((await response.json()) as { trip: { revision: number } }).trip.revision,
     );
   const submitted = await page.request.post(`/api/trips/${tripId}/commands`, {
     headers: { origin: ORIGIN, "x-csrf-token": csrfToken },

@@ -1,12 +1,12 @@
 import type { Pool } from "pg";
-import { CHECKPOINT_SCHEMA } from "./checkpointer-setup.js";
 import { MIGRATION_VERSIONS } from "./migrate.js";
 
 /**
- * Readiness checks database connectivity, applied migrations, the official
- * checkpointer schema, and a recent worker heartbeat. Liveness is local and
- * never calls OpenRouter or map tiles. Failing checks never throw; they are
- * reported as a structured, sanitized result.
+ * Readiness checks database connectivity, applied migrations, and a recent
+ * worker heartbeat. Liveness is local and never calls OpenRouter or map tiles.
+ * Failing checks never throw; they are reported as a structured, sanitized
+ * result. Phase 11 removed the legacy checkpointer, so no checkpoint schema is
+ * required (legacy checkpoint rows, when present, stay inert history).
  */
 
 export interface CheckStatus {
@@ -19,7 +19,6 @@ export interface ReadinessReport {
   readonly checks: {
     readonly database: CheckStatus;
     readonly migrations: CheckStatus;
-    readonly checkpointer: CheckStatus;
     readonly workerHeartbeat: CheckStatus;
   };
 }
@@ -40,7 +39,7 @@ export async function checkReadiness(
 
   // Run the checks concurrently so a single unavailable dependency cannot make
   // the probe wait for every check's connection timeout in sequence.
-  const [database, migrations, checkpointer, workerHeartbeat] = await Promise.all([
+  const [database, migrations, workerHeartbeat] = await Promise.all([
     runCheck(async () => {
       await pool.query("SELECT 1");
       return "database reachable";
@@ -56,17 +55,6 @@ export async function checkReadiness(
         throw new Error(`missing migrations: ${missing.join(", ")}`);
       }
       return `${applied.size} migration(s) applied`;
-    }),
-
-    runCheck(async () => {
-      const result = await pool.query<{ present: boolean }>(
-        `SELECT to_regclass($1) IS NOT NULL AS present`,
-        [`${CHECKPOINT_SCHEMA}.checkpoints`],
-      );
-      if (!result.rows[0]?.present) {
-        throw new Error(`checkpointer schema ${CHECKPOINT_SCHEMA} is not initialized`);
-      }
-      return `checkpointer schema ${CHECKPOINT_SCHEMA} ready`;
     }),
 
     runCheck(async () => {
@@ -86,9 +74,9 @@ export async function checkReadiness(
     }),
   ]);
 
-  const ready = database.ok && migrations.ok && checkpointer.ok && workerHeartbeat.ok;
+  const ready = database.ok && migrations.ok && workerHeartbeat.ok;
 
-  return { ready, checks: { database, migrations, checkpointer, workerHeartbeat } };
+  return { ready, checks: { database, migrations, workerHeartbeat } };
 }
 
 async function runCheck(probe: () => Promise<string>): Promise<CheckStatus> {

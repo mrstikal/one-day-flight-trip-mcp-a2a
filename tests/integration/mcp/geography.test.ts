@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { McpClient } from "@odft/protocols";
-import { endWorkerPools, type WorkerPools } from "../graph/_setup.js";
+import { endWorkerPools, type WorkerPools } from "../_setup.js";
 import {
   createMcpTestPool,
   createMcpTestWorkerPools,
@@ -52,7 +52,10 @@ describe("geography MCP tools", () => {
   it("searches countries, cities and airports deterministically", async () => {
     const client = new McpClient({ config: mcpConfigFor("flight-agent") });
     const countries = structured<{ items: { countryKey: string }[] }>(
-      await client.callTool("odft-geography", { name: "search_countries", arguments: { q: "Czech" } }),
+      await client.callTool("odft-geography", {
+        name: "search_countries",
+        arguments: { q: "Czech" },
+      }),
     );
     expect(countries.items.some((country) => country.countryKey === "CZ")).toBe(true);
 

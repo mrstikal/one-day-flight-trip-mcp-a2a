@@ -83,6 +83,7 @@ export interface InsertCoordinatorRunInput {
   readonly operationId?: string;
   readonly acceptedRevision: number;
   readonly step: CoordinatorStep;
+  readonly status?: CoordinatorRunStatus;
   readonly waitReason?: CoordinatorWaitReason;
   readonly runData: CoordinatorRunDataInput;
 }
@@ -94,8 +95,8 @@ export async function insertCoordinatorRun(
   const runData = coordinatorRunDataSchema.parse(input.runData);
   const result = await client.query<CoordinatorRunRow>(
     `INSERT INTO odft_app.coordinator_runs
-       (id, trip_id, operation_id, coordinator_version, accepted_revision, step, wait_reason, run_data)
-     VALUES ($1, $2, $3, 'coordinator-v1', $4, $5, $6, $7::jsonb)
+       (id, trip_id, operation_id, coordinator_version, accepted_revision, step, status, wait_reason, run_data)
+     VALUES ($1, $2, $3, 'coordinator-v1', $4, $5, $6, $7, $8::jsonb)
      RETURNING ${RUN_COLUMNS}`,
     [
       input.id ?? randomUUID(),
@@ -103,6 +104,7 @@ export async function insertCoordinatorRun(
       input.operationId ?? null,
       input.acceptedRevision,
       input.step,
+      input.status ?? "running",
       input.waitReason ?? null,
       JSON.stringify(runData),
     ],

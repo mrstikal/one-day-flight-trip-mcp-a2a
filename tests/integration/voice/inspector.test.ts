@@ -9,7 +9,7 @@ import {
   settleVoiceCallSuccess,
   sumTripLlmCostUsd,
 } from "@odft/persistence";
-import { createGraphTestPool, createHarnessTrip, resetGraphDatabase } from "../graph/_setup.js";
+import { createTestPool, createFixtureTrip, resetDatabase } from "../_setup.js";
 
 /**
  * T-IT-VOICE-08 (VOICE_CONTROLL.md section 15): the inspector exposes a safe,
@@ -21,8 +21,8 @@ describe("inspector voice section", () => {
   let pool: Pool;
 
   beforeAll(async () => {
-    pool = createGraphTestPool(8);
-    await resetGraphDatabase(pool);
+    pool = createTestPool(8);
+    await resetDatabase(pool);
   });
 
   afterAll(async () => {
@@ -30,7 +30,7 @@ describe("inspector voice section", () => {
   });
 
   it("keeps a cancelled reservation visible with a null safe error code", async () => {
-    const { tripId } = await createHarnessTrip(pool);
+    const { tripId } = await createFixtureTrip(pool);
     const reserved = await reserveVoiceCall(pool, {
       tripId,
       requestId: randomUUID(),
@@ -59,7 +59,7 @@ describe("inspector voice section", () => {
   });
 
   it("shows safe voice rows separately and leaves LLM and travel accounting untouched", async () => {
-    const { tripId, creationOperationId } = await createHarnessTrip(pool);
+    const { tripId, creationOperationId } = await createFixtureTrip(pool);
 
     const before = await loadPublicInspector(pool, tripId);
     expect(before.voiceCalls).toEqual([]);

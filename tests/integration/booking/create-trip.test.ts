@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { admitOperation, admitResume, createTrip, insertDecision } from "@odft/persistence";
+import {
+  admitOperation,
+  admitResume,
+  createTrip,
+  insertCoordinatorRun,
+  insertDecision,
+} from "@odft/persistence";
 import { createFixtureSession } from "../../fixtures/session.js";
 import { fixtureCreationInput } from "../../fixtures/trip.js";
 import { createTestPool, resetDatabase } from "./_setup.js";
@@ -116,7 +122,11 @@ describe("trip creation and admission", () => {
     const result = await admitOperation(pool, {
       tripId: created.tripId,
       sessionId,
-      request: { requestId: randomUUID(), expectedRevision: 99, command: { type: "build_itinerary" } },
+      request: {
+        requestId: randomUUID(),
+        expectedRevision: 99,
+        command: { type: "build_itinerary" },
+      },
     });
     expect("code" in result ? result.code : undefined).toBe("STALE_REVISION");
     const trip = await pool.query<{ revision: number }>(
@@ -187,11 +197,23 @@ describe("trip creation and admission", () => {
     const client = await pool.connect();
     let decisionId: string;
     try {
+      const run = await insertCoordinatorRun(client, {
+        tripId: created.tripId,
+        acceptedRevision: 1,
+        step: "awaiting_user",
+        status: "waiting",
+        waitReason: "itinerary_approval",
+        runData: {
+          schemaVersion: 1,
+          affectedDomains: [],
+          expectedFingerprints: {},
+        },
+      });
       decisionId = await insertDecision(client, {
         tripId: created.tripId,
         kind: "itinerary_approval",
-        threadId: created.tripId,
-        graphVersion: "graph-v0",
+        engine: "coordinator-v1",
+        coordinatorRunId: run.id,
         createdRevision: 1,
         sourceFingerprint: "a".repeat(64),
         payloadHash: "a".repeat(64),

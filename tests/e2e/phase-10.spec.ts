@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { ChildProcess } from "node:child_process";
 import { Pool } from "pg";
 import { expect, test, type Page } from "@playwright/test";
-import { startWorker, stopWorker, resetRateLimits } from "./_worker.js";
+import { startWorker, stopWorker, resetRateLimits, type E2eServices } from "./_worker.js";
 
 /**
  * T-E2E-09 (E/F/G) and AC-10-1..7: the itinerary page renders the complete
@@ -16,11 +15,11 @@ const ORIGIN = process.env.PUBLIC_BASE_URL ?? "http://localhost:3000";
 test.use({ baseURL: ORIGIN });
 test.setTimeout(300_000);
 
-let worker: ChildProcess | undefined;
+let worker: E2eServices | undefined;
 
 test.beforeAll(async () => {
   await resetRateLimits();
-  worker = startWorker();
+  worker = await startWorker();
 });
 
 test.afterAll(async () => {
@@ -162,11 +161,13 @@ test("renders the validated day, costs, the map fallback, and approves a draft",
   await expect(page.getByTestId("validation-ok")).toBeVisible();
   await expect(page.getByTestId("validation-errors")).toHaveCount(0);
 
-  // A complete day: breakfast/lunch events, activities, breaks, dinner (or the
-  // deterministic exclusion note), and a locked return-flight buffer.
+  // A complete day: breakfast/lunch events, transfers/breaks, dinner (or the
+  // deterministic exclusion note), and a locked return-flight buffer. Visits are
+  // opt-in (2026-10-14), so this request (which pinned no activity) correctly has
+  // no sightseeing stop.
   await expect(page.locator('[data-testid="itinerary-event"]').first()).toBeVisible();
   await expect(page.locator('[data-event-kind="meal"]').first()).toBeVisible();
-  await expect(page.locator('[data-event-kind="activity"]').first()).toBeVisible();
+  await expect(page.locator('[data-event-kind="transfer"]').first()).toBeVisible();
   const dinnerOrReason =
     (await page.locator('[data-event-kind="meal"]').count()) >= 3
       ? true
@@ -257,9 +258,7 @@ test("scenario F: the budget conflict raises a clarification without falsified p
   await expect(page.getByTestId("itinerary-status")).toHaveText("Approved", { timeout: 90_000 });
 });
 
-test("scenario G: the relaxed six-museums request preserves the typed number", async ({
-  page,
-}) => {
+test("scenario G: the relaxed six-museums request preserves the typed number", async ({ page }) => {
   const tripId = await createTrip(page);
   expect(tripId).not.toBe("");
   await driveToProgramSaved(page);
@@ -283,10 +282,12 @@ test("scenario G: the relaxed six-museums request preserves the typed number", a
   const keepRelaxed = card.getByRole("button", { name: /Keep the relaxed pace with 2 museums/ });
   await expect(keepRelaxed).toBeVisible();
   await keepRelaxed.click();
-  // The explicit choice re-derives the program step; nothing was reduced silently.
+  // The explicit choice keeps the typed requirement; nothing was reduced silently.
+  // The program is already saved, so the coordinator opens the rebuilt itinerary
+  // for approval and the activities step shows the preserved minimum.
   await expect(page.getByTestId("clarification-card")).toHaveCount(0, { timeout: 90_000 });
-  await page.goto(`/trips/${tripId}/meals`);
-  await expect(page.getByRole("button", { name: "Save program" })).toBeVisible({
+  await page.goto(`/trips/${tripId}/activities`);
+  await expect(page.getByTestId("activity-requirements")).toContainText("Minimum 2 museum", {
     timeout: 90_000,
   });
 });

@@ -4,14 +4,14 @@ import {
   checkReadiness,
   createWorkerIdentity,
   runMigrations,
-  setupCheckpointer,
   writeWorkerHeartbeat,
 } from "@odft/persistence";
 
 /**
  * Foundation integration evidence against a real (disposable) PostgreSQL 17
- * database: real SQL migrations, the official LangGraph PostgreSQL checkpointer
- * schema, worker heartbeat persistence, and readiness behavior.
+ * database: real SQL migrations, worker heartbeat persistence, and readiness
+ * behavior. Phase 11 removed the legacy checkpointer, so a fresh database must
+ * be ready without any checkpoint schema.
  */
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -35,16 +35,18 @@ const pool = new Pool({ connectionString: TEST_DATABASE_URL, max: 4 });
 
 beforeAll(async () => {
   await pool.query("DROP SCHEMA IF EXISTS odft_app CASCADE");
+  await pool.query("DROP SCHEMA IF EXISTS odft_protocol CASCADE");
+  // A leftover schema from a pre-Phase-11 database must not make readiness
+  // depend on it; dropping it proves the fresh install path.
   await pool.query("DROP SCHEMA IF EXISTS odft_checkpoint CASCADE");
   await runMigrations(pool);
-  await setupCheckpointer(pool);
 });
 
 afterAll(async () => {
   await pool.end();
 });
 
-describe("foundation migrations and checkpointer", () => {
+describe("foundation migrations", () => {
   it("creates the app schemas and the worker heartbeat table", async () => {
     const result = await pool.query<{ present: boolean }>(
       "SELECT to_regclass('odft_app.worker_heartbeat') IS NOT NULL AS present",
@@ -56,21 +58,14 @@ describe("foundation migrations and checkpointer", () => {
     const again = await runMigrations(pool);
     expect(again.applied).toEqual([]);
     expect(again.skipped).toContain("0001-foundation");
+    expect(again.skipped).toContain("0018-archive-langgraph-trips");
   });
 
-  it("creates the official checkpointer tables", async () => {
-    const result = await pool.query<{ name: string; present: boolean }>(
-      `SELECT name, to_regclass('odft_checkpoint.' || name) IS NOT NULL AS present
-         FROM unnest($1::text[]) AS name`,
-      [["checkpoints", "checkpoint_blobs", "checkpoint_writes", "checkpoint_migrations"]],
+  it("does not require or create the legacy checkpoint schema", async () => {
+    const result = await pool.query<{ present: boolean }>(
+      "SELECT to_regclass('odft_checkpoint.checkpoints') IS NOT NULL AS present",
     );
-    for (const row of result.rows) {
-      expect(row.present, `table ${row.name}`).toBe(true);
-    }
-  });
-
-  it("is safe to run the checkpointer setup again", async () => {
-    await expect(setupCheckpointer(pool)).resolves.toBeUndefined();
+    expect(result.rows[0]?.present).toBe(false);
   });
 
   it("rejects a changed checksum for an already-applied migration", async () => {
@@ -97,11 +92,10 @@ describe("readiness and worker heartbeat", () => {
     expect(report.ready).toBe(false);
     expect(report.checks.database.ok).toBe(true);
     expect(report.checks.migrations.ok).toBe(true);
-    expect(report.checks.checkpointer.ok).toBe(true);
     expect(report.checks.workerHeartbeat.ok).toBe(false);
   });
 
-  it("is ready after a real heartbeat is written", async () => {
+  it("is ready after a real heartbeat is written without a checkpoint schema", async () => {
     await writeWorkerHeartbeat(pool, createWorkerIdentity());
     const report = await checkReadiness(pool);
     expect(report.ready).toBe(true);

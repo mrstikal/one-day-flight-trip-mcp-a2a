@@ -1,23 +1,24 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdapterError } from "@odft/ai";
 import { tripPreferencesSchema } from "@odft/contracts";
 import { admitOperation, listConversation } from "@odft/persistence";
 import type { AiService } from "../../../apps/worker/src/ai/service.js";
 import {
   claimNextOrFail,
-  createGraphTestPool,
-  createHarnessTrip,
+  createFixtureTrip,
   createTravelDriver,
-  createWorkerPools,
   driveTripToReady,
-  endWorkerPools,
-  resetGraphDatabase,
   sendChat,
   tripRevision,
   type WorkerPools,
 } from "./_setup.js";
+import {
+  startCoordinatorHarness,
+  stopCoordinatorHarness,
+  type CoordinatorHarness,
+} from "../coordinator/_setup.js";
 
 /**
  * T-IT-LIM-03 / 06 section 9: an AI failure is terminal for the operation. The
@@ -28,23 +29,20 @@ import {
 describe("AI failure containment (real PostgreSQL)", () => {
   let pool: Pool;
   let pools: WorkerPools;
+  let harness: CoordinatorHarness;
 
   beforeAll(async () => {
-    pool = createGraphTestPool();
-    pools = createWorkerPools();
-  });
-
-  beforeEach(async () => {
-    await resetGraphDatabase(pool);
-  });
+    harness = await startCoordinatorHarness();
+    pool = harness.pool;
+    pools = harness.pools;
+  }, 180_000);
 
   afterAll(async () => {
-    await endWorkerPools(pools);
-    await pool.end();
+    await stopCoordinatorHarness(harness);
   });
 
   it("fails terminally without requeueing the operation or poisoning the trip", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await driveTripToReady(pool, pools, tripId, sessionId);
 
     let calls = 0;
@@ -92,10 +90,12 @@ describe("AI failure containment (real PostgreSQL)", () => {
 
     // No preference was applied by the failed interpretation.
     const prefs = tripPreferencesSchema.parse(
-      (await pool.query<{ preferences: unknown }>(
-        `SELECT preferences FROM odft_app.trips WHERE id = $1`,
-        [tripId],
-      )).rows[0]?.preferences,
+      (
+        await pool.query<{ preferences: unknown }>(
+          `SELECT preferences FROM odft_app.trips WHERE id = $1`,
+          [tripId],
+        )
+      ).rows[0]?.preferences,
     );
     expect(prefs.activityPace).toBe("moderate");
 
@@ -109,7 +109,7 @@ describe("AI failure containment (real PostgreSQL)", () => {
   }, 120_000);
 
   it("a later message runs fresh instead of replaying the failed one (P1-2)", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await driveTripToReady(pool, pools, tripId, sessionId);
 
     // Fail message A terminally (the checkpoint keeps an unfinished interpret_intent).
@@ -124,17 +124,26 @@ describe("AI failure containment (real PostgreSQL)", () => {
         throw new AdapterError("AI_SCHEMA_INVALID", "model output failed validation", false);
       },
     };
-    await sendChatWithDriver(pool, pools, createTravelDriver(pools, failing), tripId, sessionId, "Make the day less exhausting");
+    await sendChatWithDriver(
+      pool,
+      pools,
+      createTravelDriver(pools, failing),
+      tripId,
+      sessionId,
+      "Make the day less exhausting",
+    );
 
     // Message B must be interpreted as itself: the stale chatMessage/operationId
     // from the failed run must not be recovered and re-billed.
     await sendChat(pool, pools, tripId, sessionId, "Add two more museums");
 
     const prefs = tripPreferencesSchema.parse(
-      (await pool.query<{ preferences: unknown }>(
-        `SELECT preferences FROM odft_app.trips WHERE id = $1`,
-        [tripId],
-      )).rows[0]?.preferences,
+      (
+        await pool.query<{ preferences: unknown }>(
+          `SELECT preferences FROM odft_app.trips WHERE id = $1`,
+          [tripId],
+        )
+      ).rows[0]?.preferences,
     );
     // B applied (relative count against the harness plan) and A did not.
     expect(prefs.minimumActivityCounts.museum).toBe(3);

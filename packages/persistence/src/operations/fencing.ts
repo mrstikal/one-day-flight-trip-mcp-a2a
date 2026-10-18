@@ -1,11 +1,11 @@
 import type { Pool, PoolClient } from "pg";
 
 /**
- * Fencing primitives shared by the worker driver and the fenced checkpoint
- * saver (02-architecture.md section 6). A single-writer rule guards both domain
- * writes and official-saver writes: a write is accepted only while the
- * operation is `running` under the exact fencing token the writer was admitted
- * with.
+ * Fencing primitives shared by the coordinator worker and its fenced writes
+ * (02-architecture.md section 6). A single-writer rule guards domain writes: a
+ * write is accepted only while the operation is `running` under the exact
+ * fencing token the writer was admitted with. Phase 11 removed the legacy
+ * checkpoint gate because no checkpoint writer exists anymore.
  */
 
 /** The immutable identity of the operation a writer was admitted for. */
@@ -35,29 +35,10 @@ export class StaleFencingError extends Error {
   }
 }
 
-/** The transaction-scoped advisory gate key that serializes checkpoint writes. */
-export function checkpointGateKey(tripId: string): string {
-  return `checkpoint-write:${tripId}`;
-}
-
-/**
- * Acquire the transaction-scoped checkpoint gate. The caller must already be
- * inside a transaction; the lock is released automatically on COMMIT/ROLLBACK
- * and is therefore never leaked by a crashed connection.
- */
-export async function acquireCheckpointGate(
-  client: Pick<PoolClient, "query">,
-  tripId: string,
-): Promise<void> {
-  await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
-    checkpointGateKey(tripId),
-  ]);
-}
-
 /**
  * Read the current operation ownership WITHOUT a row lock (read-committed
- * snapshot). Never take `FOR UPDATE` here: doing so inside the checkpoint gate
- * would create a lock-order cycle with job claiming.
+ * snapshot). Never take `FOR UPDATE` here: doing so would create a lock-order
+ * cycle with job claiming.
  */
 export async function readOperationOwnership(
   client: Pick<PoolClient, "query"> | Pick<Pool, "query">,

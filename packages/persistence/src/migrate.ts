@@ -43,6 +43,7 @@ export const MIGRATION_VERSIONS: readonly string[] = [
   "0015-agent-input",
   "0016-cancel-retries",
   "0017-bridge-skip",
+  "0018-archive-langgraph-trips",
 ];
 
 export interface MigrationResult {

@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { McpClient } from "@odft/protocols";
 import { upsertFault } from "@odft/persistence";
-import { endWorkerPools, type WorkerPools } from "../graph/_setup.js";
+import { endWorkerPools, type WorkerPools } from "../_setup.js";
 import {
   createMcpTestPool,
   createMcpTestWorkerPools,
@@ -96,7 +96,11 @@ describe("travel-data MCP tools", () => {
       tripId: seeded.tripId,
       agentIdentity: "flight-agent",
     });
-    const first = structured<{ snapshotId: string; counts: { hotels: number }; domainContentHashes: Record<string, string> }>(
+    const first = structured<{
+      snapshotId: string;
+      counts: { hotels: number };
+      domainContentHashes: Record<string, string>;
+    }>(
       await client.callTool("odft-travel-data", {
         name: "get_scenario_metadata",
         arguments: { delegationId, snapshotId: seeded.snapshotId },
@@ -149,7 +153,12 @@ describe("travel-data MCP tools", () => {
       const current = structured<CandidatePage<{ id: string }>>(
         await client.callTool("odft-travel-data", {
           name: "search_flights",
-          arguments: { delegationId, snapshotId: seeded.snapshotId, page: cursorPage, pageSize: 50 },
+          arguments: {
+            delegationId,
+            snapshotId: seeded.snapshotId,
+            page: cursorPage,
+            pageSize: 50,
+          },
         }),
       );
       for (const item of current.items) {
@@ -197,7 +206,9 @@ describe("travel-data MCP tools", () => {
       agentIdentity: "accommodation-agent",
     });
     const accommodationClient = new McpClient({ config: mcpConfigFor("accommodation-agent") });
-    const hotels = structured<CandidatePage<{ id: string; partyTotalMinor: number; level: string }>>(
+    const hotels = structured<
+      CandidatePage<{ id: string; partyTotalMinor: number; level: string }>
+    >(
       await accommodationClient.callTool("odft-travel-data", {
         name: "search_hotels",
         arguments: { delegationId: hotelsDelegation, snapshotId: seeded.snapshotId },
@@ -233,7 +244,11 @@ describe("travel-data MCP tools", () => {
   });
 
   it("honors a simulated provider fault without writing a fault counter or artifact", async () => {
-    await upsertFault(pool, { tripId: seeded.tripId, domain: "hotels", fault: "hotels_unavailable" });
+    await upsertFault(pool, {
+      tripId: seeded.tripId,
+      domain: "hotels",
+      fault: "hotels_unavailable",
+    });
     const before = await writeCounts();
 
     const client = new McpClient({ config: mcpConfigFor("accommodation-agent") });

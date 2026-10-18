@@ -115,6 +115,12 @@ export const coordinatorRunDataSchema = z
     searchIntent: researchSearchIntentSchema.nullable().default(null),
     /** Phase 08: assistant wording committed with the next resting result. */
     assistantMessage: z.string().max(2000).nullable().default(null),
+    /** Phase 11: safe interpretation kind persisted with the assistant bubble. */
+    assistantInterpretationKind: z
+      .enum(["commands", "clarification", "unsupported"])
+      .default("commands"),
+    /** Phase 09/11: bounded automatic research retry budget (one retry). */
+    researchRetryAttempts: z.number().int().min(0).max(1).default(0),
     /** Phase 08: deferred commands of a staged route-change confirmation. */
     routeChangeCommands: z.array(domainCommandSchema).max(8).default([]),
   })
@@ -166,9 +172,7 @@ export const agentInputDecisionPayloadSchema = z
     question: z.string().trim().min(1).max(400),
     options: z
       .array(
-        z
-          .object({ id: nonEmptyStringSchema, label: z.string().trim().min(1).max(120) })
-          .strict(),
+        z.object({ id: nonEmptyStringSchema, label: z.string().trim().min(1).max(120) }).strict(),
       )
       .min(2)
       .max(4),

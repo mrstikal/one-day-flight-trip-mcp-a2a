@@ -250,7 +250,6 @@ describe("public voice API schemas", () => {
   it("embeds the voice rows in the strict inspector contract", () => {
     const inspector = {
       scenarioMode: "normal",
-      graph: null,
       nodes: [],
       operations: [],
       checkpoints: [],

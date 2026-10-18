@@ -5,11 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { TaskState, type Task } from "@a2a-js/sdk";
 import { AdapterError, type LLMAdapter, type StructuredRequest } from "@odft/ai";
 import type { RoleProfile } from "@odft/contracts";
-import {
-  createTrip,
-  upsertTaskControl,
-  type ServerConfig,
-} from "@odft/persistence";
+import { createTrip, upsertTaskControl, type ServerConfig } from "@odft/persistence";
 import {
   createDelegatedFlightRanker,
   rankDelegatedOffers,
@@ -18,7 +14,8 @@ import {
 import { A2AClient } from "@odft/protocols";
 import { createFixtureSession } from "../../fixtures/session.js";
 import { fixtureCreationInput } from "../../fixtures/trip.js";
-import { claimNextOrFail, createTravelDriver, testServerConfig } from "../graph/_setup.js";
+import { claimNextOrFail, testServerConfig } from "../_setup.js";
+import { coordinatorDriver } from "../coordinator/_setup.js";
 import {
   createFlightDelegation,
   createFlightDelegationFor,
@@ -107,7 +104,11 @@ describe("delegated governance", () => {
       ),
     );
     expect(task.status?.state).toBe(TaskState.TASK_STATE_FAILED);
-    expect(task.status?.message?.parts?.[0]?.content?.$case === "text" ? task.status.message.parts[0].content.value : "").toMatch(/revoked/);
+    expect(
+      task.status?.message?.parts?.[0]?.content?.$case === "text"
+        ? task.status.message.parts[0].content.value
+        : "",
+    ).toMatch(/revoked/);
   }, 60_000);
 
   it("refuses a request that names a different snapshot than the delegation", async () => {
@@ -154,7 +155,7 @@ describe("delegated governance", () => {
     if (!("tripId" in created)) {
       throw new Error("fixture createTrip failed");
     }
-    await createTravelDriver(pools).runOperation(await claimNextOrFail(pools));
+    await coordinatorDriver(pools).runOperation(await claimNextOrFail(pools));
     const snapshots = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM odft_app.scenario_snapshots WHERE trip_id = $1`,
       [created.tripId],
@@ -264,9 +265,10 @@ describe("delegated governance", () => {
         ]),
       ).rejects.toThrow(/permission denied/);
       await expect(
-        agentPool.query(`INSERT INTO odft_app.trip_selections (trip_id, service_key, offer_id) VALUES ($1, 'hotel', 'x')`, [
-          seeded.tripId,
-        ]),
+        agentPool.query(
+          `INSERT INTO odft_app.trip_selections (trip_id, service_key, offer_id) VALUES ($1, 'hotel', 'x')`,
+          [seeded.tripId],
+        ),
       ).rejects.toThrow(/permission denied/);
       // Its own task storage and delegated ledger stay usable.
       const claimed = await agentPool.query<{ claimed: boolean }>(
@@ -329,10 +331,7 @@ describe("delegated paid path (scripted adapter)", () => {
     },
   ];
 
-  function scriptedAdapter(
-    value: unknown,
-    options: { fail?: Error } = {},
-  ): LLMAdapter {
+  function scriptedAdapter(value: unknown, options: { fail?: Error } = {}): LLMAdapter {
     return {
       async generateObject<T>(_request: StructuredRequest<T>) {
         if (options.fail) {
@@ -433,7 +432,11 @@ describe("delegated paid path (scripted adapter)", () => {
     expect(call.rows[0]?.agent_identity).toBe("flight-agent");
     expect(call.rows[0]?.task_id).toBe(ids.taskId);
     expect(call.rows[0]?.trace_id).toBe(`trace-${ids.taskId}`);
-    const control = await pool.query<{ llm_attempts: number; reserved_cost_usd: string; actual_cost_usd: string }>(
+    const control = await pool.query<{
+      llm_attempts: number;
+      reserved_cost_usd: string;
+      actual_cost_usd: string;
+    }>(
       `SELECT llm_attempts, reserved_cost_usd, actual_cost_usd FROM odft_app.protocol_task_control
         WHERE agent_identity = 'flight-agent' AND task_id = $1`,
       [ids.taskId],
@@ -446,7 +449,11 @@ describe("delegated paid path (scripted adapter)", () => {
   it("falls back to the deterministic order for an invalid ranking", async () => {
     const ids = await seedPaidTask();
     const result: DelegatedFlightRankingResult = await ranker(
-      scriptedAdapter({ rankedOfferIds: ["combo-a", "combo-a", "invented"], reasons: [], tradeoffs: [] }),
+      scriptedAdapter({
+        rankedOfferIds: ["combo-a", "combo-a", "invented"],
+        reasons: [],
+        tradeoffs: [],
+      }),
     ).rank(rankingInput(ids));
     expect(result.fallbackUsed).toBe(true);
     expect(result.rankedOfferIds).toEqual(["combo-b", "combo-a"]);
@@ -461,11 +468,17 @@ describe("delegated paid path (scripted adapter)", () => {
   it("keeps an uncertain paid call reserved and counted", async () => {
     const ids = await seedPaidTask();
     await expect(
-      ranker(scriptedAdapter(undefined, { fail: new AdapterError("AI_TRANSPORT_FAILED", "socket closed", true) })).rank(
-        rankingInput(ids),
-      ),
+      ranker(
+        scriptedAdapter(undefined, {
+          fail: new AdapterError("AI_TRANSPORT_FAILED", "socket closed", true),
+        }),
+      ).rank(rankingInput(ids)),
     ).rejects.toBeInstanceOf(AdapterError);
-    const call = await pool.query<{ status: string; cost_status: string; reserved_cost_usd: string }>(
+    const call = await pool.query<{
+      status: string;
+      cost_status: string;
+      reserved_cost_usd: string;
+    }>(
       `SELECT status, cost_status, reserved_cost_usd FROM odft_app.llm_calls WHERE delegation_id = $1`,
       [ids.delegationId],
     );
@@ -480,7 +493,9 @@ describe("delegated paid path (scripted adapter)", () => {
     // The unknown reservation keeps counting against the shared trip cap.
     const next = await seedPaidTask();
     await expect(
-      ranker(scriptedAdapter({ rankedOfferIds: ["combo-a", "combo-b"], reasons: [], tradeoffs: [] })).rank(
+      ranker(
+        scriptedAdapter({ rankedOfferIds: ["combo-a", "combo-b"], reasons: [], tradeoffs: [] }),
+      ).rank(
         rankingInput(next, {
           limits: { ...limits, maxCostUsdPerTrip: "0.0025" },
         }),
@@ -490,11 +505,18 @@ describe("delegated paid path (scripted adapter)", () => {
 
   it("serializes concurrent same-scope reservations into one winner", async () => {
     const ids = await seedPaidTask();
-    const adapter = scriptedAdapter({ rankedOfferIds: ["combo-a", "combo-b"], reasons: [], tradeoffs: [] });
+    const adapter = scriptedAdapter({
+      rankedOfferIds: ["combo-a", "combo-b"],
+      reasons: [],
+      tradeoffs: [],
+    });
     // Two concurrent attempts of the same task/scope: the per-scope attempt
     // bound (1) plus the shared trip row lock must let exactly one reservation
     // through — never two, and never a deadlock.
-    const shared = { effectScope: "recommendation:shared", limits: { ...limits, maxAttemptsPerScope: 1 } };
+    const shared = {
+      effectScope: "recommendation:shared",
+      limits: { ...limits, maxAttemptsPerScope: 1 },
+    };
     const results = await Promise.allSettled([
       ranker(adapter).rank(rankingInput(ids, shared)),
       ranker(adapter).rank(rankingInput(ids, shared)),
@@ -504,7 +526,10 @@ describe("delegated paid path (scripted adapter)", () => {
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     const failure = rejected[0] as PromiseRejectedResult;
-    expect(failure.reason).toMatchObject({ name: "DelegatedCallError", code: "AI_BUDGET_EXCEEDED" });
+    expect(failure.reason).toMatchObject({
+      name: "DelegatedCallError",
+      code: "AI_BUDGET_EXCEEDED",
+    });
   }, 60_000);
 
   it("ranks a hotel context through the generic delegated offer ranker", async () => {
@@ -512,42 +537,61 @@ describe("delegated paid path (scripted adapter)", () => {
     // (recommendation role, hotel target) with identical governance.
     const ids = await seedPaidTask();
     const hotels = [
-      { offerId: "hotel-a", partyTotalMinor: 20_000, level: "standard" as const, centerDistanceKm: 1.2 },
-      { offerId: "hotel-b", partyTotalMinor: 24_000, level: "standard" as const, centerDistanceKm: 0.4 },
+      {
+        offerId: "hotel-a",
+        partyTotalMinor: 20_000,
+        level: "standard" as const,
+        centerDistanceKm: 1.2,
+      },
+      {
+        offerId: "hotel-b",
+        partyTotalMinor: 24_000,
+        level: "standard" as const,
+        centerDistanceKm: 0.4,
+      },
     ];
-    const result = await rankDelegatedOffers(pool, testServerConfig(), {
-      paidAdapter: scriptedAdapter({
-        rankedOfferIds: ["hotel-b", "hotel-a"],
-        reasons: [{ offerId: "hotel-b", explanation: "closer to the centre" }],
-        tradeoffs: [],
-      }),
-      paidProfile: profile,
-    }, {
-      authority: {
-        kind: "delegation",
-        delegationId: ids.delegationId,
-        agentIdentity: "flight-agent",
-        skillId: "accommodation.recommend.v1",
-        taskId: ids.taskId,
-        traceId: `trace-${ids.taskId}`,
+    const result = await rankDelegatedOffers(
+      pool,
+      testServerConfig(),
+      {
+        paidAdapter: scriptedAdapter({
+          rankedOfferIds: ["hotel-b", "hotel-a"],
+          reasons: [{ offerId: "hotel-b", explanation: "closer to the centre" }],
+          tradeoffs: [],
+        }),
+        paidProfile: profile,
       },
-      effectScope: "recommendation:hotel",
-      limits,
-      rolePrompt: { promptVersion: "recommendation-v1", systemPrompt: "rank the hotels" },
-      context: {
-        role: "recommendation",
-        tradeoff: "closest to the centre first, then price",
-        target: "hotel",
-        baselineOfferId: null,
-        candidates: hotels,
+      {
+        authority: {
+          kind: "delegation",
+          delegationId: ids.delegationId,
+          agentIdentity: "flight-agent",
+          skillId: "accommodation.recommend.v1",
+          taskId: ids.taskId,
+          traceId: `trace-${ids.taskId}`,
+        },
+        effectScope: "recommendation:hotel",
+        limits,
+        rolePrompt: { promptVersion: "recommendation-v1", systemPrompt: "rank the hotels" },
+        context: {
+          role: "recommendation",
+          tradeoff: "closest to the centre first, then price",
+          target: "hotel",
+          baselineOfferId: null,
+          candidates: hotels,
+        },
+        allowedIds: hotels.map((hotel) => hotel.offerId),
+        deterministicOrder: ["hotel-a", "hotel-b"],
       },
-      allowedIds: hotels.map((hotel) => hotel.offerId),
-      deterministicOrder: ["hotel-a", "hotel-b"],
-    });
+    );
     expect(result.mode).toBe("openrouter");
     expect(result.fallbackUsed).toBe(false);
     expect(result.rankedOfferIds).toEqual(["hotel-b", "hotel-a"]);
-    const call = await pool.query<{ status: string; validation_status: string; prompt_version: string }>(
+    const call = await pool.query<{
+      status: string;
+      validation_status: string;
+      prompt_version: string;
+    }>(
       `SELECT status, validation_status, prompt_version FROM odft_app.llm_calls WHERE delegation_id = $1`,
       [ids.delegationId],
     );
@@ -558,13 +602,14 @@ describe("delegated paid path (scripted adapter)", () => {
 
   it("propagates the governance code of a revoked delegation verbatim", async () => {
     const ids = await seedPaidTask();
-    await pool.query(`UPDATE odft_app.agent_delegations SET status = 'revoked', revoked_at = now() WHERE id = $1`, [
-      ids.delegationId,
-    ]);
+    await pool.query(
+      `UPDATE odft_app.agent_delegations SET status = 'revoked', revoked_at = now() WHERE id = $1`,
+      [ids.delegationId],
+    );
     await expect(
-      ranker(scriptedAdapter({ rankedOfferIds: ["combo-a", "combo-b"], reasons: [], tradeoffs: [] })).rank(
-        rankingInput(ids),
-      ),
+      ranker(
+        scriptedAdapter({ rankedOfferIds: ["combo-a", "combo-b"], reasons: [], tradeoffs: [] }),
+      ).rank(rankingInput(ids)),
     ).rejects.toMatchObject({ name: "DelegatedCallError", code: "DELEGATION_REVOKED" });
   }, 60_000);
 });

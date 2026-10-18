@@ -16,8 +16,6 @@ import {
   routingRefs,
 } from "../../packages/workflow/src/routing/invalidation-matrix.js";
 import { projectSafeEvent } from "../../packages/persistence/src/events.js";
-import { TRAVEL_GRAPH_DEFINITION, TRAVEL_GRAPH_EDGE_GROUPS } from "../../packages/workflow/src/travel/graph-definition.js";
-import { graphDefinitionSchema } from "@odft/contracts";
 
 /**
  * Phase 11 invalidation matrix (03-langgraph-design.md section 10) and the safe
@@ -71,14 +69,13 @@ describe("invalidation matrix (Phase 11)", () => {
 
   it("refreshes only attractions for interests and numeric requirements", () => {
     expect(researchDomainsForChange({ kind: "interests" }, refs)).toEqual(["attractions"]);
-    expect(researchDomainsForChange({ kind: "activity_requirement" }, refs)).toEqual(["attractions"]);
+    expect(researchDomainsForChange({ kind: "activity_requirement" }, refs)).toEqual([
+      "attractions",
+    ]);
   });
 
   it("keeps a cheaper hotel search in the bound category and preserves bookings", () => {
-    const resolution = resolveInvalidation(
-      { kind: "search_alternatives", target: "hotel" },
-      refs,
-    );
+    const resolution = resolveInvalidation({ kind: "search_alternatives", target: "hotel" }, refs);
     expect(resolution.affectedDomains).toEqual(["hotel"]);
     expect(resolution.nextDecisionKind).toBe("hotel_choice");
     expect(resolution.requiresConfirmation).toBe(false);
@@ -300,23 +297,6 @@ describe("command routing (Phase 11)", () => {
   });
 });
 
-describe("graph definition registry (Phase 11)", () => {
-  it("is a schema-valid definition whose edges reference known nodes", () => {
-    const parsed = graphDefinitionSchema.parse(TRAVEL_GRAPH_DEFINITION);
-    const known = new Set([...parsed.nodes.map((node) => node.id), "__start__", "__end__"]);
-    for (const edge of parsed.edges) {
-      expect(known.has(edge.from)).toBe(true);
-      expect(known.has(edge.to)).toBe(true);
-    }
-    expect(parsed.graphVersion).toBe("travel-graph-v7");
-  });
-
-  it("declares exactly one edge group per routing node", () => {
-    const groupIds = TRAVEL_GRAPH_EDGE_GROUPS.map((group) => group.from);
-    expect(new Set(groupIds).size).toBe(groupIds.length);
-  });
-});
-
 describe("safe event projection (Phase 11)", () => {
   it("keeps only allowlisted fields and never leaks unknown payload shapes", () => {
     const projected = projectSafeEvent("research.domain_finished", {
@@ -329,11 +309,11 @@ describe("safe event projection (Phase 11)", () => {
     });
     expect(projected).toEqual({ domain: "hotel", status: "ok", fingerprint: "a".repeat(64) });
     expect(projectSafeEvent("unknown.future.type", { anything: "value" })).toEqual({});
-    expect(projectSafeEvent("node.updated", { node: "apply_commands", payload: { secret: 1 } })).toEqual(
-      { node: "apply_commands" },
-    );
-    expect(projectSafeEvent("operation.failed", { code: "RETRYABLE_FAILURE", error: "boom" })).toEqual(
-      { code: "RETRYABLE_FAILURE" },
-    );
+    expect(
+      projectSafeEvent("node.updated", { node: "apply_commands", payload: { secret: 1 } }),
+    ).toEqual({ node: "apply_commands" });
+    expect(
+      projectSafeEvent("operation.failed", { code: "RETRYABLE_FAILURE", error: "boom" }),
+    ).toEqual({ code: "RETRYABLE_FAILURE" });
   });
 });

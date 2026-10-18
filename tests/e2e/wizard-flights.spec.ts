@@ -1,6 +1,5 @@
-import type { ChildProcess } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
-import { startWorker, stopWorker, resetRateLimits } from "./_worker.js";
+import { startWorker, stopWorker, resetRateLimits, type E2eServices } from "./_worker.js";
 
 /**
  * AC-06-1/2/5/9: the full wizard — no trip before a city, worker-driven flights,
@@ -18,11 +17,11 @@ const CONFIRMATION_DISCLAIMER =
 const ORIGIN = process.env.PUBLIC_BASE_URL ?? "http://localhost:3000";
 test.use({ baseURL: ORIGIN });
 
-let worker: ChildProcess | undefined;
+let worker: E2eServices | undefined;
 
 test.beforeAll(async () => {
   await resetRateLimits();
-  worker = startWorker();
+  worker = await startWorker();
 });
 
 test.afterAll(async () => {

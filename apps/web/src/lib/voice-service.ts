@@ -318,10 +318,11 @@ export function createVoiceService(deps: VoiceServiceDeps): VoiceService {
     if (!trip || trip.sessionId !== sessionId) {
       return failure("NOT_FOUND", "trip not found");
     }
-    // Phase 09 history: archived trips are read-only — voice ledger and
-    // conversation writes are denied exactly like every other trip mutation.
-    if (trip.archivedAt) {
-      return failure("TRIP_ARCHIVED", "archived trips are read-only history");
+    // Phase 09/11 history: archived or legacy trips are read-only — voice
+    // ledger and conversation writes are denied exactly like every other trip
+    // mutation.
+    if (trip.archivedAt || trip.engine === "langgraph") {
+      return failure("TRIP_ARCHIVED", "archived or legacy trips are read-only history");
     }
     return { ok: true, value: true };
   }

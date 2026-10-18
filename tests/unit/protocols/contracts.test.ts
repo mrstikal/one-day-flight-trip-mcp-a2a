@@ -102,7 +102,9 @@ describe("agent artifact contracts", () => {
       requestHash: fingerprint("c"),
     };
     expect(agentInputRequestSchema.parse(request).options).toHaveLength(2);
-    expect(() => agentInputRequestSchema.parse({ ...request, options: [{ id: "a", label: "A" }] })).toThrow();
+    expect(() =>
+      agentInputRequestSchema.parse({ ...request, options: [{ id: "a", label: "A" }] }),
+    ).toThrow();
   });
 
   it("enumerates exactly the ten safe failure categories", () => {
@@ -151,7 +153,12 @@ describe("agent artifact contracts", () => {
       searchObjective: "preserve_level",
       queryContext: {},
       deadlineAt: new Date().toISOString(),
-      limits: { activeTimeMs: 60_000, mcpInvocations: 4, llmTransportAttempts: 2, maxTaskCostUsd: 1 },
+      limits: {
+        activeTimeMs: 60_000,
+        mcpInvocations: 4,
+        llmTransportAttempts: 2,
+        maxTaskCostUsd: 1,
+      },
       preferences: {
         travelVariant: "one_night",
         defaultServiceLevel: "standard",
@@ -212,9 +219,7 @@ describe("coordinator contracts", () => {
       payloadHash: fingerprint("b"),
       status: "pending" as const,
     };
-    expect(() =>
-      pendingDecisionSchema.parse({ ...base, engine: "langgraph" }),
-    ).toThrow(/threadId/);
+    expect(() => pendingDecisionSchema.parse({ ...base, engine: "langgraph" })).toThrow(/threadId/);
     expect(
       pendingDecisionSchema.parse({
         ...base,
@@ -241,7 +246,7 @@ describe("coordinator contracts", () => {
     ).toBe("22222222-2222-4222-8222-222222222222");
   });
 
-  it("defaults the engine to the legacy graph on trips and operations", () => {
+  it("defaults the engine to the coordinator on new trips and operations", () => {
     const trip = tripSummarySchema.parse({
       id: "11111111-1111-4111-8111-111111111111",
       sessionId: "22222222-2222-4222-8222-222222222222",
@@ -266,7 +271,7 @@ describe("coordinator contracts", () => {
       recoveryRequired: false,
       recoveryOperationId: null,
     });
-    expect(trip.engine).toBe("langgraph");
+    expect(trip.engine).toBe("coordinator-v1");
     const operation = operationRecordSchema.parse({
       id: "33333333-3333-4333-8333-333333333333",
       tripId: "11111111-1111-4111-8111-111111111111",
@@ -276,7 +281,7 @@ describe("coordinator contracts", () => {
       status: "queued",
       attempts: 0,
     });
-    expect(operation.engine).toBe("langgraph");
+    expect(operation.engine).toBe("coordinator-v1");
   });
 });
 
@@ -294,7 +299,13 @@ describe("protocol observation contract", () => {
         contextId: "ctx-1",
         traceId: null,
       },
-      payload: { detail: null, failureCategory: null, durationMs: 42, status: "completed", counters: {} },
+      payload: {
+        detail: null,
+        failureCategory: null,
+        durationMs: 42,
+        status: "completed",
+        counters: {},
+      },
       occurredAt: new Date().toISOString(),
       payloadHash: fingerprint("a"),
     };

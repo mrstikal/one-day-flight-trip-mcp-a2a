@@ -31,7 +31,6 @@ export function createTestPool(max = 8): Pool {
 
 export async function resetProtocolDatabase(pool: Pool): Promise<void> {
   await pool.query("DROP SCHEMA IF EXISTS odft_app CASCADE");
-  await pool.query("DROP SCHEMA IF EXISTS odft_checkpoint CASCADE");
   await pool.query("DROP SCHEMA IF EXISTS odft_protocol CASCADE");
   await runMigrations(pool);
   await loadReferenceData(pool);

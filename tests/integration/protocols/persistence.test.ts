@@ -74,7 +74,12 @@ function fixtureMessage(messageId: string = randomUUID(), text = "echo"): Messag
     taskId: "",
     role: Role.ROLE_USER,
     parts: [
-      { content: { $case: "text", value: text }, mediaType: "text/plain", filename: "", metadata: {} },
+      {
+        content: { $case: "text", value: text },
+        mediaType: "text/plain",
+        filename: "",
+        metadata: {},
+      },
     ],
     metadata: undefined,
     extensions: [],
@@ -204,7 +209,14 @@ describe("durable inbound admission", () => {
         ...stored,
         status: { state: 3, message: undefined, timestamp: new Date().toISOString() },
         artifacts: [
-          { artifactId: "artifact-1", name: "kept", description: "", parts: [], metadata: undefined, extensions: [] },
+          {
+            artifactId: "artifact-1",
+            name: "kept",
+            description: "",
+            parts: [],
+            metadata: undefined,
+            extensions: [],
+          },
         ],
       },
       userContext(),
@@ -319,6 +331,7 @@ describe("engine-aware decisions and coordinator runs", () => {
     const decisionId = await insertDecision(pool, {
       tripId,
       kind: "clarification",
+      engine: "langgraph",
       threadId: "thread-1",
       graphVersion: "travel-graph-v7",
       createdRevision: 0,

@@ -2,41 +2,52 @@ import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { snapshotContentSchema } from "@odft/contracts";
 import { admitOperation, admitResume, getPendingDecisionForTrip } from "@odft/persistence";
+import type { AiService } from "../../../apps/worker/src/ai/service.js";
 import {
-  approvePendingItinerary,
   claimNextOrFail,
-  createGraphTestPool,
-  createHarnessTrip,
+  createFixtureTrip,
   createTestAiService,
-  createTravelDriver,
+  createTestPool,
   createWorkerPools,
   endWorkerPools,
-  readTravelState,
-  resetGraphDatabase,
+  resetDatabase,
   type WorkerPools,
-} from "../graph/_setup.js";
+} from "../_setup.js";
+import { coordinatorDriver, driveUntilParked } from "../coordinator/_setup.js";
 
 /**
- * Shared Phase 08 integration fixture: drive a harness trip through the Phase 06/07
- * flow to a `ready` state with no pending decision, where chat commands are
- * admitted (a chat while a non-clarification decision is pending is a conflict).
+ * AI integration helpers on the coordinator runtime (Phase 11). The legacy
+ * graph helpers were replaced one-for-one so the AI behavior tests keep
+ * exercising the real admission/decision/ports path.
  */
 
 export {
-  approvePendingItinerary,
   claimNextOrFail,
-  createGraphTestPool,
-  createHarnessTrip,
+  createFixtureTrip,
   createTestAiService,
-  createTravelDriver,
+  createTestPool,
   createWorkerPools,
   endWorkerPools,
-  readTravelState,
-  resetGraphDatabase,
+  resetDatabase,
   type WorkerPools,
 };
 
-async function resolveDecision(
+export function createTravelDriver(
+  pools: WorkerPools,
+  ai?: AiService,
+): ReturnType<typeof coordinatorDriver> {
+  return coordinatorDriver(pools, ai ? { ai } : {});
+}
+
+export async function tripRevision(pool: Pool, tripId: string): Promise<number> {
+  const result = await pool.query<{ revision: number }>(
+    `SELECT revision FROM odft_app.trips WHERE id = $1`,
+    [tripId],
+  );
+  return result.rows[0]?.revision ?? 0;
+}
+
+export async function resolveDecision(
   pool: Pool,
   pools: WorkerPools,
   tripId: string,
@@ -62,52 +73,91 @@ async function resolveDecision(
   }
 }
 
-export async function tripRevision(pool: Pool, tripId: string): Promise<number> {
-  const result = await pool.query<{ revision: number }>(
-    `SELECT revision FROM odft_app.trips WHERE id = $1`,
-    [tripId],
-  );
-  return result.rows[0]?.revision ?? 0;
-}
-
-/** Drive PRG -> Rome to a confirmed flight + hotel and a submitted program. */
-export async function driveTripToReady(
+async function driveToProgramChoices(
   pool: Pool,
   pools: WorkerPools,
   tripId: string,
   sessionId: string,
 ): Promise<void> {
-  const driver = createTravelDriver(pools);
-
-  await driver.runOperation(await claimNextOrFail(pools));
-  const flightDecision = await getPendingDecisionForTrip(pools.operations, tripId);
+  const flightPark = await driveUntilParked(pools, tripId);
+  if (flightPark?.waitReason !== "flight_choice") {
+    throw new Error(`expected flight_choice, got ${String(flightPark?.waitReason)}`);
+  }
+  const flight = await getPendingDecisionForTrip(pools.operations, tripId);
   await resolveDecision(pool, pools, tripId, sessionId, {
     action: "choose_offer",
-    offerId: flightDecision?.allowedOfferIds[0] as string,
+    offerId: flight?.allowedOfferIds[0] as string,
   });
-  await driver.runOperation(await claimNextOrFail(pools));
+
+  const bookingPark = await driveUntilParked(pools, tripId);
+  if (bookingPark?.waitReason !== "booking_confirmation") {
+    throw new Error(`expected booking_confirmation, got ${String(bookingPark?.waitReason)}`);
+  }
   const flightConfirmation = await getPendingDecisionForTrip(pools.operations, tripId);
   await resolveDecision(pool, pools, tripId, sessionId, {
     action: "confirm_booking",
     proposalId: flightConfirmation?.proposalId as string,
     acceptedDemoDisclaimer: true,
   });
-  await driver.runOperation(await claimNextOrFail(pools));
 
-  const hotelDecision = await getPendingDecisionForTrip(pools.operations, tripId);
+  const hotelPark = await driveUntilParked(pools, tripId, 8);
+  if (hotelPark?.waitReason !== "hotel_choice") {
+    throw new Error(`expected hotel_choice, got ${String(hotelPark?.waitReason)}`);
+  }
+  const hotel = await getPendingDecisionForTrip(pools.operations, tripId);
   await resolveDecision(pool, pools, tripId, sessionId, {
     action: "choose_offer",
-    offerId: hotelDecision?.allowedOfferIds[0] as string,
+    offerId: hotel?.allowedOfferIds[0] as string,
   });
-  await driver.runOperation(await claimNextOrFail(pools));
+
+  const hotelBookingPark = await driveUntilParked(pools, tripId);
+  if (hotelBookingPark?.waitReason !== "booking_confirmation") {
+    throw new Error(
+      `expected hotel booking_confirmation, got ${String(hotelBookingPark?.waitReason)}`,
+    );
+  }
   const hotelConfirmation = await getPendingDecisionForTrip(pools.operations, tripId);
   await resolveDecision(pool, pools, tripId, sessionId, {
     action: "confirm_booking",
     proposalId: hotelConfirmation?.proposalId as string,
     acceptedDemoDisclaimer: true,
   });
-  await driver.runOperation(await claimNextOrFail(pools));
 
+  const programPark = await driveUntilParked(pools, tripId);
+  if (programPark?.waitReason !== "program_choices") {
+    throw new Error(`expected program_choices, got ${String(programPark?.waitReason)}`);
+  }
+}
+
+/** Drive PRG -> Rome to a confirmed flight + hotel and an approved itinerary. */
+export async function driveTripToReady(
+  pool: Pool,
+  pools: WorkerPools,
+  tripId: string,
+  sessionId: string,
+): Promise<void> {
+  await driveToProgramChoices(pool, pools, tripId, sessionId);
+  await submitProgram(pool, pools, tripId, sessionId);
+  const approvalPark = await driveUntilParked(pools, tripId, 12);
+  if (approvalPark?.waitReason !== "itinerary_approval") {
+    throw new Error(`expected itinerary_approval, got ${String(approvalPark?.waitReason)}`);
+  }
+  await approvePendingItinerary(pool, pools, tripId, sessionId);
+  const trip = await pool.query<{ workflow_status: string }>(
+    `SELECT workflow_status FROM odft_app.trips WHERE id = $1`,
+    [tripId],
+  );
+  if (trip.rows[0]?.workflow_status !== "ready") {
+    throw new Error(`expected ready, got ${String(trip.rows[0]?.workflow_status)}`);
+  }
+}
+
+async function submitProgram(
+  pool: Pool,
+  pools: WorkerPools,
+  tripId: string,
+  sessionId: string,
+): Promise<void> {
   const program = await getPendingDecisionForTrip(pools.operations, tripId);
   if (program?.kind !== "program_choices") {
     throw new Error(`expected program_choices, got ${String(program?.kind)}`);
@@ -131,20 +181,40 @@ export async function driveTripToReady(
     },
     preferredActivityIds: (program.allowedOptionIds ?? []).slice(0, 2),
   });
-  await driver.runOperation(await claimNextOrFail(pools));
-
-  // Phase 10: a valid program continues into itinerary planning; approve the
-  // resulting draft so the trip reaches a decision-free `ready` state.
-  await approvePendingItinerary(pool, pools, tripId, sessionId);
-
-  const state = await readTravelState(pools, tripId);
-  if (state.values.gate !== "approved") {
-    throw new Error(`expected approved, got ${String(state.values.gate)}`);
-  }
 }
 
-/** Admit one chat message at the trip's current revision and run it. Mirrors the
- * BFF: the user message is stored on admission, linked to the operation. */
+/** Approve the pending `itinerary_approval` decision and drive to `ready`. */
+export async function approvePendingItinerary(
+  pool: Pool,
+  pools: WorkerPools,
+  tripId: string,
+  sessionId: string,
+): Promise<void> {
+  const decision = await getPendingDecisionForTrip(pools.operations, tripId);
+  if (decision?.kind !== "itinerary_approval") {
+    throw new Error(`expected itinerary_approval, got ${String(decision?.kind)}`);
+  }
+  const itineraryId =
+    (decision.optionPayload as { itineraryId?: string } | null)?.itineraryId ??
+    (
+      await pool.query<{ id: string }>(
+        `SELECT id FROM odft_app.itineraries
+          WHERE trip_id = $1 AND status = 'draft'
+          ORDER BY created_at DESC LIMIT 1`,
+        [tripId],
+      )
+    ).rows[0]?.id;
+  if (!itineraryId) {
+    throw new Error("no itinerary draft is active for approval");
+  }
+  await resolveDecision(pool, pools, tripId, sessionId, {
+    action: "approve_itinerary",
+    itineraryId,
+  });
+  await driveUntilParked(pools, tripId, 4);
+}
+
+/** Admit one chat message at the trip's current revision and run it. */
 export async function sendChat(
   pool: Pool,
   pools: WorkerPools,
@@ -161,7 +231,6 @@ export async function sendChat(
       expectedRevision: await tripRevision(pool, tripId),
       chat: message,
     },
-    // Mirrors the BFF: the message is stored inside the admission transaction.
     userMessage: message,
   });
   if (!("status" in admitted) || admitted.status !== "accepted") {
@@ -174,10 +243,7 @@ export async function sendChat(
 
 /**
  * Re-submit the current program-choices decision so the trip returns to a
- * decision-free `ready` state (a chat while a non-clarification decision is
- * pending is a deliberate conflict). Returns the pending decision kind after
- * the run: `null` when the trip is decision-free (approval handled), otherwise
- * the clarification/recovery the caller must resolve.
+ * decision-free `ready` state. Returns the pending decision kind after the run.
  */
 export async function resolveProgramChoices(
   pool: Pool,
@@ -189,28 +255,8 @@ export async function resolveProgramChoices(
   if (decision?.kind !== "program_choices") {
     return decision?.kind ?? null;
   }
-  const snapshot = await pool.query<{ inventory: unknown }>(
-    `SELECT s.inventory FROM odft_app.scenario_snapshots s
-       JOIN odft_app.trips t ON t.active_scenario_snapshot_id = s.id
-      WHERE t.id = $1`,
-    [tripId],
-  );
-  const content = snapshotContentSchema.parse(snapshot.rows[0]?.inventory);
-  const offered = new Set(decision.allowedOfferIds);
-  const offeredByMeal = (meal: string): string =>
-    content.restaurants.find((offer) => offer.meal === meal && offered.has(offer.id))?.id ?? "";
-  await resolveDecision(pool, pools, tripId, sessionId, {
-    action: "submit_program",
-    mealOfferIds: {
-      breakfast: offeredByMeal("breakfast"),
-      lunch: offeredByMeal("lunch"),
-      dinner: offeredByMeal("dinner"),
-    },
-    preferredActivityIds: (decision.allowedOptionIds ?? []).slice(0, 2),
-  });
-  await createTravelDriver(pools).runOperation(await claimNextOrFail(pools));
-  // Phase 10: re-submitting the program rebuilds the itinerary draft; approve it
-  // so the caller returns to a decision-free ready state.
+  await submitProgram(pool, pools, tripId, sessionId);
+  await driveUntilParked(pools, tripId, 12);
   const next = await getPendingDecisionForTrip(pools.operations, tripId);
   if (next?.kind === "itinerary_approval") {
     await approvePendingItinerary(pool, pools, tripId, sessionId);

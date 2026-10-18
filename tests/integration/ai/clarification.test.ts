@@ -1,21 +1,22 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { tripPreferencesSchema } from "@odft/contracts";
 import { admitOperation, admitResume, getPendingDecisionForTrip } from "@odft/persistence";
 import {
-  createGraphTestPool,
-  createHarnessTrip,
+  createFixtureTrip,
   createTravelDriver,
-  createWorkerPools,
   driveTripToReady,
-  endWorkerPools,
-  resetGraphDatabase,
   sendChat,
   tripRevision,
   type WorkerPools,
 } from "./_setup.js";
-import { claimNextOrFail } from "../graph/_setup.js";
+import {
+  startCoordinatorHarness,
+  stopCoordinatorHarness,
+  type CoordinatorHarness,
+} from "../coordinator/_setup.js";
+import { claimNextOrFail } from "../_setup.js";
 
 /**
  * AC-08-2 / clarification binding: a chosen option applies exactly its stored
@@ -26,19 +27,16 @@ import { claimNextOrFail } from "../graph/_setup.js";
 describe("clarification binding (real PostgreSQL)", () => {
   let pool: Pool;
   let pools: WorkerPools;
+  let harness: CoordinatorHarness;
 
   beforeAll(async () => {
-    pool = createGraphTestPool();
-    pools = createWorkerPools();
-  });
-
-  beforeEach(async () => {
-    await resetGraphDatabase(pool);
-  });
+    harness = await startCoordinatorHarness();
+    pool = harness.pool;
+    pools = harness.pools;
+  }, 180_000);
 
   afterAll(async () => {
-    await endWorkerPools(pools);
-    await pool.end();
+    await stopCoordinatorHarness(harness);
   });
 
   async function preferences(tripId: string) {
@@ -50,7 +48,7 @@ describe("clarification binding (real PostgreSQL)", () => {
   }
 
   it("applies exactly the chosen option's stored commands", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await driveTripToReady(pool, pools, tripId, sessionId);
 
     await sendChat(pool, pools, tripId, sessionId, "A relaxed day with six museums");
@@ -92,7 +90,7 @@ describe("clarification binding (real PostgreSQL)", () => {
   }, 90_000);
 
   it("routes a free-text follow-up through the internal modify branch", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await driveTripToReady(pool, pools, tripId, sessionId);
 
     await sendChat(pool, pools, tripId, sessionId, "A relaxed day with six museums");

@@ -59,11 +59,7 @@ export interface CoordinatorDelegationTransport {
    * outbox reconciler). The task may have completed already; a transport error
    * persists as `failed` inspector evidence, never a reconciler crash.
    */
-  cancelTask(input: {
-    agentIdentity: string;
-    delegationId: string;
-    taskId: string;
-  }): Promise<void>;
+  cancelTask(input: { agentIdentity: string; delegationId: string; taskId: string }): Promise<void>;
 }
 
 export interface CreateOutboundDelegationInput {
@@ -83,6 +79,8 @@ export interface CreateOutboundDelegationInput {
   /** Task request WITHOUT the delegation id (assigned after insert). */
   readonly taskData: Record<string, unknown>;
   readonly deadlineAt: string;
+  /** Phase 09/11: 1 for the first attempt, 2 for the bounded retry. */
+  readonly attempt?: number;
 }
 
 export interface OutboundDelegation {
@@ -116,6 +114,7 @@ export async function createOutboundDelegation(
       objective: input.objective ?? null,
       levelOverride: (input.levelOverride ?? null) as never,
     },
+    ...(input.attempt !== undefined ? { attempt: input.attempt } : {}),
   });
   // The message the specialist receives names the delegation it must bind.
   const taskData = { ...input.taskData, delegationId: delegation.id };
@@ -143,7 +142,12 @@ export async function deliverDelegation(
     taskId?: string;
     contextId?: string;
   },
-): Promise<{ taskId: string | null; contextId: string | null; delivered: boolean; reason: string | null }> {
+): Promise<{
+  taskId: string | null;
+  contextId: string | null;
+  delivered: boolean;
+  reason: string | null;
+}> {
   // A continuation carries its own persisted message identity; the first
   // delivery reuses the oldest persisted outbound intent.
   const continuation = input.taskId !== undefined;
@@ -154,7 +158,12 @@ export async function deliverDelegation(
     ? await latestOutboundMessageId(pool, input.delegationId)
     : outbound?.messageId;
   if (!messageId) {
-    return { taskId: null, contextId: null, delivered: false, reason: "no persisted outbound intent" };
+    return {
+      taskId: null,
+      contextId: null,
+      delivered: false,
+      reason: "no persisted outbound intent",
+    };
   }
   try {
     const sent = await transport.sendTask({
@@ -204,7 +213,11 @@ export async function loadDelegationDelivery(
   return {
     delegation,
     outbound: outbound
-      ? { payload: outbound.payload, payloadHash: outbound.payloadHash, state: outbound.deliveryState }
+      ? {
+          payload: outbound.payload,
+          payloadHash: outbound.payloadHash,
+          state: outbound.deliveryState,
+        }
       : undefined,
   };
 }
@@ -298,7 +311,12 @@ export function buildFlightTaskRequest(input: {
     searchObjective: "preserve_level",
     queryContext: {},
     deadlineAt: new Date(Date.now() + 300_000).toISOString(),
-    limits: { activeTimeMs: 60_000, mcpInvocations: 4, llmTransportAttempts: 2, maxTaskCostUsd: 0.1 },
+    limits: {
+      activeTimeMs: 60_000,
+      mcpInvocations: 4,
+      llmTransportAttempts: 2,
+      maxTaskCostUsd: 0.1,
+    },
     preferences: input.preferences,
     continuation: null,
   });
@@ -309,7 +327,10 @@ export function newTraceId(): string {
 }
 
 /** Newest persisted outbound message id of one delegation (continuation path). */
-async function latestOutboundMessageId(pool: Pool, delegationId: string): Promise<string | undefined> {
+async function latestOutboundMessageId(
+  pool: Pool,
+  delegationId: string,
+): Promise<string | undefined> {
   const result = await pool.query<{ message_id: string }>(
     `SELECT message_id FROM odft_app.protocol_outbound_messages
       WHERE delegation_id = $1 ORDER BY created_at DESC LIMIT 1`,
@@ -341,7 +362,9 @@ export async function insertContinuationOutbound(
 async function getOutboundMessageForDelegation(
   pool: Pool,
   delegationId: string,
-): Promise<{ messageId: string; payload: unknown; payloadHash: string; deliveryState: string } | undefined> {
+): Promise<
+  { messageId: string; payload: unknown; payloadHash: string; deliveryState: string } | undefined
+> {
   const result = await pool.query<{
     message_id: string;
     payload: unknown;

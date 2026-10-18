@@ -11,13 +11,6 @@ export type { CreatePoolOptions } from "./pool.js";
 export { listMigrationVersions, MIGRATION_VERSIONS, runMigrations } from "./migrate.js";
 export type { MigrationResult } from "./migrate.js";
 
-export {
-  CHECKPOINT_SCHEMA,
-  CHECKPOINT_TABLES,
-  setupCheckpointer,
-  verifyCheckpointerSetup,
-} from "./checkpointer-setup.js";
-
 export { createWorkerIdentity, writeWorkerHeartbeat } from "./heartbeat.js";
 export type { WorkerIdentity } from "./heartbeat.js";
 
@@ -136,9 +129,7 @@ export { completeOperation, releaseClaim, renewLease } from "./operations/lease.
 export type { CompleteOperationInput } from "./operations/lease.js";
 
 export {
-  acquireCheckpointGate,
   assertFencingCurrent,
-  checkpointGateKey,
   isFencingCurrent,
   lockOperationFence,
   readOperationOwnership,
@@ -154,7 +145,7 @@ export type {
   RetryOperationResult,
 } from "./operations/control.js";
 
-export { GRAPH_VERSION, admitOperation, admitResume, createTrip, withEffect } from "./admission.js";
+export { admitOperation, admitResume, createTrip, withEffect } from "./admission.js";
 export type {
   AdmitOperationOptions,
   AdmitOperationResult,

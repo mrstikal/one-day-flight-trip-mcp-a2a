@@ -5,7 +5,6 @@ import { contentHash } from "../hash.js";
 import { insertEvent } from "../events.js";
 import { getActiveOperation } from "../operations.js";
 import { lockTrip } from "../trips.js";
-import { acquireCheckpointGate } from "./fencing.js";
 import { getActiveCoordinatorRun, updateCoordinatorRun } from "../coordinator-runs.js";
 import { requestDelegationCancellation, revokeDelegation } from "../agent-delegations.js";
 import { requestTaskCancellation } from "../protocol-tasks.js";
@@ -75,17 +74,21 @@ export async function retryOperation(
     if (preExisting.rows[0]) {
       // Ownership is validated even on the dedupe path: another session must not
       // learn a foreign operation id or revision from a replayed control key.
-      const owner = await client.query<{ session_id: string; archived_at: string | null }>(
-        `SELECT session_id, archived_at::text AS archived_at FROM odft_app.trips WHERE id = $1`,
+      const owner = await client.query<{
+        session_id: string;
+        engine: string;
+        archived_at: string | null;
+      }>(
+        `SELECT session_id, engine, archived_at::text AS archived_at FROM odft_app.trips WHERE id = $1`,
         [tripId],
       );
       if (!owner.rows[0] || owner.rows[0].session_id !== sessionId) {
         await client.query("ROLLBACK");
         return error("NOT_FOUND", "trip not found");
       }
-      if (owner.rows[0].archived_at) {
+      if (owner.rows[0].archived_at || owner.rows[0].engine === "langgraph") {
         await client.query("ROLLBACK");
-        return error("TRIP_ARCHIVED", "archived trips are read-only history");
+        return error("TRIP_ARCHIVED", "archived or legacy trips are read-only history");
       }
       const stored = storedRetryResult(preExisting.rows[0], payloadHash);
       await client.query("COMMIT");
@@ -98,9 +101,9 @@ export async function retryOperation(
       return error("NOT_FOUND", "trip not found");
     }
     // Phase 09 history: archived trips are read-only.
-    if (trip.archivedAt) {
+    if (trip.archivedAt || trip.engine === "langgraph") {
       await client.query("ROLLBACK");
-      return error("TRIP_ARCHIVED", "archived trips are read-only history");
+      return error("TRIP_ARCHIVED", "archived or legacy trips are read-only history");
     }
     if (trip.revision !== expectedRevision) {
       await client.query("ROLLBACK");
@@ -278,8 +281,8 @@ function storedCancelResult(
  * delegation): the control request is deduplicated, the operation is marked
  * `cancelled` under its exact fencing token, owned pending/queued questions are
  * cancelled, active delegations are revoked with a durable remote-cancel
- * intent, and the fencing token rotates under the checkpoint gate so late
- * artifacts and lease recovery can never resurrect the cancelled authority.
+ * intent, and the fencing token rotates so late artifacts and lease recovery
+ * can never resurrect the cancelled authority.
  * Reservations and committed domain changes are preserved: cancellation is not
  * a booking rollback. SDK task cancellation happens after commit (the durable
  * reconciler retries pending intents independently of the cancelled claim).
@@ -305,8 +308,12 @@ export async function cancelOperation(
     if (preExisting.rows[0]) {
       // Ownership is validated even on the dedupe path: another session must not
       // learn a foreign operation id or revision from a replayed control key.
-      const owner = await client.query<{ session_id: string; archived_at: string | null }>(
-        `SELECT session_id, archived_at::text AS archived_at FROM odft_app.trips WHERE id = $1`,
+      const owner = await client.query<{
+        session_id: string;
+        engine: string;
+        archived_at: string | null;
+      }>(
+        `SELECT session_id, engine, archived_at::text AS archived_at FROM odft_app.trips WHERE id = $1`,
         [tripId],
       );
       if (!owner.rows[0] || owner.rows[0].session_id !== sessionId) {
@@ -314,9 +321,9 @@ export async function cancelOperation(
         return error("NOT_FOUND", "trip not found");
       }
       // Phase 09 history: an archived trip replays nothing as accepted.
-      if (owner.rows[0].archived_at) {
+      if (owner.rows[0].archived_at || owner.rows[0].engine === "langgraph") {
         await client.query("ROLLBACK");
-        return error("TRIP_ARCHIVED", "archived trips are read-only history");
+        return error("TRIP_ARCHIVED", "archived or legacy trips are read-only history");
       }
       const stored = storedCancelResult(preExisting.rows[0], payloadHash);
       await client.query("COMMIT");
@@ -329,9 +336,9 @@ export async function cancelOperation(
       await client.query("ROLLBACK");
       return error("NOT_FOUND", "trip not found");
     }
-    if (trip.archivedAt) {
+    if (trip.archivedAt || trip.engine === "langgraph") {
       await client.query("ROLLBACK");
-      return error("TRIP_ARCHIVED", "archived trips are read-only history");
+      return error("TRIP_ARCHIVED", "archived or legacy trips are read-only history");
     }
     if (trip.revision !== expectedRevision) {
       await client.query("ROLLBACK");
@@ -389,11 +396,9 @@ export async function cancelOperation(
       return error("CONFLICT", "only the newest active operation can be cancelled");
     }
 
-    // Rotate the fencing token under the checkpoint gate BEFORE committing the
-    // cancellation: an already-admitted checkpoint write finishes first, and
-    // every later stale write (including lease recovery of the old token) is
-    // rejected. Cancelled authority can never be resurrected by retry/claim.
-    await acquireCheckpointGate(client, tripId);
+    // Rotate the fencing token BEFORE committing the cancellation so every
+    // later stale write (including lease recovery of the old token) is rejected.
+    // Cancelled authority can never be resurrected by retry/claim.
     const cancelled = await client.query(
       `UPDATE odft_app.workflow_operations
           SET status = 'cancelled',

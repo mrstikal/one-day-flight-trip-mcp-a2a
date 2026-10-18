@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { resetRateLimits, startWorker, stopWorker } from "./_worker.js";
+import { resetRateLimits, startWorker, stopWorker, type E2eServices } from "./_worker.js";
 
 /**
  * Browser voice control (VOICE_CONTROLL.md section 15, T-E2E-VOICE-01..12).
@@ -39,10 +38,10 @@ test.use({
 });
 test.setTimeout(300_000);
 
-let worker: ChildProcess | undefined;
+let worker: E2eServices | undefined;
 
 test.beforeAll(async () => {
-  worker = startWorker();
+  worker = await startWorker();
 });
 
 // Trip creation (and the voice routes) are rate limited per session/IP; this

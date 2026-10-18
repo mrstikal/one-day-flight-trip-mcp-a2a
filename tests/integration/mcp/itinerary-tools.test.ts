@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { McpClient } from "@odft/protocols";
 import { tripPreferencesSchema } from "@odft/contracts";
-import { endWorkerPools, type WorkerPools } from "../graph/_setup.js";
+import { endWorkerPools, type WorkerPools } from "../_setup.js";
 import {
   createMcpTestPool,
   createMcpTestWorkerPools,
@@ -50,7 +50,12 @@ beforeAll(async () => {
     agentIdentity: "city-guide-agent",
   });
 
-  const trip = await pool.query<{ preferences: unknown; adults: number; sightseeing_date: string; travel_variant: string }>(
+  const trip = await pool.query<{
+    preferences: unknown;
+    adults: number;
+    sightseeing_date: string;
+    travel_variant: string;
+  }>(
     `SELECT preferences, adults, sightseeing_date::text AS sightseeing_date, travel_variant
        FROM odft_app.trips WHERE id = $1`,
     [seeded.tripId],
@@ -59,10 +64,13 @@ beforeAll(async () => {
   if (!row) {
     throw new Error("seeded trip missing");
   }
-  const snapshot = await pool.query<{ inventory: { hotels: { id: string }[]; flights: { id: string }[]; restaurants: { id: string; meal: string }[] } }>(
-    `SELECT inventory FROM odft_app.scenario_snapshots WHERE id = $1`,
-    [seeded.snapshotId],
-  );
+  const snapshot = await pool.query<{
+    inventory: {
+      hotels: { id: string }[];
+      flights: { id: string }[];
+      restaurants: { id: string; meal: string }[];
+    };
+  }>(`SELECT inventory FROM odft_app.scenario_snapshots WHERE id = $1`, [seeded.snapshotId]);
   const inventory = snapshot.rows[0]?.inventory;
   if (!inventory) {
     throw new Error("seeded snapshot missing");
@@ -152,11 +160,26 @@ describe("itinerary-tools MCP tools", () => {
   it("validates a proposed day deterministically and reports findings", async () => {
     const client = new McpClient({ config: mcpConfigFor("city-guide-agent") });
     const stops = [
-      { kind: "meal", refId: context.mealSelections.breakfast, startMinute: 8 * 60, durationMinutes: 45 },
-      { kind: "meal", refId: context.mealSelections.lunch, startMinute: 13 * 60, durationMinutes: 60 },
+      {
+        kind: "meal",
+        refId: context.mealSelections.breakfast,
+        startMinute: 8 * 60,
+        durationMinutes: 45,
+      },
+      {
+        kind: "meal",
+        refId: context.mealSelections.lunch,
+        startMinute: 13 * 60,
+        durationMinutes: 60,
+      },
       { kind: "meal", refId: dinnerId, startMinute: 19 * 60, durationMinutes: 90 },
     ];
-    const first = structured<{ status: string; errors: unknown[]; metrics: unknown; costs: { totalMinor: number } }>(
+    const first = structured<{
+      status: string;
+      errors: unknown[];
+      metrics: unknown;
+      costs: { totalMinor: number };
+    }>(
       await client.callTool("odft-itinerary-tools", {
         name: "validate_itinerary",
         arguments: { delegationId, snapshotId: seeded.snapshotId, context, stops },
@@ -187,8 +210,18 @@ describe("itinerary-tools MCP tools", () => {
           snapshotId: seeded.snapshotId,
           context: tightBudgetContext,
           stops: [
-            { kind: "meal", refId: context.mealSelections.breakfast, startMinute: 8 * 60, durationMinutes: 45 },
-            { kind: "meal", refId: context.mealSelections.lunch, startMinute: 13 * 60, durationMinutes: 60 },
+            {
+              kind: "meal",
+              refId: context.mealSelections.breakfast,
+              startMinute: 8 * 60,
+              durationMinutes: 45,
+            },
+            {
+              kind: "meal",
+              refId: context.mealSelections.lunch,
+              startMinute: 13 * 60,
+              durationMinutes: 60,
+            },
             { kind: "meal", refId: dinnerId, startMinute: 19 * 60, durationMinutes: 90 },
           ],
         },
@@ -200,7 +233,11 @@ describe("itinerary-tools MCP tools", () => {
 
   it("calculates the trip cost from snapshot prices", async () => {
     const client = new McpClient({ config: mcpConfigFor("city-guide-agent") });
-    const cost = structured<{ partyTotalMinor: number; currency: string; breakdown: { totalMinor: number } }>(
+    const cost = structured<{
+      partyTotalMinor: number;
+      currency: string;
+      breakdown: { totalMinor: number };
+    }>(
       await client.callTool("odft-itinerary-tools", {
         name: "calculate_trip_cost",
         arguments: { delegationId, snapshotId: seeded.snapshotId, context },

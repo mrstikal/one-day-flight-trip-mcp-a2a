@@ -2,7 +2,6 @@ import type { Pool } from "pg";
 import {
   decisionKindSchema,
   errorCodeSchema,
-  graphDefinitionSchema,
   operationStatusSchema,
   protocolObservationSchema,
   publicInspectorFaultSchema,
@@ -182,7 +181,6 @@ export async function loadPublicInspector(
   tripId: string,
 ): Promise<PublicInspector> {
   const [
-    graphResult,
     nodeEvents,
     operationsResult,
     checkpointsResult,
@@ -194,12 +192,6 @@ export async function loadPublicInspector(
     communicationsResult,
     observationsResult,
   ] = await Promise.all([
-    client.query<{ payload: unknown }>(
-      `SELECT payload FROM odft_app.execution_events
-          WHERE trip_id = $1 AND type = 'graph.initialized'
-          ORDER BY id DESC LIMIT 1`,
-      [tripId],
-    ),
     client.query<EventRow & { operation_id: string | null }>(
       `SELECT id::text AS id, type, payload, created_at::text AS created_at, operation_id
            FROM odft_app.execution_events
@@ -367,11 +359,6 @@ export async function loadPublicInspector(
     ),
   ]);
 
-  const graphParsed = graphResult.rows[0]
-    ? graphDefinitionSchema.safeParse(graphResult.rows[0].payload)
-    : undefined;
-  const graph = graphParsed?.success ? graphParsed.data : null;
-
   const pendingDecision = activeResult.rows[0] ?? null;
   const newestOperation = operationsResult.rows[0] ?? null;
   const nodeStats = new Map<string, { occurrences: number; lastAt: string }>();
@@ -387,8 +374,7 @@ export async function loadPublicInspector(
       nodeStats.set(node, { occurrences: 1, lastAt: toIso(row.created_at) });
     }
   }
-  const nodeIds =
-    graph?.nodes.map((node) => node.id) ?? [...nodeStats.keys()].sort((a, b) => a.localeCompare(b));
+  const nodeIds = [...nodeStats.keys()].sort((a, b) => a.localeCompare(b));
   const frontier = deriveOperationFrontier(
     nodeEvents.rows.map((row) => ({
       type: row.type,
@@ -543,51 +529,53 @@ export async function loadPublicInspector(
 
   // Phase 09 communication map: one safe row per delegation. Unsafe rows
   // (unknown identities, overlong strings) are dropped, never rendered.
-  const communications: PublicInspectorCommunication[] = communicationsResult.rows.flatMap((row) => {
-    const state =
-      row.cancellation_state === "pending" ||
-      row.cancellation_state === "acknowledged" ||
-      row.cancellation_state === "failed"
-        ? row.cancellation_state
-        : null;
-    if (typeof row.agent_identity !== "string" || row.agent_identity.length === 0) {
-      return [];
-    }
-    return [
-      {
-        edge: "a2a" as const,
-        agentIdentity: row.agent_identity.slice(0, 120),
-        skillId:
-          typeof row.skill_id === "string" && row.skill_id.length > 0
-            ? row.skill_id.slice(0, 120)
-            : null,
-        delegationId: row.delegation_id,
-        taskState:
-          typeof row.task_state === "string" && row.task_state.length > 0
-            ? row.task_state.slice(0, 40)
-            : null,
-        delegationStatus:
-          typeof row.delegation_status === "string" && row.delegation_status.length > 0
-            ? row.delegation_status.slice(0, 40)
-            : null,
-        failureCategory:
-          typeof row.failure_category === "string" && row.failure_category.length > 0
-            ? row.failure_category.slice(0, 120)
-            : null,
-        durationMs:
-          typeof row.duration_ms === "number" && Number.isFinite(row.duration_ms)
-            ? Math.max(0, Math.min(Math.round(row.duration_ms), 3_600_000))
-            : null,
-        attempt:
-          typeof row.attempt === "number" && Number.isFinite(row.attempt) && row.attempt >= 1
-            ? Math.round(row.attempt)
-            : null,
-        cancellationState: state,
-        createdAt: toIso(row.created_at),
-        updatedAt: toIso(row.updated_at),
-      },
-    ];
-  });
+  const communications: PublicInspectorCommunication[] = communicationsResult.rows.flatMap(
+    (row) => {
+      const state =
+        row.cancellation_state === "pending" ||
+        row.cancellation_state === "acknowledged" ||
+        row.cancellation_state === "failed"
+          ? row.cancellation_state
+          : null;
+      if (typeof row.agent_identity !== "string" || row.agent_identity.length === 0) {
+        return [];
+      }
+      return [
+        {
+          edge: "a2a" as const,
+          agentIdentity: row.agent_identity.slice(0, 120),
+          skillId:
+            typeof row.skill_id === "string" && row.skill_id.length > 0
+              ? row.skill_id.slice(0, 120)
+              : null,
+          delegationId: row.delegation_id,
+          taskState:
+            typeof row.task_state === "string" && row.task_state.length > 0
+              ? row.task_state.slice(0, 40)
+              : null,
+          delegationStatus:
+            typeof row.delegation_status === "string" && row.delegation_status.length > 0
+              ? row.delegation_status.slice(0, 40)
+              : null,
+          failureCategory:
+            typeof row.failure_category === "string" && row.failure_category.length > 0
+              ? row.failure_category.slice(0, 120)
+              : null,
+          durationMs:
+            typeof row.duration_ms === "number" && Number.isFinite(row.duration_ms)
+              ? Math.max(0, Math.min(Math.round(row.duration_ms), 3_600_000))
+              : null,
+          attempt:
+            typeof row.attempt === "number" && Number.isFinite(row.attempt) && row.attempt >= 1
+              ? Math.round(row.attempt)
+              : null,
+          cancellationState: state,
+          createdAt: toIso(row.created_at),
+          updatedAt: toIso(row.updated_at),
+        },
+      ];
+    },
+  );
 
   // Phase 09 persisted observations: safe rows only (schema-validated). The
   // timeline keeps chronological SOURCE order (observed_at), not ingestion
@@ -694,7 +682,6 @@ export async function loadPublicInspector(
 
   const candidate = {
     scenarioMode,
-    graph,
     nodes,
     operations,
     checkpoints,
@@ -716,7 +703,6 @@ export async function loadPublicInspector(
   // the same shape with the offending collections dropped.
   return publicInspectorSchema.parse({
     scenarioMode,
-    graph,
     nodes: [],
     operations: [],
     checkpoints: [],

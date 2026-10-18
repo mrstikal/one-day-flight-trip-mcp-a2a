@@ -1,7 +1,6 @@
-import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { startWorker, stopWorker, resetRateLimits } from "./_worker.js";
+import { startWorker, stopWorker, resetRateLimits, type E2eServices } from "./_worker.js";
 
 /**
  * AC-06-3: PRG -> Ceske Budejovice is INFEASIBLE (ground travel preferred).
@@ -13,11 +12,11 @@ const ORIGIN_AIRPORT = "ourairports:4408"; // PRG
 const DESTINATION_CITY = "geonames:3077916"; // Ceske Budejovice
 const DESTINATION_COUNTRY = "CZ";
 
-let worker: ChildProcess | undefined;
+let worker: E2eServices | undefined;
 
 test.beforeAll(async () => {
   await resetRateLimits();
-  worker = startWorker();
+  worker = await startWorker();
 });
 
 test.afterAll(async () => {
@@ -47,9 +46,9 @@ test("shows the route reason and no offers for the rejected ground route", async
 
   await page.goto(`/trips/${trip.tripId}/flights`);
 
-  await expect(page.getByRole("heading", { name: "No feasible flight for this route" })).toBeVisible(
-    { timeout: 60_000 },
-  );
+  await expect(
+    page.getByRole("heading", { name: "No feasible flight for this route" }),
+  ).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText("GROUND_TRAVEL_PREFERRED").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Choose this flight" })).toHaveCount(0);
 });

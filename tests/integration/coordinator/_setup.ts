@@ -13,8 +13,8 @@ import { createA2ADelegationTransport } from "../../../apps/worker/src/coordinat
 import { createTravelPortsFactory } from "../../../apps/worker/src/travel/ports.js";
 import { createFixtureSession } from "../../fixtures/session.js";
 import { fixtureCreationInput } from "../../fixtures/trip.js";
-import { createTestAiService } from "../graph/_setup.js";
-import type { WorkerPools } from "../graph/_setup.js";
+import { createTestAiService } from "../_setup.js";
+import type { WorkerPools } from "../_setup.js";
 import {
   createMcpTestPool,
   createMcpTestWorkerPools,
@@ -75,9 +75,7 @@ export async function startCoordinatorHarness(
   await waitForFlightAgent(flightAgent);
   const accommodationAgent = startAccommodationAgent();
   await waitForAgentReady(accommodationAgent, "accommodation-agent");
-  const accommodationAltAgent = options.accommodationAlt
-    ? startAccommodationAltAgent()
-    : undefined;
+  const accommodationAltAgent = options.accommodationAlt ? startAccommodationAltAgent() : undefined;
   if (accommodationAltAgent) {
     await waitForAgentReady(accommodationAltAgent, "accommodation-agent-alt");
   }
@@ -102,7 +100,7 @@ export async function stopCoordinatorHarness(harness: CoordinatorHarness): Promi
   await stopAgent(harness.cityGuideAgent);
   await stopFlightAgent(harness.flightAgent);
   await stopMcpHost(harness.mcpHost);
-  const { endWorkerPools } = await import("../graph/_setup.js");
+  const { endWorkerPools } = await import("../_setup.js");
   await endWorkerPools(harness.pools);
   await harness.pool.end();
 }
@@ -168,9 +166,10 @@ export function coordinatorDriver(
     readonly hotelObjective?: "preserve_level" | "cheaper";
     readonly accommodationAlt?: boolean;
     readonly delegationWaitMs?: number;
+    readonly ai?: ReturnType<typeof createTestAiService>;
   } = {},
 ): OperationDriver {
-  const ai = createTestAiService(pools);
+  const ai = options.ai ?? createTestAiService(pools);
   const portsFactory = createTravelPortsFactory(pools.operations, ai);
   const transport = createA2ADelegationTransport(
     coordinatorClientConfigForTest({ accommodationAlt: options.accommodationAlt }),
@@ -241,7 +240,6 @@ export async function claimCoordinator(pools: WorkerPools): Promise<ClaimedOpera
 /** Create a coordinator-engine fixture trip and return its ids. */
 export async function createCoordinatorTrip(
   pool: Pool,
-  options: { readonly engine?: "langgraph" | "coordinator-v1" } = {},
 ): Promise<{ tripId: string; operationId: string; sessionId: string }> {
   const sessionClient = await pool.connect();
   let sessionId: string;
@@ -253,7 +251,6 @@ export async function createCoordinatorTrip(
   const created = await createTrip(pool, {
     sessionId,
     input: fixtureCreationInput(),
-    engine: options.engine ?? "coordinator-v1",
   });
   if (!("tripId" in created)) {
     throw new Error("fixture createTrip failed");
@@ -270,6 +267,7 @@ export async function driveUntilParked(
     readonly hotelObjective?: "preserve_level" | "cheaper";
     readonly accommodationAlt?: boolean;
     readonly delegationWaitMs?: number;
+    readonly ai?: ReturnType<typeof createTestAiService>;
   } = {},
 ): Promise<CoordinatorRunRecord | undefined> {
   const driver = coordinatorDriver(pools, options);

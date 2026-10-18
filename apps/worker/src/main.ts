@@ -6,24 +6,19 @@ import { runWorker } from "./worker.js";
 import { createShutdownController } from "./shutdown.js";
 
 /**
- * Dedicated Node.js graph worker entry point (Phase 05).
+ * Dedicated Node.js coordinator worker entry point (Phase 11).
  *
- * Claims durable operations, drives the graph under a trip lock and lease with
- * a fenced checkpointer, and shuts down gracefully. Exposes no public HTTP API.
- * The process does not write graph state when it is not ready (missing
- * migrations/checkpointer schema or a stale heartbeat).
+ * Claims durable operations, drives the coordinator dispatcher under a per-trip
+ * advisory lock and lease, and shuts down gracefully. Exposes no public HTTP
+ * API. The process does not claim work when it is not ready (missing
+ * migrations, no trusted agent registry, or a stale heartbeat).
  */
 
 const GRACE_MS = 30_000;
 
 function loadEnv(): void {
   const rootDir = fileURLToPath(new URL("../../../", import.meta.url));
-  const candidates = [
-    ".env.local",
-    ".env",
-    join(rootDir, ".env.local"),
-    join(rootDir, ".env"),
-  ];
+  const candidates = [".env.local", ".env", join(rootDir, ".env.local"), join(rootDir, ".env")];
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
       try {

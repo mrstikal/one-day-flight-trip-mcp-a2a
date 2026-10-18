@@ -34,14 +34,13 @@ import type {
 } from "@odft/services";
 
 /**
- * Server-side dependencies for the production travel graph, passed through the
- * non-checkpointed invocation `context`. Never persisted and never a security
- * boundary. All domain/persistence access goes through these ports so the graph
- * nodes stay orchestration-only (03-langgraph-design.md section 5).
+ * Server-side dependencies for the coordinator dispatcher. They are built per
+ * claimed operation, never persisted, and never a security boundary. All
+ * domain/persistence access goes through these ports so the coordinator stays
+ * orchestration-only (03-langgraph-design.md section 5).
  *
- * Phase 02: the port result/input shapes are the canonical service types from
- * `@odft/services` (type-only re-exports); the worker provides the production
- * implementation as a compatibility adapter over the extracted services.
+ * Phase 11: the file moved out of the removed legacy travel graph; the port
+ * shapes are still the canonical service types from `@odft/services`.
  */
 
 export type TravelTripContext = ServiceTripContext;

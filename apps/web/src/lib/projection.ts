@@ -306,10 +306,12 @@ function buildResearchState(rows: readonly ResearchEventRow[]): ResearchOutcomeS
     // Rows are newest-first, so the first finished event is the domain's latest.
     const finished = events.find((event) => event.type === "research.domain_finished");
     const startedInNewest = events.some(
-      (event) => event.operation_id === newestOperationId && event.type === "research.domain_started",
+      (event) =>
+        event.operation_id === newestOperationId && event.type === "research.domain_started",
     );
     const finishedInNewest = events.some(
-      (event) => event.operation_id === newestOperationId && event.type === "research.domain_finished",
+      (event) =>
+        event.operation_id === newestOperationId && event.type === "research.domain_finished",
     );
     if (!finished && !startedInNewest) {
       continue;
@@ -334,7 +336,10 @@ function buildResearchState(rows: readonly ResearchEventRow[]): ResearchOutcomeS
     }
     const attempt = typeof payload.attempt === "number" ? payload.attempt : 1;
     const simulatedFailure = events.some((event) => {
-      if (event.operation_id !== finished.operation_id || event.type !== "research.domain_finished") {
+      if (
+        event.operation_id !== finished.operation_id ||
+        event.type !== "research.domain_finished"
+      ) {
         return false;
       }
       return ((event.payload ?? {}) as Record<string, unknown>).simulatedFailure === true;
@@ -447,7 +452,7 @@ export async function buildTripProjection(
     workflowStatus: workflowStatusSchema.parse(row.workflow_status),
     recoveryRequired: row.recovery_required,
     recoveryOperationId: row.last_unfinished_operation_id,
-    engine: engineSchema.parse(row.engine ?? "langgraph"),
+    engine: engineSchema.parse(row.engine ?? "coordinator-v1"),
     archivedAt: row.archived_at,
     archiveReason: row.archive_reason,
   };
@@ -760,7 +765,9 @@ export async function buildTripProjection(
       (artifact) =>
         artifact.service_key === serviceKey && artifact.input_fingerprint === fingerprint,
     );
-    return row ? { rankedOfferIds: parseRankedIds(row.ranked_offers), explanation: row.explanation } : undefined;
+    return row
+      ? { rankedOfferIds: parseRankedIds(row.ranked_offers), explanation: row.explanation }
+      : undefined;
   };
   /**
    * Offers of one domain: pre-research keeps the legacy snapshot order, `ok`
@@ -839,21 +846,24 @@ export async function buildTripProjection(
         "breakfast",
         "breakfast",
         content.restaurants.filter((offer) => offer.meal === "breakfast"),
-        (offer) => offer.level === serviceLevels.breakfast.level && content.context.adults === trip.adults,
+        (offer) =>
+          offer.level === serviceLevels.breakfast.level && content.context.adults === trip.adults,
         toPublicMeal,
       ).concat(
         domainOffers(
           "lunch",
           "lunch",
           content.restaurants.filter((offer) => offer.meal === "lunch"),
-          (offer) => offer.level === serviceLevels.lunch.level && content.context.adults === trip.adults,
+          (offer) =>
+            offer.level === serviceLevels.lunch.level && content.context.adults === trip.adults,
           toPublicMeal,
         ),
         domainOffers(
           "dinner",
           "dinner",
           content.restaurants.filter((offer) => offer.meal === "dinner"),
-          (offer) => offer.level === serviceLevels.dinner.level && content.context.adults === trip.adults,
+          (offer) =>
+            offer.level === serviceLevels.dinner.level && content.context.adults === trip.adults,
           toPublicMeal,
         ),
       );
@@ -951,7 +961,18 @@ export async function buildTripProjection(
     ) {
       return null;
     }
-    const parsed = publicClarificationSchema.safeParse(decisionRow.option_payload);
+    // Server-side option payloads also carry commands/reopen hints. The public
+    // card exposes labels only; the strict public option schema rejects extras.
+    const payload = decisionRow.option_payload as {
+      question?: unknown;
+      options?: { id?: unknown; label?: unknown }[];
+    };
+    const parsed = publicClarificationSchema.safeParse({
+      question: payload.question,
+      options: Array.isArray(payload.options)
+        ? payload.options.map((option) => ({ id: option.id, label: option.label }))
+        : [],
+    });
     return parsed.success ? parsed.data : null;
   })();
   // Phase 11: the route-change impact preview persisted with the pending

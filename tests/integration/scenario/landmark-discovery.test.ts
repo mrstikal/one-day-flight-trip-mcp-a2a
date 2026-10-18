@@ -55,7 +55,6 @@ function stubFetch(
 
 beforeAll(async () => {
   await pool.query("DROP SCHEMA IF EXISTS odft_app CASCADE");
-  await pool.query("DROP SCHEMA IF EXISTS odft_checkpoint CASCADE");
   await runMigrations(pool);
   await loadReferenceData(pool);
 });
@@ -139,7 +138,10 @@ describe("ensureCityLandmarks (real PostgreSQL)", () => {
     // The next trip retries and succeeds.
     await ensureCityLandmarks(pool, HELSINKI, {
       enabled: true,
-      fetchImpl: stubFetch([itemRow("Q1", 60.1704, 24.9522)], [labelRow("Q1", "Helsinki Cathedral")]) as never,
+      fetchImpl: stubFetch(
+        [itemRow("Q1", 60.1704, 24.9522)],
+        [labelRow("Q1", "Helsinki Cathedral")],
+      ) as never,
     });
     expect(await coverage()).toBe("curated_landmarks");
   });

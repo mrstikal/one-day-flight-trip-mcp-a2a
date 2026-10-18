@@ -3,6 +3,7 @@ import {
   domainCommandSchema,
   chatCommandPayloadSchema,
   researchDomainSchema,
+  SCENARIO_DOMAIN_FOR_RESEARCH,
   tripPreferencesSchema,
   type CoordinatorRunData,
   type DomainCommand,
@@ -16,8 +17,11 @@ import {
 import { fingerprint } from "@odft/domain";
 import {
   acceptDelegationArtifact,
+  appendConversationMessage,
   contentHash,
+  finalizeConflict,
   finalizeFailure,
+  StaleFencingError,
   finalizeSuccess,
   finalizeWaiting,
   getActiveCoordinatorRun,
@@ -31,16 +35,14 @@ import {
   insertCoordinatorRun,
   listLatestRecommendationArtifacts,
   loadDecision,
+  MAX_AUTO_CLAIMS_PER_ROUND,
   updateCoordinatorRun,
   type ClaimedOperation,
   type CoordinatorRunRecord,
 } from "@odft/persistence";
-import type { TravelPorts } from "../travel/ports.js";
+import type { TravelPorts } from "./ports.js";
 import { orderCommandsForApplication } from "../routing/command-order.js";
-import {
-  resolveCommandRouting,
-  routingRefs,
-} from "../routing/invalidation-matrix.js";
+import { resolveCommandRouting, routingRefs } from "../routing/invalidation-matrix.js";
 import {
   acceptArtifact,
   buildFlightTaskRequest,
@@ -61,6 +63,66 @@ import {
   startItineraryAttempt,
   type ItineraryLoopDeps,
 } from "./itinerary.js";
+
+function safeErrorCode(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as { code?: unknown }).code === "string"
+  ) {
+    return (error as { code: string }).code;
+  }
+  if (error instanceof Error) {
+    return error.name === "InvalidUpdateError" ? "REDUCER_CONFLICT" : error.name;
+  }
+  return "UNKNOWN";
+}
+
+/**
+ * Deterministic failures that a retry can never fix. AI failures are terminal:
+ * the adapter already owns its single repair attempt, so a second orchestration
+ * retry would stack billable calls on the same message.
+ */
+const TERMINAL_CONFLICT_CODES: ReadonlySet<string> = new Set([
+  "REDUCER_CONFLICT",
+  "STALE_DECISION",
+  "STALE_REVISION",
+  "STALE_ROUTE_APPROVAL",
+  "PROPOSAL_EXPIRED",
+  "PROPOSAL_SUPERSEDED",
+  "OFFER_UNAVAILABLE",
+  "OFFER_MISMATCH",
+  "DISCLAIMER_REQUIRED",
+  "REPLACEMENT_CONFIRMATION_REQUIRED",
+  "CREATION_CONFLICT",
+  "VALIDATION_FAILED",
+  "CONFLICT",
+  "FORBIDDEN",
+  "NOT_FOUND",
+  "REF_GENERATION_FAILED",
+  "ITINERARY_NOT_APPROVABLE",
+  "STALE_ITINERARY",
+  "AI_NOT_CONFIGURED",
+  "AI_CAPABILITY_UNKNOWN",
+  "AI_BUDGET_EXCEEDED",
+  "AI_PRICING_UNKNOWN",
+  "AI_AUTH_FAILED",
+  "AI_UNSUPPORTED",
+  "AI_INPUT_OVERFLOW",
+  "AI_SCHEMA_INVALID",
+  "AI_TIMEOUT",
+  "AI_TRANSPORT_FAILED",
+]);
+
+export function isTerminalConflictCode(code: string): boolean {
+  return TERMINAL_CONFLICT_CODES.has(code);
+}
+
+function isChatOperation(claim: ClaimedOperation): boolean {
+  const payload = claim.payload as { kind?: unknown } | null;
+  return claim.kind === "command" && payload?.kind === "chat";
+}
 
 /**
  * Phase 07 coordinator dispatcher: runs one claimed coordinator operation
@@ -159,10 +221,7 @@ function runDataWith(base: CoordinatorRunData, patch: RunDataPatch): Coordinator
 }
 
 /** Refuse cursor writes from a claim that no longer owns the operation. */
-async function stillHeld(
-  deps: CoordinatorDispatchDeps,
-  claim: ClaimedOperation,
-): Promise<boolean> {
+async function stillHeld(deps: CoordinatorDispatchDeps, claim: ClaimedOperation): Promise<boolean> {
   const result = await deps.pool.query<{ held: boolean }>(
     `SELECT true AS held FROM odft_app.workflow_operations
       WHERE id = $1 AND fencing_token = $2::bigint AND status = 'running'`,
@@ -185,8 +244,6 @@ async function delay(ms: number): Promise<void> {
 function preferencesOf(trip: { preferences: unknown }): TripPreferences {
   return tripPreferencesSchema.parse(trip.preferences);
 }
-
-
 
 /** Reuse a non-terminal research delegation of THIS operation, else create one. */
 async function reuseOrCreateResearchDelegation(
@@ -266,6 +323,85 @@ async function reuseOrCreateResearchDelegation(
     deadlineAt: new Date(Date.now() + 600_000).toISOString(),
   });
   return created;
+}
+
+/**
+ * Phase 09/11 bounded research retry: a retryable domain failure gets exactly
+ * one fresh delegation for the same scope and input fingerprint. The failed
+ * delegation stays as evidence; the retry carries `attempt: 2` so the UI can
+ * show the automatic retry and the simulated-failure label.
+ */
+async function retryResearchDelegations(
+  deps: CoordinatorDispatchDeps,
+  claim: ClaimedOperation,
+  data: CoordinatorRunData,
+  failures: readonly { delegationId: string; domains: ResearchDomain[] }[],
+): Promise<CoordinatorTransitionResult | null> {
+  const replaced = new Set(failures.map((failure) => failure.delegationId));
+  const retriedIds: string[] = [];
+  for (const failure of failures) {
+    const delegation = await getAgentDelegation(deps.pool, failure.delegationId);
+    if (!delegation) {
+      continue;
+    }
+    const persisted = await loadDelegationDelivery(deps.pool, failure.delegationId);
+    if (!persisted.outbound) {
+      continue;
+    }
+    const scope = delegation.scope as {
+      domains?: string[];
+      objective?: "preserve_level" | "cheaper" | null;
+      levelOverride?: string | null;
+      allowRouteValidation?: boolean;
+      allowItinerary?: boolean;
+    };
+    const created = await createOutboundDelegation(deps.pool, {
+      tripId: claim.tripId,
+      operationId: claim.operationId,
+      acceptedRevision: delegation.acceptedRevision,
+      skillId: delegation.skillId,
+      agentIdentity: delegation.agentIdentity,
+      endpointUrl: delegation.endpointUrl,
+      snapshotId: delegation.snapshotId,
+      inputFingerprint: delegation.inputFingerprint,
+      domains: (scope.domains ?? failure.domains) as (ResearchDomain | "flights")[],
+      objective: scope.objective ?? null,
+      levelOverride: scope.levelOverride ?? null,
+      allowRouteValidation: scope.allowRouteValidation ?? false,
+      allowItinerary: scope.allowItinerary ?? false,
+      taskData: persisted.outbound.payload as Record<string, unknown>,
+      deadlineAt: new Date(Date.now() + 600_000).toISOString(),
+      attempt: (delegation.attempt ?? 1) + 1,
+    });
+    const delivered = await deliverDelegation(deps.pool, deps.transport, {
+      delegationId: created.delegationId,
+      agentIdentity: delegation.agentIdentity,
+      data: created.taskData,
+    });
+    if (delivered.delivered) {
+      retriedIds.push(created.delegationId);
+    } else {
+      await deps.pool.query(
+        `UPDATE odft_app.agent_delegations SET status = 'failed', updated_at = now()
+          WHERE id = $1 AND status IN ('pending','dispatched','working','input_required')`,
+        [created.delegationId],
+      );
+    }
+  }
+  if (retriedIds.length === 0) {
+    return null;
+  }
+  return {
+    kind: "continue",
+    step: "researching",
+    runData: runDataWith(data, {
+      delegationIds: [
+        ...data.delegationIds.filter((delegationId) => !replaced.has(delegationId)),
+        ...retriedIds,
+      ],
+      researchRetryAttempts: data.researchRetryAttempts + 1,
+    }),
+  };
 }
 
 /**
@@ -361,7 +497,12 @@ async function dispatchSpecialistResearch(
     searchObjective: "preserve_level" as const,
     queryContext: { domainInputFingerprints: inputs.fingerprints },
     deadlineAt: new Date(Date.now() + 600_000).toISOString(),
-    limits: { activeTimeMs: 90_000, mcpInvocations: 8, llmTransportAttempts: 2, maxTaskCostUsd: 0.1 },
+    limits: {
+      activeTimeMs: 90_000,
+      mcpInvocations: 8,
+      llmTransportAttempts: 2,
+      maxTaskCostUsd: 0.1,
+    },
     preferences: prefs,
     continuation: null,
   };
@@ -390,7 +531,12 @@ async function dispatchSpecialistResearch(
     inputFingerprint: inputs.fingerprints.breakfast ?? "",
     domains: cityDomains as never,
     objective: null,
-    taskData: { ...base, skillId: cityGuide.skillId, requestedDomains: cityDomains, delegationId: "" },
+    taskData: {
+      ...base,
+      skillId: cityGuide.skillId,
+      requestedDomains: cityDomains,
+      delegationId: "",
+    },
   });
   // Deliver both in parallel, outside any transaction.
   const deliveries = await Promise.all([
@@ -410,17 +556,23 @@ async function dispatchSpecialistResearch(
       deps.logger?.({
         level: "warn",
         component: "coordinator",
-        message: index === 0 ? "hotel delegation delivery failed" : "city-guide delegation delivery failed",
+        message:
+          index === 0
+            ? "hotel delegation delivery failed"
+            : "city-guide delegation delivery failed",
         reason: delivered.reason,
       });
     }
   }
   return {
     kind: "continue",
-    delegationIds: [...data.delegationIds, hotelDelegation.delegationId, cityDelegation.delegationId],
+    delegationIds: [
+      ...data.delegationIds,
+      hotelDelegation.delegationId,
+      cityDelegation.delegationId,
+    ],
   };
 }
-
 
 /**
  * Mark a delegation terminal after a failed/canceled specialist task or a
@@ -453,10 +605,17 @@ async function markDelegationFailed(
     return;
   }
   const domains = researchDomainsOf(delegation);
-  const cleanReason = reason.startsWith(`${code}: `)
-    ? reason.slice(code.length + 2)
-    : reason;
+  const cleanReason = reason.startsWith(`${code}: `) ? reason.slice(code.length + 2) : reason;
   for (const domain of domains) {
+    // An injected scenario fault is labeled as a simulated failure; a genuine
+    // provider/task failure is not. This keeps the retry panel honest.
+    const fault = await deps.pool.query(
+      `SELECT 1 FROM odft_app.simulation_faults
+        WHERE trip_id = $1 AND domain = $2
+          AND (operation_id IS NULL OR operation_id = $3)
+        LIMIT 1`,
+      [tripId, SCENARIO_DOMAIN_FOR_RESEARCH[domain], delegation.originatingOperationId],
+    );
     await deps.ports.recordResearchEvent({
       tripId,
       operationId: delegation.originatingOperationId,
@@ -465,7 +624,7 @@ async function markDelegationFailed(
       attempt: delegation.attempt,
       durationMs: null,
       status: "unavailable",
-      simulatedFailure: false,
+      simulatedFailure: fault.rowCount === 1,
       reason: `${code}: ${cleanReason}`.slice(0, 500),
       fingerprint: delegation.inputFingerprint,
     });
@@ -549,10 +708,10 @@ async function openProgramChoices(
   // replaces only its affected domain, so unaffected meal/activity rankings
   // must survive (never read only the newest City Guide task artifact).
   const artifacts = await listLatestRecommendationArtifacts(deps.pool, claim.tripId);
-  const byService = new Map(artifacts.map((artifact) => [artifact.serviceKey, artifact.rankedOfferIds]));
-  const mealIds = ["breakfast", "lunch", "dinner"].flatMap(
-    (meal) => byService.get(meal) ?? [],
+  const byService = new Map(
+    artifacts.map((artifact) => [artifact.serviceKey, artifact.rankedOfferIds]),
   );
+  const mealIds = ["breakfast", "lunch", "dinner"].flatMap((meal) => byService.get(meal) ?? []);
   // Recommendation artifacts use the activity service key (`activities`);
   // the research domain is `attractions`.
   const activityIds = byService.get("activities") ?? [];
@@ -667,7 +826,7 @@ async function ingestCityArtifact(
       reason?: string | null;
     }[];
   },
-  options: { recordEvents?: boolean } = {},
+  options: { recordEvents?: boolean; attempt?: number } = {},
 ): Promise<void> {
   const outcomes = value.outcomes ?? [];
   const ranked = outcomes.filter(
@@ -688,7 +847,7 @@ async function ingestCityArtifact(
         operationId: claim.operationId,
         domain: outcome.domain as ResearchDomain,
         phase: "finished",
-        attempt: 1,
+        attempt: options.attempt ?? 1,
         durationMs: null,
         status: outcome.status as never,
         simulatedFailure: outcome.simulatedFailure ?? false,
@@ -718,7 +877,11 @@ async function ingestHotelArtifact(
   claim: ClaimedOperation,
   delegationId: string,
   rankedIds: readonly string[],
-  options: { recordEvents?: boolean } = {},
+  options: {
+    recordEvents?: boolean;
+    attempt?: number;
+    searchIntent?: CoordinatorRunData["searchIntent"];
+  } = {},
 ): Promise<void> {
   const delegation = await getAgentDelegation(deps.pool, delegationId);
   if (!delegation) {
@@ -730,7 +893,7 @@ async function ingestHotelArtifact(
       operationId: claim.operationId,
       domain: "hotel",
       phase: "finished",
-      attempt: 1,
+      attempt: options.attempt ?? 1,
       durationMs: null,
       status: "ok",
       simulatedFailure: false,
@@ -749,7 +912,7 @@ async function ingestHotelArtifact(
         offerIds: [...rankedIds],
       },
     ],
-    searchIntent: null,
+    searchIntent: options.searchIntent ?? null,
   });
 }
 
@@ -828,7 +991,9 @@ async function dispatchScopedResearch(
   );
   const hotelFingerprint = inputs.fingerprints.hotel;
   const cityFingerprint =
-    spec.cityDomains.length > 0 ? inputs.fingerprints[spec.cityDomains[0] as ResearchDomain] : undefined;
+    spec.cityDomains.length > 0
+      ? inputs.fingerprints[spec.cityDomains[0] as ResearchDomain]
+      : undefined;
   if ((spec.hotel && !hotelFingerprint) || (spec.cityDomains.length > 0 && !cityFingerprint)) {
     return {
       kind: "fail",
@@ -864,7 +1029,12 @@ async function dispatchScopedResearch(
       ...(spec.searchIntent ? { searchIntent: spec.searchIntent } : {}),
     },
     deadlineAt: new Date(Date.now() + 600_000).toISOString(),
-    limits: { activeTimeMs: 90_000, mcpInvocations: 8, llmTransportAttempts: 2, maxTaskCostUsd: 0.1 },
+    limits: {
+      activeTimeMs: 90_000,
+      mcpInvocations: 8,
+      llmTransportAttempts: 2,
+      maxTaskCostUsd: 0.1,
+    },
     preferences: trip.preferences,
     continuation: null,
   };
@@ -1022,11 +1192,7 @@ async function applyProgramAndPlan(
     activitiesSelfArranged: program.activitiesSelfArranged,
   });
   if (applied.replacementStaged && applied.replacementProposalId) {
-    const proposal = await getProposal(
-      deps.pool,
-      claim.tripId,
-      applied.replacementProposalId,
-    );
+    const proposal = await getProposal(deps.pool, claim.tripId, applied.replacementProposalId);
     if (!proposal) {
       return {
         kind: "fail",
@@ -1064,8 +1230,8 @@ async function applyProgramAndPlan(
       optionPayload: {
         question: logistics.reason ?? "the selected hotel/meals conflict with the flight times",
         options: [
-          { id: "change_hotel", label: "Choose another hotel", commands: [], reopen: "hotel_choice" },
-          { id: "change_meals", label: "Adjust the meals", commands: [], reopen: "program_choices" },
+          { id: "change_hotel", label: "Choose another hotel", reopen: "hotel_choice" },
+          { id: "change_meals", label: "Adjust the meals", reopen: "program_choices" },
         ],
       },
     };
@@ -1139,15 +1305,64 @@ async function applyCommandBatch(
       };
     }
   }
-  await deps.ports.runEffect(
-    "coordinator_apply_commands",
-    `batch:${contentHash(ordered)}`,
-    () =>
-      deps.ports.applyCommands({
-        tripId: claim.tripId,
-        operationId: claim.operationId,
-        commands: ordered,
-      }),
+  const propose = ordered.find((command) => command.type === "propose_selection");
+  if (propose && propose.type === "propose_selection") {
+    // Phase 07 parity: a per-meal/hotel/flight RESERVE action stages a proposal
+    // and opens the shared booking confirmation. The active reservation (if any)
+    // stays untouched until the user confirms the replacement.
+    //
+    // A chat interpretation may combine the proposal with preference/objective
+    // commands. Apply those first instead of silently dropping them; the proposal
+    // is staged against the updated state and is refused if the offer vanished.
+    const residual = ordered.filter((command) => command !== propose);
+    if (residual.length > 0) {
+      await deps.ports.runEffect(
+        "coordinator_apply_commands",
+        `batch:${contentHash(residual)}`,
+        () =>
+          deps.ports.applyCommands({
+            tripId: claim.tripId,
+            operationId: claim.operationId,
+            commands: residual,
+          }),
+      );
+    }
+    const sourceFingerprint = fingerprint({
+      kind: "booking_confirmation",
+      tripId: claim.tripId,
+      operationId: claim.operationId,
+      service: propose.service,
+      offerId: propose.offerId,
+      snapshotId: trip.activeScenarioSnapshotId ?? "",
+    });
+    const proposal = await deps.ports.propose({
+      tripId: claim.tripId,
+      operationId: claim.operationId,
+      service: propose.service,
+      offerId: propose.offerId,
+      sourceFingerprint,
+    });
+    const progress = await deps.ports.loadProgress(claim.tripId);
+    const replacing = progress.confirmedServices.includes(propose.service);
+    return {
+      kind: "wait",
+      step: "awaiting_user",
+      waitReason: replacing ? "replacement_confirmation" : "booking_confirmation",
+      runData: { ...data, assistantMessage },
+      fingerprint: sourceFingerprint,
+      allowedOptionIds: [],
+      allowedOfferIds: [propose.offerId],
+      proposalId: proposal.proposalId,
+      optionPayload: { offerId: propose.offerId, service: propose.service },
+    };
+  }
+
+  await deps.ports.runEffect("coordinator_apply_commands", `batch:${contentHash(ordered)}`, () =>
+    deps.ports.applyCommands({
+      tripId: claim.tripId,
+      operationId: claim.operationId,
+      commands: ordered,
+    }),
   );
 
   const program = ordered.find((command) => command.type === "set_program");
@@ -1255,23 +1470,35 @@ async function routeAfterCommands(
     const cityDomains = resolution.affectedDomains.filter(
       (domain): domain is ResearchDomain => domain !== "hotel",
     );
-    return dispatchScopedResearch(deps, claim, trip, { ...data, assistantMessage }, {
-      hotel,
-      cityDomains,
-      objective:
-        findAlternatives?.type === "find_alternatives" && findAlternatives.objective === "cheaper"
-          ? "cheaper"
-          : "preserve_level",
-      levelOverride:
-        findAlternatives?.type === "find_alternatives" && findAlternatives.level
-          ? findAlternatives.level
-          : null,
-      searchIntent,
-      target,
-    });
+    return dispatchScopedResearch(
+      deps,
+      claim,
+      trip,
+      { ...data, assistantMessage },
+      {
+        hotel,
+        cityDomains,
+        objective:
+          findAlternatives?.type === "find_alternatives" && findAlternatives.objective === "cheaper"
+            ? "cheaper"
+            : "preserve_level",
+        levelOverride:
+          findAlternatives?.type === "find_alternatives" && findAlternatives.level
+            ? findAlternatives.level
+            : null,
+        searchIntent,
+        target,
+      },
+    );
   }
   if (resolution.progressDecision) {
-    return resolveProgressAfterBatch(deps, claim, trip, { ...data, assistantMessage }, assistantMessage);
+    return resolveProgressAfterBatch(
+      deps,
+      claim,
+      trip,
+      { ...data, assistantMessage },
+      assistantMessage,
+    );
   }
   if (resolution.itineraryAction === "propose") {
     if (!progress.programApplied) {
@@ -1310,8 +1537,8 @@ async function routeAfterCommands(
         optionPayload: {
           question: logistics.reason ?? "the selected hotel/meals conflict with the flight times",
           options: [
-            { id: "change_hotel", label: "Choose another hotel", commands: [], reopen: "hotel_choice" },
-            { id: "change_meals", label: "Adjust the meals", commands: [], reopen: "program_choices" },
+            { id: "change_hotel", label: "Choose another hotel", reopen: "hotel_choice" },
+            { id: "change_meals", label: "Adjust the meals", reopen: "program_choices" },
           ],
         },
       };
@@ -1351,14 +1578,20 @@ async function resolveProgressAfterBatch(
     if (hotel.kind !== "fail") {
       return hotel;
     }
-    return dispatchScopedResearch(deps, claim, trip, { ...data, assistantMessage }, {
-      hotel: true,
-      cityDomains: [],
-      objective: "preserve_level",
-      levelOverride: null,
-      searchIntent: null,
-      target: "hotel_choice",
-    });
+    return dispatchScopedResearch(
+      deps,
+      claim,
+      trip,
+      { ...data, assistantMessage },
+      {
+        hotel: true,
+        cityDomains: [],
+        objective: "preserve_level",
+        levelOverride: null,
+        searchIntent: null,
+        target: "hotel_choice",
+      },
+    );
   }
   return {
     kind: "complete",
@@ -1389,7 +1622,12 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
       }
       const trip = await getTrip(deps.pool, context.tripId);
       if (!trip) {
-        return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+        return {
+          kind: "fail",
+          runData: runDataWith(data, {}),
+          code: "NOT_FOUND",
+          reason: "trip not found",
+        };
       }
       const payload = await deps.ports.loadOperationPayload(claim.operationId);
       const typed = domainCommandSchema.safeParse(payload);
@@ -1442,6 +1680,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             waitReason: preserved.kind,
             runData: runDataWith(data, {
               assistantMessage: interpreted.result.explanation.slice(0, 2000),
+              assistantInterpretationKind: "unsupported",
             }),
             fingerprint: preserved.sourceFingerprint,
             allowedOptionIds: preserved.allowedOptionIds ?? [],
@@ -1456,6 +1695,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           kind: "complete",
           runData: runDataWith(data, {
             assistantMessage: interpreted.result.explanation.slice(0, 2000),
+            assistantInterpretationKind: "unsupported",
           }),
           result: { intentStatus: "unsupported" },
           summary: "I could not interpret that request; the graphical controls remain available.",
@@ -1467,7 +1707,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           kind: "wait",
           step: "awaiting_user",
           waitReason: "clarification",
-          runData: runDataWith(data, {}),
+          runData: runDataWith(data, { assistantInterpretationKind: "clarification" }),
           fingerprint: fingerprint({
             kind: "clarification",
             tripId: claim.tripId,
@@ -1479,7 +1719,13 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           allowedOfferIds: [],
           optionPayload: {
             question: interpreted.result.question,
-            options: interpreted.result.options,
+            options: interpreted.result.options.map((option) => ({
+              id: option.id,
+              label: option.label,
+            })),
+            optionCommands: Object.fromEntries(
+              interpreted.result.options.map((option) => [option.id, option.commands]),
+            ),
             requestedCommands: interpreted.result.requestedCommands,
             preserve: interpreted.result.preserve,
           },
@@ -1520,7 +1766,10 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             allowedOfferIds: [],
             optionPayload: {
               question: "This request contains several steps. Which one should I start with?",
-              options,
+              options: options.map((option) => ({ id: option.id, label: option.label })),
+              optionCommands: Object.fromEntries(
+                options.map((option) => [option.id, option.commands]),
+              ),
               requestedCommands: interpreted.result.commands,
               preserve: interpreted.result.preserve,
             },
@@ -1564,7 +1813,12 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
     case "requesting_flights": {
       const trip = await getTrip(deps.pool, context.tripId);
       if (!trip) {
-        return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+        return {
+          kind: "fail",
+          runData: runDataWith(data, {}),
+          code: "NOT_FOUND",
+          reason: "trip not found",
+        };
       }
       // Re-read the persisted FEASIBLE approval so the delegation carries the
       // exact route fingerprint (never a graph boolean).
@@ -1622,7 +1876,8 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           if (!persisted.delegation?.taskId) {
             await deliverDelegation(deps.pool, deps.transport, {
               delegationId: existingId,
-              agentIdentity: persisted.delegation?.agentIdentity ?? deps.agents.flight.agentIdentity,
+              agentIdentity:
+                persisted.delegation?.agentIdentity ?? deps.agents.flight.agentIdentity,
               data: persisted.outbound.payload,
             });
           }
@@ -1702,7 +1957,10 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
         taskData,
         deadlineAt: new Date(Date.now() + 600_000).toISOString(),
       });
-      const delegationIds = [...data.delegationIds.filter((id) => id !== created.delegationId), created.delegationId];
+      const delegationIds = [
+        ...data.delegationIds.filter((id) => id !== created.delegationId),
+        created.delegationId,
+      ];
       const next = runDataWith(data, {
         delegationIds,
         acceptedArtifacts: data.acceptedArtifacts,
@@ -1732,7 +1990,12 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
       if (data.itineraryDelegationId) {
         const trip = await getTrip(deps.pool, context.tripId);
         if (!trip) {
-          return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+          return {
+            kind: "fail",
+            runData: runDataWith(data, {}),
+            code: "NOT_FOUND",
+            reason: "trip not found",
+          };
         }
         return pollItineraryAttempt(itineraryLoop(deps), claim, trip, data);
       }
@@ -1807,8 +2070,15 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
       }
       const trip = await getTrip(deps.pool, context.tripId);
       if (!trip) {
-        return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+        return {
+          kind: "fail",
+          runData: runDataWith(data, {}),
+          code: "NOT_FOUND",
+          reason: "trip not found",
+        };
       }
+      const progressBefore = await deps.ports.loadProgress(context.tripId);
+      let declineResult: Awaited<ReturnType<typeof deps.ports.declineBooking>> | undefined;
       if (decision.kind === "flight_choice" || decision.kind === "hotel_choice") {
         const offerId = payload.response.offerId;
         if (payload.response.action !== "choose_offer" || !offerId) {
@@ -2011,7 +2281,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             };
           }
         } else if (action === "decline_booking") {
-          await deps.ports.declineBooking({
+          declineResult = await deps.ports.declineBooking({
             tripId: context.tripId,
             operationId: claim.operationId,
             proposalId: decision.proposalId,
@@ -2029,6 +2299,37 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
         // the graph: an initial flight booking continues into hotel research.
         const progress = await deps.ports.loadProgress(context.tripId);
         if (progress.programApplied) {
+          // A late replacement that changes the kept offer invalidates the plan
+          // and replans it (graph `declinedSelectionChanged`). Booking the same
+          // kept offer again changes no inputs and ends the run.
+          const stagedProposal = decision.proposalId
+            ? await getProposal(deps.pool, context.tripId, decision.proposalId)
+            : undefined;
+          const selectedOfferId = declineResult?.offerId ?? stagedProposal?.offerId;
+          const previousSelection = progressBefore.selectionOfferIds[service];
+          const selectionChanged =
+            previousSelection !== undefined &&
+            selectedOfferId !== undefined &&
+            previousSelection !== selectedOfferId;
+          // A replacement always changes the plan inputs; a new selection after
+          // the program was saved changes them too (graph parity).
+          const replacementChanged =
+            decision.kind === "replacement_confirmation" || selectionChanged;
+          if (replacementChanged) {
+            return startItineraryAttempt(
+              itineraryLoop(deps),
+              claim,
+              trip,
+              {
+                ...data,
+                planningAttempt: 0,
+                feedback: [],
+                itineraryId: null,
+                itineraryReviewFingerprint: null,
+              },
+              [],
+            );
+          }
           return {
             kind: "complete",
             runData: runDataWith(data, {}),
@@ -2037,7 +2338,11 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             workflowStatus: "ready",
           };
         }
-        if (service === "flights" && !progress.hotelConfirmed && !progress.selectedServices.includes("hotel")) {
+        if (
+          service === "flights" &&
+          !progress.hotelConfirmed &&
+          !progress.selectedServices.includes("hotel")
+        ) {
           const research = await dispatchSpecialistResearch(deps, claim, trip, data);
           if (research.kind === "fail") {
             return research;
@@ -2098,7 +2403,12 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
         }
         const trip = await getTrip(deps.pool, context.tripId);
         if (!trip) {
-          return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+          return {
+            kind: "fail",
+            runData: runDataWith(data, {}),
+            code: "NOT_FOUND",
+            reason: "trip not found",
+          };
         }
         return applyProgramAndPlan(
           deps,
@@ -2165,7 +2475,9 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           proposalId?: string;
           affectedReservations?: { id: string }[];
         } | null;
-        const expected = [...(optionPayload?.affectedReservations ?? []).map((entry) => entry.id)].sort();
+        const expected = [
+          ...(optionPayload?.affectedReservations ?? []).map((entry) => entry.id),
+        ].sort();
         const given = [...(response.affectedReservationIds ?? [])].sort();
         if (
           !optionPayload?.proposalId ||
@@ -2220,7 +2532,14 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           };
         }
         const optionPayload = decision.optionPayload as {
-          options?: { id: string; label?: string; commands?: DomainCommand[]; reopen?: string }[];
+          options?: {
+            id: string;
+            label?: string;
+            reopen?: string;
+            commands?: DomainCommand[];
+          }[];
+          optionCommands?: Record<string, DomainCommand[]>;
+          researchFailed?: boolean;
         } | null;
         const option = optionPayload?.options?.find((entry) => entry.id === optionId);
         if (!option) {
@@ -2231,29 +2550,52 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             reason: "the chosen option has no stored commands",
           };
         }
+        if (optionPayload?.researchFailed) {
+          // End the run on the failed step so the empty/failed panel and its
+          // retry action are visible. The unavailable research events are
+          // already persisted; no reservation changed.
+          return {
+            kind: "complete",
+            workflowStatus: "ready",
+            summary: `Adjust: ${option.label ?? option.id}.`,
+            result: { recovered: optionId },
+            runData: runDataWith(data, { researchTarget: null }),
+          };
+        }
         if (option.reopen === "hotel_choice") {
           return openHotelChoice(deps, claim, data);
         }
         if (option.reopen === "program_choices") {
           return openProgramChoices(deps, claim, data);
         }
-        if (option.commands && option.commands.length > 0) {
+        const optionCommands = optionPayload?.optionCommands?.[optionId] ?? option.commands ?? [];
+        if (optionCommands.length > 0) {
           const trip = await getTrip(deps.pool, context.tripId);
           if (!trip) {
-            return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+            return {
+              kind: "fail",
+              runData: runDataWith(data, {}),
+              code: "NOT_FOUND",
+              reason: "trip not found",
+            };
           }
           return applyCommandBatch(
             deps,
             claim,
             trip,
             data,
-            option.commands,
+            optionCommands,
             `Applied: ${option.label ?? option.id}.`,
           );
         }
         const trip = await getTrip(deps.pool, context.tripId);
         if (!trip) {
-          return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+          return {
+            kind: "fail",
+            runData: runDataWith(data, {}),
+            code: "NOT_FOUND",
+            reason: "trip not found",
+          };
         }
         return resolveProgressAfterBatch(deps, claim, trip, data, null);
       }
@@ -2297,6 +2639,8 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
         skillId: string;
         code: string;
         reason: string;
+        domains: ResearchDomain[];
+        retryable: boolean;
       }[] = [];
       // Consecutive read failures per delegation. A transient network blip must
       // not terminalize a possibly-live paid computation (plan §3.12).
@@ -2315,7 +2659,10 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
         // (AGENT_RESTARTED), and that terminal state must be reconciled first.
         let newlyBound = false;
         if (deps.signal?.aborted) {
-          return { kind: "abandon", runData: runDataWith(data, { questionQueue: queue, drainPending: queue.length > 0 }) };
+          return {
+            kind: "abandon",
+            runData: runDataWith(data, { questionQueue: queue, drainPending: queue.length > 0 }),
+          };
         }
         for (const delegationId of data.delegationIds) {
           const delegation = await getAgentDelegation(deps.pool, delegationId);
@@ -2351,8 +2698,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
                 let payload: { rankedCombinationIds?: unknown } | undefined;
                 try {
                   payload = (await acceptedArtifactPayload(deps, delegationId)) as
-                    | { rankedCombinationIds?: unknown }
-                    | undefined;
+                    { rankedCombinationIds?: unknown } | undefined;
                 } catch {
                   return {
                     kind: "abandon",
@@ -2366,8 +2712,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
                     step: "awaiting_user",
                     waitReason: "flight_choice",
                     runData: runDataWith(data, { questionQueue: queue, drainPending: false }),
-                    fingerprint:
-                      delegation.acceptedArtifactHash ?? contentHash(payload ?? {}),
+                    fingerprint: delegation.acceptedArtifactHash ?? contentHash(payload ?? {}),
                     allowedOptionIds: [],
                     allowedOfferIds: ranked as string[],
                     optionPayload: { rankedCombinationIds: ranked },
@@ -2382,26 +2727,26 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               let payload: { rankedHotelOfferIds?: unknown } | undefined;
               try {
                 payload = (await acceptedArtifactPayload(deps, delegationId)) as
-                  | { rankedHotelOfferIds?: unknown }
-                  | undefined;
+                  { rankedHotelOfferIds?: unknown } | undefined;
               } catch {
                 return {
                   kind: "abandon",
                   runData: runDataWith(data, { questionQueue: queue }),
                 };
               }
-              if (Array.isArray(payload?.rankedHotelOfferIds) && payload.rankedHotelOfferIds.length > 0) {
+              if (
+                Array.isArray(payload?.rankedHotelOfferIds) &&
+                payload.rankedHotelOfferIds.length > 0
+              ) {
                 hotel = {
                   payloadHash: delegation.acceptedArtifactHash ?? contentHash(payload),
                   rankedIds: payload.rankedHotelOfferIds as string[],
                 };
-                await ingestHotelArtifact(
-                  deps,
-                  claim,
-                  delegationId,
-                  hotel.rankedIds,
-                  { recordEvents: false },
-                );
+                await ingestHotelArtifact(deps, claim, delegationId, hotel.rankedIds, {
+                  recordEvents: false,
+                  attempt: delegation.attempt,
+                  searchIntent: data.searchIntent,
+                });
               }
             }
             if (delegation.skillId === "city-guide.research.v1" && !city) {
@@ -2440,6 +2785,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
                 city = payload;
                 await ingestCityArtifact(deps, claim, data, payload, {
                   recordEvents: false,
+                  attempt: delegation.attempt,
                 });
               }
             }
@@ -2484,6 +2830,8 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
                 skillId: delegation.skillId,
                 code,
                 reason,
+                domains: researchDomainsOf(delegation),
+                retryable: true,
               });
               return null;
             });
@@ -2505,6 +2853,8 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               skillId: delegation.skillId,
               code,
               reason,
+              domains: researchDomainsOf(delegation),
+              retryable: /retryable_error/i.test(reason),
             });
             continue;
           }
@@ -2517,6 +2867,8 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               skillId: delegation.skillId,
               code,
               reason,
+              domains: researchDomainsOf(delegation),
+              retryable: /retryable_error/i.test(reason),
             });
             continue;
           }
@@ -2524,23 +2876,21 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             // A genuine specialist question is persisted in the FIFO queue and
             // NO answerable decision is exposed until every submitted sibling
             // reached a terminal state (drain-before-decision, plan §3.10).
-            const question = task.question as {
-              correlation?: { delegationId?: string };
-              requestId?: string;
-              question?: string;
-              options?: { id: string; label?: string }[];
-              inputGeneration?: number;
-              requestHash?: string;
-              expiresAt?: string;
-            } | undefined;
+            const question = task.question as
+              | {
+                  correlation?: { delegationId?: string };
+                  requestId?: string;
+                  question?: string;
+                  options?: { id: string; label?: string }[];
+                  inputGeneration?: number;
+                  requestHash?: string;
+                  expiresAt?: string;
+                }
+              | undefined;
             const alreadyQueued =
               question?.requestId !== undefined &&
               queue.some((entry) => entry.requestId === question.requestId);
-            if (
-              question?.requestId &&
-              question.inputGeneration !== undefined &&
-              !alreadyQueued
-            ) {
+            if (question?.requestId && question.inputGeneration !== undefined && !alreadyQueued) {
               // The queue stores the binding only (contract shape); the question
               // text and options are re-read from the saved task at promotion.
               queue.push({
@@ -2655,7 +3005,10 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               };
             }
             hotel = { payloadHash: accepted.payloadHash, rankedIds: ranked as string[] };
-            await ingestHotelArtifact(deps, claim, delegationId, hotel.rankedIds);
+            await ingestHotelArtifact(deps, claim, delegationId, hotel.rankedIds, {
+              attempt: delegation.attempt,
+              searchIntent: data.searchIntent,
+            });
           }
           if (delegation.skillId === "city-guide.research.v1") {
             if (!value.outcomes) {
@@ -2667,7 +3020,9 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               };
             }
             city = value;
-            await ingestCityArtifact(deps, claim, data, value);
+            await ingestCityArtifact(deps, claim, data, value, {
+              attempt: delegation.attempt,
+            });
           }
           void acceptedArtifactId;
         }
@@ -2685,8 +3040,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           const cityFailure = failedDelegations.find(
             (failure) => failure.skillId === "city-guide.research.v1",
           );
-          const needsHotel =
-            data.researchTarget === null || data.researchTarget === "hotel_choice";
+          const needsHotel = data.researchTarget === null || data.researchTarget === "hotel_choice";
           const needsCity =
             data.researchTarget === "program_choices" || data.researchTarget === "plan";
           const blocking =
@@ -2694,14 +3048,81 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             (needsHotel ? hotelFailure : undefined) ??
             (needsCity ? cityFailure : undefined);
           if (blocking) {
+            // An infrastructure restart is not research unavailability: fail the
+            // run so the owner can explicitly retry it (and only the failed
+            // domain is re-dispatched). The research gate below handles genuine
+            // unavailable domains.
+            if (blocking.code === "AGENT_RESTARTED") {
+              return {
+                kind: "fail",
+                runData: runDataWith(data, {
+                  questionQueue: queue,
+                  drainPending: queue.length > 0,
+                }),
+                code: blocking.code,
+                reason: blocking.reason,
+              };
+            }
+            // Phase 09 bounded retry: a transient provider failure gets one
+            // fresh delegation before the gate opens a recovery decision.
+            const retryable = failedDelegations.filter((failure) => failure.retryable);
+            if (retryable.length > 0 && data.researchRetryAttempts < 1) {
+              const retried = await retryResearchDelegations(deps, claim, data, retryable);
+              if (retried) {
+                return retried;
+              }
+            }
+            // Phase 09 necessary-domain gate: a failed necessary research domain
+            // opens a typed recovery decision instead of killing the operation.
+            // The user re-opens the affected step; the persisted unavailable
+            // research events then drive the retry panel. A flight failure still
+            // blocks because no flight choice can be offered.
+            const options: { id: string; label: string; reopen: string }[] = [];
+            if (blocking.domains.includes("hotel")) {
+              options.push({
+                id: "change_hotel",
+                label: "Adjust the hotel",
+                reopen: "hotel_choice",
+              });
+            }
+            if (blocking.domains.some((domain) => domain !== "hotel")) {
+              options.push({
+                id: "change_program",
+                label: "Adjust the program",
+                reopen: "program_choices",
+              });
+            }
+            if (options.length === 0) {
+              return {
+                kind: "fail",
+                runData: runDataWith(data, {
+                  questionQueue: queue,
+                  drainPending: queue.length > 0,
+                }),
+                code: blocking.code,
+                reason: blocking.reason,
+              };
+            }
             return {
-              kind: "fail",
+              kind: "wait",
+              step: "awaiting_user",
+              waitReason: "recovery",
               runData: runDataWith(data, {
                 questionQueue: queue,
                 drainPending: queue.length > 0,
               }),
-              code: blocking.code,
-              reason: blocking.reason,
+              fingerprint: contentHash({
+                researchFailed: blocking.domains,
+                code: blocking.code,
+              }),
+              allowedOptionIds: options.map((option) => option.id),
+              allowedOfferIds: [],
+              optionPayload: {
+                question: blocking.reason.slice(0, 400),
+                options,
+                researchFailed: true,
+                failedDomains: blocking.domains,
+              },
             };
           }
         }
@@ -2715,9 +3136,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           }
           if (queued) {
             const answering = await getAgentDelegation(deps.pool, queued.delegationId);
-            let questionTask:
-              | Awaited<ReturnType<typeof deps.transport.getTask>>
-              | undefined;
+            let questionTask: Awaited<ReturnType<typeof deps.transport.getTask>> | undefined;
             if (answering?.taskId) {
               try {
                 questionTask = await deps.transport.getTask({
@@ -2734,8 +3153,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               }
             }
             const question = questionTask?.question as
-              | { question?: string; options?: { id: string; label?: string }[] }
-              | undefined;
+              { question?: string; options?: { id: string; label?: string }[] } | undefined;
             const options = (question?.options ?? []).map((option) => ({
               id: option.id,
               label: option.label ?? option.id,
@@ -2759,7 +3177,10 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
                 taskId: queued.taskId,
                 contextId: queued.contextId,
                 inputGeneration: queued.inputGeneration,
-                question: (question?.question ?? "the specialist needs a missing preference").slice(0, 400),
+                question: (question?.question ?? "the specialist needs a missing preference").slice(
+                  0,
+                  400,
+                ),
                 options,
                 requestHash: queued.requestHash,
                 expiresAt: queued.expiresAt,
@@ -2770,7 +3191,12 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
         if (data.researchTarget === "plan" && drained && queue.length === 0) {
           const trip = await getTrip(deps.pool, context.tripId);
           if (!trip) {
-            return { kind: "fail", runData: runDataWith(data, {}), code: "NOT_FOUND", reason: "trip not found" };
+            return {
+              kind: "fail",
+              runData: runDataWith(data, {}),
+              code: "NOT_FOUND",
+              reason: "trip not found",
+            };
           }
           return startItineraryAttempt(itineraryLoop(deps), claim, trip, data, []);
         }
@@ -2859,7 +3285,12 @@ async function appendAssistantMessage(
     tripId: claim.tripId,
     role: "assistant",
     content: content.slice(0, 2000),
-    interpretation: { kind: "commands" },
+    interpretation: {
+      kind: runData.assistantInterpretationKind ?? "commands",
+      ...(runData.assistantMessage
+        ? { interpretation: runData.assistantMessage.slice(0, 2000) }
+        : {}),
+    },
     operationId: claim.operationId,
     requestId: claim.operationId,
     fence: {
@@ -2991,128 +3422,198 @@ export async function runCoordinatorOperation(
     tripId: claim.tripId,
     fencingToken: claim.fencingToken,
   };
-  for (let transitions = 0; transitions < 12; transitions += 1) {
-    const current = run;
-    const result = await runStep({ deps, claim, run: current, tripId: claim.tripId });
-    deps.logger?.({
-      level: "info",
-      component: "coordinator",
-      message: "coordinator transition",
-      operationId: claim.operationId,
-      step: current.step,
-      outcome: result.kind,
-    });
-    if (result.kind === "continue") {
-      if (!(await stillHeld(deps, claim))) {
-        deps.logger?.({
-          level: "warn",
-          component: "coordinator",
-          message: "stale claim refused its cursor write",
-          operationId: claim.operationId,
-        });
-        return;
-      }
-      run = await updateCoordinatorRun(deps.pool, {
-        runId: current.id,
-        step: result.step,
-        waitReason: null,
-        status: "running",
-        runData: result.runData,
+  const answeringDecisionId =
+    claim.kind === "decision"
+      ? (claim.payload as { decisionId?: string } | null)?.decisionId
+      : undefined;
+  try {
+    for (let transitions = 0; transitions < 12; transitions += 1) {
+      const current = run;
+      const result = await runStep({ deps, claim, run: current, tripId: claim.tripId });
+      deps.logger?.({
+        level: "info",
+        component: "coordinator",
+        message: "coordinator transition",
+        operationId: claim.operationId,
+        step: current.step,
+        outcome: result.kind,
       });
-      continue;
-    }
-    if (result.kind === "abandon") {
-      // Persist the queue/cursor of the abandoned pass so a re-claim resumes it.
-      if (await stillHeld(deps, claim)) {
-        await updateCoordinatorRun(deps.pool, {
+      if (result.kind === "continue") {
+        if (!(await stillHeld(deps, claim))) {
+          deps.logger?.({
+            level: "warn",
+            component: "coordinator",
+            message: "stale claim refused its cursor write",
+            operationId: claim.operationId,
+          });
+          return;
+        }
+        run = await updateCoordinatorRun(deps.pool, {
           runId: current.id,
-          operationId: claim.operationId,
-          step: current.step,
+          step: result.step,
           waitReason: null,
           status: "running",
           runData: result.runData,
         });
+        continue;
       }
-      return;
-    }
-    if (result.kind === "wait") {
-      const committed = await finalizeWaiting(deps.pool, fence, {
-        kind: result.waitReason,
-        fingerprint: result.fingerprint,
-        allowedOptionIds: result.allowedOptionIds,
-        allowedOfferIds: result.allowedOfferIds,
-        ...(result.proposalId ? { proposalId: result.proposalId } : {}),
-        graphVersion: "coordinator-v1",
-        createdRevision: claim.acceptedRevision,
-        engine: "coordinator-v1",
-        coordinatorRunId: run.id,
-        optionPayload: result.optionPayload,
-        extraWrites: async (client) => {
-          await updateCoordinatorRun(client, {
+      if (result.kind === "abandon") {
+        // Persist the queue/cursor of the abandoned pass so a re-claim resumes it.
+        if (await stillHeld(deps, claim)) {
+          await updateCoordinatorRun(deps.pool, {
             runId: current.id,
-            step: result.step,
-            waitReason: result.waitReason,
-            status: "waiting",
-            runData: result.runData,
-          });
-          await appendAssistantMessage(client, claim, result.runData);
-        },
-      });
-      if (!committed) {
-        deps.logger?.({
-          level: "warn",
-          component: "coordinator",
-          message: "stale coordinator finalization refused",
-          operationId: claim.operationId,
-        });
-      }
-      return;
-    }
-    if (result.kind === "complete") {
-      await finalizeSuccess(deps.pool, fence, {
-        result: result.result,
-        summary: result.summary,
-        workflowStatus: result.workflowStatus,
-        extraWrites: async (client) => {
-          await appendAssistantMessage(client, claim, result.runData);
-          if (claim.kind !== "decision") {
-            // A command that completes without a new decision retires the
-            // interrupted one; a decision operation is answering it instead.
-            await cancelPendingCoordinatorDecisions(client, claim, current.id);
-          }
-          await updateCoordinatorRun(client, {
-            runId: current.id,
-            step: "completed",
+            operationId: claim.operationId,
+            step: current.step,
             waitReason: null,
-            status: "completed",
+            status: "running",
             runData: result.runData,
           });
-        },
-      });
+        }
+        return;
+      }
+      if (result.kind === "wait") {
+        const committed = await finalizeWaiting(deps.pool, fence, {
+          kind: result.waitReason,
+          fingerprint: result.fingerprint,
+          allowedOptionIds: result.allowedOptionIds,
+          allowedOfferIds: result.allowedOfferIds,
+          ...(result.proposalId ? { proposalId: result.proposalId } : {}),
+          graphVersion: "coordinator-v1",
+          createdRevision: claim.acceptedRevision,
+          engine: "coordinator-v1",
+          coordinatorRunId: run.id,
+          optionPayload: result.optionPayload,
+          extraWrites: async (client) => {
+            await updateCoordinatorRun(client, {
+              runId: current.id,
+              step: result.step,
+              waitReason: result.waitReason,
+              status: "waiting",
+              runData: result.runData,
+            });
+            await appendAssistantMessage(client, claim, result.runData);
+          },
+        });
+        if (!committed) {
+          deps.logger?.({
+            level: "warn",
+            component: "coordinator",
+            message: "stale coordinator finalization refused",
+            operationId: claim.operationId,
+          });
+        }
+        return;
+      }
+      if (result.kind === "complete") {
+        await finalizeSuccess(deps.pool, fence, {
+          result: result.result,
+          summary: result.summary,
+          workflowStatus: result.workflowStatus,
+          ...(answeringDecisionId ? { resolveDecisionId: answeringDecisionId } : {}),
+          extraWrites: async (client) => {
+            await appendAssistantMessage(client, claim, result.runData);
+            if (claim.kind !== "decision") {
+              // A command that completes without a new decision retires the
+              // interrupted one; a decision operation is answering it instead.
+              await cancelPendingCoordinatorDecisions(client, claim, current.id);
+            }
+            await updateCoordinatorRun(client, {
+              runId: current.id,
+              step: "completed",
+              waitReason: null,
+              status: "completed",
+              runData: result.runData,
+            });
+          },
+        });
+        return;
+      }
+      if (result.kind === "fail") {
+        await finalizeFailure(deps.pool, fence, {
+          code: result.code,
+          message: result.reason,
+          exhausted: true,
+          extraWrites: async (client) => {
+            // A failed run cannot answer a pending decision; retire it so the UI
+            // never offers a dead decision.
+            await cancelPendingCoordinatorDecisions(client, claim, current.id);
+            await updateCoordinatorRun(client, {
+              runId: current.id,
+              step: "failed",
+              waitReason: null,
+              status: "failed",
+              runData: result.runData,
+              failureCode: result.code,
+            });
+          },
+        });
+        return;
+      }
       return;
     }
-    if (result.kind === "fail") {
-      await finalizeFailure(deps.pool, fence, {
-        code: result.code,
-        message: result.reason,
-        exhausted: true,
-        extraWrites: async (client) => {
-          // A failed run cannot answer a pending decision; retire it so the UI
-          // never offers a dead decision.
-          await cancelPendingCoordinatorDecisions(client, claim, current.id);
+    throw new Error(`coordinator operation ${claim.operationId} exceeded its transition budget`);
+  } catch (error) {
+    if (error instanceof StaleFencingError) {
+      // A rotated fence means another claim owns the operation; never write.
+      return;
+    }
+    const code = safeErrorCode(error);
+    const message = (error instanceof Error ? error.message : String(error)).slice(0, 500);
+    const failedRun = run;
+    const failedRunWrite = failedRun
+      ? async (client: Pick<PoolClient, "query">): Promise<void> => {
           await updateCoordinatorRun(client, {
-            runId: current.id,
+            runId: failedRun.id,
             step: "failed",
             waitReason: null,
             status: "failed",
-            runData: result.runData,
-            failureCode: result.code,
+            runData: failedRun.runData,
+            failureCode: code,
           });
-        },
+        }
+      : undefined;
+    const terminal = isTerminalConflictCode(code);
+    if (terminal && claim.kind === "decision") {
+      // The resume consumed its decision before this failure, so expose the
+      // unfinished failed run for explicit owner recovery.
+      await finalizeFailure(deps.pool, fence, {
+        code,
+        message,
+        exhausted: true,
+        ...(failedRunWrite ? { extraWrites: failedRunWrite } : {}),
       });
-      return;
+    } else if (terminal) {
+      const committed = await finalizeConflict(deps.pool, fence, {
+        code,
+        message,
+        ...(failedRunWrite ? { extraWrites: failedRunWrite } : {}),
+      });
+      if (committed && isChatOperation(claim)) {
+        // A failed chat request must not stay silent in the conversation.
+        await appendConversationMessage(deps.pool, {
+          tripId: claim.tripId,
+          role: "assistant",
+          content: `I could not complete that request (${code}). No confirmed reservation was changed.`,
+          interpretation: { kind: "unsupported" },
+          operationId: claim.operationId,
+          requestId: claim.operationId,
+        });
+      }
+    } else {
+      const exhausted = claim.autoClaims >= MAX_AUTO_CLAIMS_PER_ROUND;
+      await finalizeFailure(deps.pool, fence, {
+        code,
+        message,
+        exhausted,
+        ...(exhausted ? { extraWrites: failedRunWrite } : {}),
+      });
     }
-    return;
+    deps.logger?.({
+      level: "error",
+      component: "coordinator",
+      message: "operation failed",
+      operationId: claim.operationId,
+      code,
+    });
   }
-  throw new Error(`coordinator operation ${claim.operationId} exceeded its transition budget`);
 }

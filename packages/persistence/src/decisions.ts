@@ -39,7 +39,9 @@ export async function loadDecision(
     ...(row.proposal_id ? { proposalId: row.proposal_id } : {}),
     status: row.status,
     sourceFingerprint: row.source_fingerprint,
-    allowedOfferIds: Array.isArray(row.allowed_offer_ids) ? (row.allowed_offer_ids as string[]) : [],
+    allowedOfferIds: Array.isArray(row.allowed_offer_ids)
+      ? (row.allowed_offer_ids as string[])
+      : [],
     allowedOptionIds: Array.isArray(row.allowed_option_ids)
       ? (row.allowed_option_ids as string[])
       : [],
@@ -71,7 +73,10 @@ export interface InsertDecisionInput {
   readonly status?: "pending" | "resolved" | "cancelled";
 }
 
-export async function insertDecision(client: Queryable, input: InsertDecisionInput): Promise<string> {
+export async function insertDecision(
+  client: Queryable,
+  input: InsertDecisionInput,
+): Promise<string> {
   const id = input.id ?? randomUUID();
   await client.query(
     `INSERT INTO odft_app.pending_decisions
@@ -82,7 +87,7 @@ export async function insertDecision(client: Queryable, input: InsertDecisionInp
       id,
       input.tripId,
       input.kind,
-      input.engine ?? "langgraph",
+      input.engine ?? "coordinator-v1",
       input.threadId ?? null,
       input.graphVersion ?? null,
       input.coordinatorRunId ?? null,
@@ -134,7 +139,9 @@ export async function getPendingDecisionForTrip(
     ...(row.proposal_id ? { proposalId: row.proposal_id } : {}),
     status: row.status,
     sourceFingerprint: row.source_fingerprint,
-    allowedOfferIds: Array.isArray(row.allowed_offer_ids) ? (row.allowed_offer_ids as string[]) : [],
+    allowedOfferIds: Array.isArray(row.allowed_offer_ids)
+      ? (row.allowed_offer_ids as string[])
+      : [],
     allowedOptionIds: Array.isArray(row.allowed_option_ids)
       ? (row.allowed_option_ids as string[])
       : [],

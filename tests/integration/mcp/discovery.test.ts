@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { McpClient } from "@odft/protocols";
-import { endWorkerPools, type WorkerPools } from "../graph/_setup.js";
+import { endWorkerPools, type WorkerPools } from "../_setup.js";
 import {
   MCP_TEST_PORTS,
   createMcpTestPool,
@@ -118,7 +118,10 @@ describe("MCP host discovery", () => {
       uri: `odft://scenario/${seededSnapshot.snapshotId}/manifest`,
     });
     const text = read.contents[0] && "text" in read.contents[0] ? read.contents[0].text : "";
-    const parsed = JSON.parse(text) as { snapshotId: string; domainContentHashes: Record<string, string> };
+    const parsed = JSON.parse(text) as {
+      snapshotId: string;
+      domainContentHashes: Record<string, string>;
+    };
     expect(parsed.snapshotId).toBe(seededSnapshot.snapshotId);
 
     // Revoking the delegation makes the manifest unreadable immediately.
@@ -135,14 +138,11 @@ describe("MCP host discovery", () => {
   }, 60_000);
 
   it("rejects an unauthenticated request before any dispatch", async () => {
-    const response = await fetch(
-      `http://127.0.0.1:${MCP_TEST_PORTS.geography}/geography/mcp`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: "Bearer wrong-token" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-      },
-    );
+    const response = await fetch(`http://127.0.0.1:${MCP_TEST_PORTS.geography}/geography/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer wrong-token" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
     expect(response.status).toBe(401);
   });
 
@@ -202,7 +202,10 @@ describe("MCP host discovery", () => {
     const before = await pool.query<{ count: string }>(
       `SELECT count(*) AS count FROM odft_app.protocol_observations WHERE source = 'mcp-geography'`,
     );
-    await client.callTool("odft-geography", { name: "search_countries", arguments: { q: "Czech" } });
+    await client.callTool("odft-geography", {
+      name: "search_countries",
+      arguments: { q: "Czech" },
+    });
     const rows = await pool.query<{ payload: Record<string, unknown> }>(
       `SELECT payload FROM odft_app.protocol_observations
         WHERE source = 'mcp-geography' ORDER BY created_at DESC LIMIT 1`,

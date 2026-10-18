@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { decisionKindSchema, operationStatusSchema, scenarioDomainSchema } from "./enums.js";
-import { graphDefinitionSchema } from "./graph-definition.js";
 import { instantSchema, nonEmptyStringSchema, uuidSchema } from "./primitives.js";
 import { publicProtocolObservationSchema } from "./protocol-observations.js";
 import { publicVoiceCallSchema } from "./voice.js";
@@ -180,7 +179,6 @@ export const publicInspectorSchema = z
   .object({
     /** Current persisted scenario mode (`normal` when no overlay is armed). */
     scenarioMode: nonEmptyStringSchema.max(80),
-    graph: graphDefinitionSchema.nullable(),
     nodes: z.array(publicInspectorNodeSchema).max(64),
     operations: z.array(publicInspectorOperationSchema).max(200),
     checkpoints: z.array(publicInspectorCheckpointSchema).max(200),

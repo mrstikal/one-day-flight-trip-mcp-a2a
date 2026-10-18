@@ -10,12 +10,8 @@ import {
 import { runCoordinatorOperation } from "@odft/workflow";
 import { createA2ADelegationTransport } from "../../../apps/worker/src/coordinator-transport.js";
 import { createTravelPortsFactory } from "../../../apps/worker/src/travel/ports.js";
-import { createTestAiService } from "../graph/_setup.js";
-import {
-  startAccommodationAgent,
-  stopAgent,
-  waitForAgentReady,
-} from "../a2a/_setup-agents.js";
+import { createTestAiService } from "../_setup.js";
+import { startAccommodationAgent, stopAgent, waitForAgentReady } from "../a2a/_setup-agents.js";
 import {
   claimCoordinator,
   coordinatorClientConfigForTest,
@@ -186,7 +182,11 @@ describe("coordinator recovery", () => {
       claim,
     );
 
-    const before = await harness.pool.query<{ id: string; payload_hash: string; delivery_state: string }>(
+    const before = await harness.pool.query<{
+      id: string;
+      payload_hash: string;
+      delivery_state: string;
+    }>(
       `SELECT d.id, om.payload_hash, om.delivery_state
          FROM odft_app.agent_delegations d
          JOIN odft_app.protocol_outbound_messages om ON om.delegation_id = d.id
@@ -615,12 +615,8 @@ describe("coordinator recovery", () => {
         WHERE trip_id = $1 ORDER BY created_at ASC`,
       [tripId],
     );
-    const hotel = delegations.rows.filter(
-      (row) => row.skill_id === "accommodation.recommend.v1",
-    );
-    const city = delegations.rows.filter(
-      (row) => row.skill_id === "city-guide.research.v1",
-    );
+    const hotel = delegations.rows.filter((row) => row.skill_id === "accommodation.recommend.v1");
+    const city = delegations.rows.filter((row) => row.skill_id === "city-guide.research.v1");
     expect(hotel.map((row) => row.status).sort()).toEqual(["completed", "failed"]);
     // The completed City Guide sibling was reused, never re-run.
     expect(city).toHaveLength(1);

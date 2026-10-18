@@ -61,7 +61,6 @@ const pool = new Pool({ connectionString: requireTestDatabaseUrl(), max: 4 });
 
 beforeAll(async () => {
   await pool.query("DROP SCHEMA IF EXISTS odft_app CASCADE");
-  await pool.query("DROP SCHEMA IF EXISTS odft_checkpoint CASCADE");
   await runMigrations(pool);
   await loadReferenceData(pool);
 });

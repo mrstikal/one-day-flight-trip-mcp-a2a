@@ -1,16 +1,14 @@
 import type { Pool } from "pg";
 import type { Engine } from "@odft/contracts";
 import { lockTrip } from "../trips.js";
-import { acquireCheckpointGate } from "./fencing.js";
 
 /**
  * Durable operation claiming (02-architecture.md section 6).
  *
  * A worker claims eligible work with `FOR UPDATE SKIP LOCKED`, rotates the
- * fencing token, and sets a lease. Rotation acquires the same
- * `checkpoint-write:<tripId>` gate the fenced saver uses, so an already-admitted
- * checkpoint write finishes before a new token is committed and every later
- * stale write is rejected.
+ * fencing token, and sets a lease. Archived legacy trips are never claimable:
+ * Phase 11 keeps them as read-only history. Rotation remains serialized by the
+ * operation row lock, so a stale writer can never commit under an old token.
  */
 
 export const DEFAULT_LEASE_MS = 60_000;
@@ -108,6 +106,7 @@ export async function claimNextOperation(
          FROM odft_app.workflow_operations
         WHERE auto_claims < $1
           AND (status = 'queued' OR (status = 'running' AND lease_expires_at < now()))
+          AND trip_id IN (SELECT id FROM odft_app.trips WHERE archived_at IS NULL)
           ${engineFilter}
         ORDER BY created_at ASC, id ASC
         FOR UPDATE SKIP LOCKED
@@ -120,9 +119,7 @@ export async function claimNextOperation(
       return null;
     }
 
-    // Rotate the fencing token under the checkpoint gate before committing.
-    await acquireCheckpointGate(client, candidate.trip_id);
-
+    // Rotate the fencing token before committing.
     const updated = await client.query<ClaimRow>(
       `UPDATE odft_app.workflow_operations
           SET status = 'running',
@@ -164,6 +161,7 @@ export async function claimOperationById(
       `SELECT id, trip_id FROM odft_app.workflow_operations
         WHERE id = $1 AND auto_claims < $2
           AND (status = 'queued' OR (status = 'running' AND lease_expires_at < now()))
+          AND trip_id IN (SELECT id FROM odft_app.trips WHERE archived_at IS NULL)
           ${engineFilter}
         FOR UPDATE SKIP LOCKED`,
       options.engines
@@ -175,7 +173,6 @@ export async function claimOperationById(
       await client.query("COMMIT");
       return null;
     }
-    await acquireCheckpointGate(client, candidate.trip_id);
     const updated = await client.query<ClaimRow>(
       `UPDATE odft_app.workflow_operations
           SET status = 'running',
@@ -208,7 +205,10 @@ export async function claimOperationById(
  * Marks them `failed`, flags the trip for owner recovery, and records an event.
  * Returns the number reaped.
  */
-export async function reapExhaustedOperations(pool: Pool, options: { limit?: number } = {}): Promise<number> {
+export async function reapExhaustedOperations(
+  pool: Pool,
+  options: { limit?: number } = {},
+): Promise<number> {
   const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
   const client = await pool.connect();
   try {
@@ -222,6 +222,7 @@ export async function reapExhaustedOperations(pool: Pool, options: { limit?: num
         WHERE status = 'running'
           AND auto_claims >= $1
           AND lease_expires_at < now()
+          AND trip_id IN (SELECT id FROM odft_app.trips WHERE archived_at IS NULL)
         ORDER BY lease_expires_at ASC
         LIMIT $2`,
       [MAX_AUTO_CLAIMS_PER_ROUND, limit],
@@ -233,6 +234,7 @@ export async function reapExhaustedOperations(pool: Pool, options: { limit?: num
         `SELECT id FROM odft_app.workflow_operations
           WHERE id = $1 AND status = 'running'
             AND auto_claims >= $2 AND lease_expires_at < now()
+            AND trip_id IN (SELECT id FROM odft_app.trips WHERE archived_at IS NULL)
           FOR UPDATE`,
         [candidate.id, MAX_AUTO_CLAIMS_PER_ROUND],
       );

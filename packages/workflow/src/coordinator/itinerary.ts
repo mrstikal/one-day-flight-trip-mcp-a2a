@@ -13,7 +13,7 @@ import {
   ItineraryPersistenceError,
   type ClaimedOperation,
 } from "@odft/persistence";
-import type { TravelPorts } from "../travel/ports.js";
+import type { TravelPorts } from "./ports.js";
 import type { CoordinatorAgentBinding } from "./dispatch.js";
 import {
   acceptArtifact,
@@ -286,7 +286,15 @@ export async function startItineraryAttempt(
 function acceptedItineraryArtifact(
   artifacts: readonly { artifactId: string; data: unknown }[],
   delegation: Awaited<ReturnType<typeof getAgentDelegation>>,
-): { ok: true; stops: ReturnType<typeof itineraryProposalSchema.parse>["stops"]; attempt: number; payloadHash: string } | { ok: false; reason: string } | undefined {
+):
+  | {
+      ok: true;
+      stops: ReturnType<typeof itineraryProposalSchema.parse>["stops"];
+      attempt: number;
+      payloadHash: string;
+    }
+  | { ok: false; reason: string }
+  | undefined {
   if (!delegation) {
     return undefined;
   }
@@ -318,7 +326,10 @@ function acceptedItineraryArtifact(
 }
 
 function feedbackFromIssues(issues: readonly { code: string; message: string }[]): string[] {
-  return [...new Set(issues.map((issue) => `${issue.code}: ${issue.message}`.slice(0, 300)))].slice(0, 10);
+  return [...new Set(issues.map((issue) => `${issue.code}: ${issue.message}`.slice(0, 300)))].slice(
+    0,
+    10,
+  );
 }
 
 /**
@@ -511,6 +522,16 @@ export async function pollItineraryAttempt(
     throw error;
   }
 
+  // Phase 10 scenario E: the injected first-attempt overlap is always repaired
+  // inside the bounded loop, even when the deterministic validator happens to
+  // consider the corrupted draft valid. The second attempt carries the labeled
+  // "repaired within the bounded loop" note.
+  if (plan.simulatedFailure && data.planningAttempt === 1) {
+    return startItineraryAttempt(deps, claim, trip, data, [
+      ...data.feedback,
+      "INJECTED_OVERLAP: the draft contains a simulated first-attempt overlap; replan once.",
+    ]);
+  }
   if (plan.status === "invalid" || !plan.itineraryId) {
     const feedback = feedbackFromIssues(plan.errors);
     if (data.planningAttempt < MAX_ITINERARY_ATTEMPTS) {

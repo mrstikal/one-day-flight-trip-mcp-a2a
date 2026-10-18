@@ -52,7 +52,9 @@ export function toTripRecord(row: TripRow): TripRecord {
     sightseeingDate: row.sightseeing_date,
     travelVariant: row.travel_variant,
     preferences: tripPreferencesSchema.parse(row.preferences),
-    ...(row.active_scenario_snapshot_id ? { activeScenarioSnapshotId: row.active_scenario_snapshot_id } : {}),
+    ...(row.active_scenario_snapshot_id
+      ? { activeScenarioSnapshotId: row.active_scenario_snapshot_id }
+      : {}),
     ...(row.current_route_validation_id
       ? { currentRouteValidationId: row.current_route_validation_id }
       : {}),
@@ -103,7 +105,7 @@ export interface InsertTripInput {
   readonly graphVersion: string;
   readonly creationRequestId: string;
   readonly creationPayloadHash: string;
-  /** Phase 07: engine of the new trip (default `langgraph`). */
+  /** Phase 11: engine of the new trip (defaults to the coordinator). */
   readonly engine?: Engine;
 }
 
@@ -128,7 +130,7 @@ export async function insertTrip(client: Queryable, input: InsertTripInput): Pro
       input.graphVersion,
       input.creationRequestId,
       input.creationPayloadHash,
-      input.engine ?? "langgraph",
+      input.engine ?? "coordinator-v1",
     ],
   );
 }

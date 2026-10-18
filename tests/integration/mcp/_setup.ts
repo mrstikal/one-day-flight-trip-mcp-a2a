@@ -1,6 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Pool } from "pg";
-import { insertAgentDelegation } from "@odft/persistence";
+import {
+  claimNextOperation,
+  completeOperation,
+  getTrip,
+  insertAgentDelegation,
+} from "@odft/persistence";
+import { createTravelScenarioService } from "@odft/services";
 import { DEFAULT_PROTOCOL_TIMEOUTS, type ProtocolConfig } from "@odft/protocols";
 import {
   FLIGHT_AGENT_PASSWORD,
@@ -10,13 +16,12 @@ import {
   runProtocolRoleSetup,
 } from "../../fixtures/protocols/roles.js";
 import {
-  createGraphTestPool,
-  createHarnessTrip,
+  createFixtureTrip,
+  createTestPool,
   createWorkerPools,
-  resetGraphDatabase,
+  resetDatabase,
   type WorkerPools,
-} from "../graph/_setup.js";
-import { driveToFlightConfirmed } from "../research/_setup.js";
+} from "../_setup.js";
 
 /**
  * Phase 04 MCP integration setup: real PostgreSQL with the read-only role,
@@ -56,7 +61,7 @@ export function requireTestDatabaseUrl(): string {
 }
 
 export function createMcpTestPool(max = 8): Pool {
-  return createGraphTestPool(max);
+  return createTestPool(max);
 }
 
 export function createMcpTestWorkerPools(max = 8): WorkerPools {
@@ -64,7 +69,7 @@ export function createMcpTestWorkerPools(max = 8): WorkerPools {
 }
 
 export async function resetMcpDatabase(pool: Pool): Promise<void> {
-  await resetGraphDatabase(pool);
+  await resetDatabase(pool);
 }
 
 /** Seed one frozen snapshot via the real worker harness and create delegations. */
@@ -72,28 +77,46 @@ export async function seedDelegatedSnapshot(
   pool: Pool,
   pools: WorkerPools,
 ): Promise<SeededSnapshot> {
-  const { tripId, sessionId } = await createHarnessTrip(pool);
-  await driveToFlightConfirmed(pool, pools, tripId, sessionId);
-  const snapshot = await pool.query<{ active_scenario_snapshot_id: string }>(
-    `SELECT active_scenario_snapshot_id FROM odft_app.trips WHERE id = $1`,
-    [tripId],
-  );
-  const snapshotId = snapshot.rows[0]?.active_scenario_snapshot_id;
+  const { tripId, sessionId } = await createFixtureTrip(pool);
+  const claim = await claimNextOperation(pools.operations, {
+    workerId: "mcp-seed",
+    leaseMs: 30_000,
+    engines: ["coordinator-v1"],
+  });
+  if (!claim) {
+    throw new Error("fixture trip has no claimable creation operation");
+  }
+  const scenario = createTravelScenarioService({
+    pool,
+    authority: {
+      kind: "operation",
+      tripId,
+      operationId: claim.operationId,
+      fencingToken: claim.fencingToken,
+    },
+  });
+  await scenario.evaluateRoute(tripId);
+  const materialized = await scenario.materializeFlights(tripId);
+  if (!materialized) {
+    throw new Error("fixture trip has no materialized flight snapshot");
+  }
+  await scenario.validateSchedules({ tripId, snapshotId: materialized.snapshotId });
+  const trip = await getTrip(pool, tripId);
+  const snapshotId = trip?.activeScenarioSnapshotId;
   if (!snapshotId) {
-    throw new Error("harness trip has no frozen snapshot");
+    throw new Error("fixture trip has no frozen snapshot");
   }
   const route = await pool.query<{ id: string }>(
     `SELECT current_route_validation_id AS id FROM odft_app.trips WHERE id = $1`,
     [tripId],
   );
-  const operation = await pool.query<{ id: string }>(
-    `SELECT id FROM odft_app.workflow_operations WHERE trip_id = $1 ORDER BY created_at DESC LIMIT 1`,
-    [tripId],
-  );
-  const operationId = operation.rows[0]?.id;
-  if (!operationId) {
-    throw new Error("harness trip has no operation");
-  }
+  const operationId = claim.operationId;
+  await completeOperation(pools.operations, {
+    operationId,
+    fencingToken: claim.fencingToken,
+    status: "waiting",
+    result: { seeded: true },
+  });
 
   const delegation = async (
     agentIdentity: string,
@@ -128,13 +151,11 @@ export async function seedDelegatedSnapshot(
     allowRouteValidation: true,
   });
   await delegation("accommodation-agent", ["hotel"]);
-  const cityGuideDelegation = await delegation("city-guide-agent", [
-    "breakfast",
-    "lunch",
-    "dinner",
-    "attractions",
-    "events",
-  ], { allowItinerary: true });
+  const cityGuideDelegation = await delegation(
+    "city-guide-agent",
+    ["breakfast", "lunch", "dinner", "attractions", "events"],
+    { allowItinerary: true },
+  );
   void flightDelegation;
   void cityGuideDelegation;
 
@@ -239,7 +260,9 @@ export async function stopMcpHost(child: ChildProcess | undefined): Promise<void
 }
 
 /** MCP client config for one authenticated agent identity (test tokens). */
-export function mcpConfigFor(identity: "flight-agent" | "accommodation-agent" | "city-guide-agent"): ProtocolConfig {
+export function mcpConfigFor(
+  identity: "flight-agent" | "accommodation-agent" | "city-guide-agent",
+): ProtocolConfig {
   const token =
     identity === "flight-agent"
       ? AGENT_TOKENS.flight
@@ -263,9 +286,21 @@ export function mcpConfigFor(identity: "flight-agent" | "accommodation-agent" | 
     mcpRegistry: {
       schemaVersion: 1,
       services: [
-        { serviceName: "odft-geography", endpointUrl: `http://127.0.0.1:${MCP_TEST_PORTS.geography}/geography/mcp`, credentialRef: "TEST_TOKEN" },
-        { serviceName: "odft-travel-data", endpointUrl: `http://127.0.0.1:${MCP_TEST_PORTS.travelData}/travel-data/mcp`, credentialRef: "TEST_TOKEN" },
-        { serviceName: "odft-itinerary-tools", endpointUrl: `http://127.0.0.1:${MCP_TEST_PORTS.itineraryTools}/itinerary-tools/mcp`, credentialRef: "TEST_TOKEN" },
+        {
+          serviceName: "odft-geography",
+          endpointUrl: `http://127.0.0.1:${MCP_TEST_PORTS.geography}/geography/mcp`,
+          credentialRef: "TEST_TOKEN",
+        },
+        {
+          serviceName: "odft-travel-data",
+          endpointUrl: `http://127.0.0.1:${MCP_TEST_PORTS.travelData}/travel-data/mcp`,
+          credentialRef: "TEST_TOKEN",
+        },
+        {
+          serviceName: "odft-itinerary-tools",
+          endpointUrl: `http://127.0.0.1:${MCP_TEST_PORTS.itineraryTools}/itinerary-tools/mcp`,
+          credentialRef: "TEST_TOKEN",
+        },
       ],
     },
     timeouts: DEFAULT_PROTOCOL_TIMEOUTS,

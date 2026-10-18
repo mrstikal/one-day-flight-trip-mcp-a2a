@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { ChildProcess } from "node:child_process";
 import { Pool } from "pg";
 import { expect, test, type Page } from "@playwright/test";
-import { startWorker, stopWorker, resetRateLimits } from "./_worker.js";
+import { startWorker, stopWorker, resetRateLimits, type E2eServices } from "./_worker.js";
 
 /**
  * AC-09-4/5 (Phase 09): scenario C renders the empty compatible hotel set with
@@ -18,22 +17,18 @@ const ORIGIN = process.env.PUBLIC_BASE_URL ?? "http://localhost:3000";
 test.use({ baseURL: ORIGIN });
 test.setTimeout(240_000);
 
-let worker: ChildProcess | undefined;
+let worker: E2eServices | undefined;
 
 test.beforeAll(async () => {
   await resetRateLimits();
-  worker = startWorker();
+  worker = await startWorker();
 });
 
 test.afterAll(async () => {
   await stopWorker(worker);
 });
 
-async function armFault(
-  tripId: string,
-  domain: string,
-  fault: string,
-): Promise<void> {
+async function armFault(tripId: string, domain: string, fault: string): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required for the Phase 09 e2e faults");
@@ -117,7 +112,8 @@ test("scenario D: the retried hotel research renders siblings and labels the sim
 
 test("scenario C: an empty compatible hotel set explains the gap and offers retry", async ({
   page,
-}) => {  const tripId = await createTrip(page);
+}) => {
+  const tripId = await createTrip(page);
   expect(tripId).not.toBe("");
   await armFault(tripId, "hotels", "hotels_unavailable");
   await bookFlight(page);

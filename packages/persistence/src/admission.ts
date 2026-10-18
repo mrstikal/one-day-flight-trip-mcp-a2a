@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
+  COORDINATOR_VERSION,
   DECISION_ALLOWED_ACTIONS,
   DEFAULT_TRIP_PREFERENCES,
   isNoOpSetRoute,
@@ -13,18 +14,13 @@ import {
   type ErrorEnvelope,
   type ResumeRequest,
   type TripPreferences,
-  type Engine,
 } from "@odft/contracts";
 import { contentHash } from "./hash.js";
 import { insertEvent } from "./events.js";
 import { readEffect, writeEffect } from "./effects.js";
 import { insertConversationMessage } from "./conversations.js";
 import { loadDecision } from "./decisions.js";
-import {
-  getActiveOperation,
-  getOperationByRequestId,
-  insertOperation,
-} from "./operations.js";
+import { getActiveOperation, getOperationByRequestId, insertOperation } from "./operations.js";
 import { insertTrip, lockTrip } from "./trips.js";
 
 /**
@@ -33,17 +29,9 @@ import { insertTrip, lockTrip } from "./trips.js";
  * lock. Only accepted user requests advance `trip.revision`, exactly once.
  */
 
-export const GRAPH_VERSION = "graph-v0";
-
 export interface CreateTripOptions {
   readonly sessionId: string;
   readonly input: CreationInput;
-  /**
-   * Phase 07: engine of the NEW trip. Defaults to `langgraph`; existing trips
-   * keep their engine (immutable). Coordinator trips exist only when explicitly
-   * requested (server-controlled test configuration).
-   */
-  readonly engine?: Engine;
 }
 
 export interface CreateTripResult {
@@ -112,7 +100,10 @@ export async function createTrip(
     if (existingTrip) {
       if (existingTrip.creation_payload_hash !== payloadHash) {
         await client.query("ROLLBACK");
-        return error("CREATION_CONFLICT", "the creation request id was reused with a different payload");
+        return error(
+          "CREATION_CONFLICT",
+          "the creation request id was reused with a different payload",
+        );
       }
       const operation = await client.query<{ id: string }>(
         `SELECT id FROM odft_app.workflow_operations
@@ -171,10 +162,10 @@ export async function createTrip(
       sightseeingDate: input.sightseeingDate,
       travelVariant: input.travelVariant,
       preferences,
-      graphVersion: GRAPH_VERSION,
+      graphVersion: COORDINATOR_VERSION,
       creationRequestId: input.creationRequestId,
       creationPayloadHash: payloadHash,
-      engine: options.engine ?? "langgraph",
+      engine: "coordinator-v1",
     });
     const operation = await insertOperation(client, {
       tripId,
@@ -183,7 +174,7 @@ export async function createTrip(
       acceptedRevision: 1,
       kind: "creation",
       payload: input,
-      engine: options.engine ?? "langgraph",
+      engine: "coordinator-v1",
     });
     await insertEvent(client, {
       tripId,
@@ -208,7 +199,10 @@ export async function createTrip(
         return error("CONFLICT", "concurrent creation conflict");
       }
       if (trip.creation_payload_hash !== payloadHash) {
-        return error("CREATION_CONFLICT", "the creation request id was reused with a different payload");
+        return error(
+          "CREATION_CONFLICT",
+          "the creation request id was reused with a different payload",
+        );
       }
       const operation = await client.query<{ id: string }>(
         `SELECT id FROM odft_app.workflow_operations
@@ -229,7 +223,10 @@ export async function createTrip(
 
 function isCreationUniqueViolation(error: unknown): boolean {
   const candidate = error as { code?: string; constraint?: string };
-  return candidate.code === "23505" && candidate.constraint === "trips_session_id_creation_request_id_key";
+  return (
+    candidate.code === "23505" &&
+    candidate.constraint === "trips_session_id_creation_request_id_key"
+  );
 }
 
 export async function admitOperation(
@@ -238,7 +235,8 @@ export async function admitOperation(
 ): Promise<AdmitOperationResult | ErrorEnvelope> {
   const { tripId, sessionId, request } = options;
   const command = "command" in request ? request.command : undefined;
-  const payload = "command" in request ? request.command : { kind: "chat" as const, message: request.chat };
+  const payload =
+    "command" in request ? request.command : { kind: "chat" as const, message: request.chat };
   const payloadHash = contentHash(request);
   const client = await pool.connect();
   try {
@@ -253,8 +251,12 @@ export async function admitOperation(
     const existing = await getOperationByRequestId(client, tripId, request.requestId);
     if (existing) {
       // Ownership must be validated even on the dedupe path.
-      const owner = await client.query<{ session_id: string; archived_at: string | null }>(
-        `SELECT session_id, archived_at::text AS archived_at FROM odft_app.trips WHERE id = $1`,
+      const owner = await client.query<{
+        session_id: string;
+        engine: string;
+        archived_at: string | null;
+      }>(
+        `SELECT session_id, engine, archived_at::text AS archived_at FROM odft_app.trips WHERE id = $1`,
         [tripId],
       );
       if (owner.rows[0]?.session_id !== sessionId) {
@@ -262,9 +264,9 @@ export async function admitOperation(
         return error("FORBIDDEN", "trip is not owned by this session");
       }
       // Phase 09 history: an archived trip replays nothing as accepted.
-      if (owner.rows[0]?.archived_at) {
+      if (owner.rows[0]?.archived_at || owner.rows[0]?.engine === "langgraph") {
         await client.query("ROLLBACK");
-        return error("TRIP_ARCHIVED", "archived trips are read-only history");
+        return error("TRIP_ARCHIVED", "archived or legacy trips are read-only history");
       }
       if (existing.record.payloadHash !== payloadHash) {
         await client.query("ROLLBACK");
@@ -299,11 +301,11 @@ export async function admitOperation(
       await client.query("ROLLBACK");
       return error("FORBIDDEN", "trip is not owned by this session");
     }
-    // Phase 09 history: archived trips are read-only (defense in depth — the
-    // BFF already rejects these writes with TRIP_ARCHIVED).
-    if (trip.archivedAt) {
+    // Phase 09/11 history: archived or legacy trips are read-only (defense in
+    // depth — the BFF already rejects these writes with TRIP_ARCHIVED).
+    if (trip.archivedAt || trip.engine === "langgraph") {
       await client.query("ROLLBACK");
-      return error("TRIP_ARCHIVED", "archived trips are read-only history");
+      return error("TRIP_ARCHIVED", "archived or legacy trips are read-only history");
     }
 
     // Re-check the dedupe key now that we hold the trip lock: a concurrent
@@ -422,8 +424,12 @@ export async function admitResume(
 
     const existing = await getOperationByRequestId(client, tripId, request.requestId);
     if (existing) {
-      const owner = await client.query<{ session_id: string; archived_at: string | null }>(
-        `SELECT session_id, archived_at::text AS archived_at FROM odft_app.trips WHERE id = $1`,
+      const owner = await client.query<{
+        session_id: string;
+        engine: string;
+        archived_at: string | null;
+      }>(
+        `SELECT session_id, engine, archived_at::text AS archived_at FROM odft_app.trips WHERE id = $1`,
         [tripId],
       );
       if (owner.rows[0]?.session_id !== sessionId) {
@@ -431,9 +437,9 @@ export async function admitResume(
         return error("FORBIDDEN", "trip is not owned by this session");
       }
       // Phase 09 history: an archived trip replays nothing as accepted.
-      if (owner.rows[0]?.archived_at) {
+      if (owner.rows[0]?.archived_at || owner.rows[0]?.engine === "langgraph") {
         await client.query("ROLLBACK");
-        return error("TRIP_ARCHIVED", "archived trips are read-only history");
+        return error("TRIP_ARCHIVED", "archived or legacy trips are read-only history");
       }
       if (existing.record.payloadHash !== payloadHash) {
         await client.query("ROLLBACK");
@@ -457,10 +463,11 @@ export async function admitResume(
       await client.query("ROLLBACK");
       return error("FORBIDDEN", "trip is not owned by this session");
     }
-    // Phase 09 history: archived trips are read-only (defense in depth).
-    if (trip.archivedAt) {
+    // Phase 09/11 history: archived or legacy trips are read-only (defense in
+    // depth).
+    if (trip.archivedAt || trip.engine === "langgraph") {
       await client.query("ROLLBACK");
-      return error("TRIP_ARCHIVED", "archived trips are read-only history");
+      return error("TRIP_ARCHIVED", "archived or legacy trips are read-only history");
     }
     const raced = await getOperationByRequestId(client, tripId, request.requestId);
     if (raced) {
@@ -580,7 +587,12 @@ export async function admitResume(
       payload: { revision: trip.revision, decisionId: request.decisionId },
     });
     await client.query("COMMIT");
-    return { status: "accepted", operationId: operation.id, revision: trip.revision, deduped: false };
+    return {
+      status: "accepted",
+      operationId: operation.id,
+      revision: trip.revision,
+      deduped: false,
+    };
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;

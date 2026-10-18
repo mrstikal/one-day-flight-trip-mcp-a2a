@@ -132,7 +132,6 @@ describe("phase 09 communication inspector", () => {
   function baseInspector() {
     return {
       scenarioMode: "normal",
-      graph: null,
       nodes: [],
       operations: [],
       checkpoints: [],
@@ -200,9 +199,7 @@ describe("phase 09 communication inspector", () => {
     expect(
       publicInspectorSchema.safeParse({
         ...baseInspector(),
-        communications: [
-          { ...parsed.communications[0], edge: "mcp" },
-        ],
+        communications: [{ ...parsed.communications[0], edge: "mcp" }],
       }).success,
     ).toBe(false);
     expect(parsed.communications.length).toBe(1);

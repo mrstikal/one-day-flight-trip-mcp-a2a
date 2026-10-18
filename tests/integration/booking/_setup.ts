@@ -1,13 +1,12 @@
-import { Pool } from "pg";
+import type { Pool } from "pg";
 import { randomUUID } from "node:crypto";
 import { BookingService } from "@odft/domain";
 import {
   PostgresBookingStore,
   createTrip,
+  insertCoordinatorRun,
   insertDecision,
   insertOperation,
-  loadReferenceData,
-  runMigrations,
 } from "@odft/persistence";
 import { createFixtureSession } from "../../fixtures/session.js";
 import { fixtureCreationInput } from "../../fixtures/trip.js";
@@ -16,36 +15,7 @@ import { insertFeasibleRoute, insertValidSchedule } from "../../fixtures/approva
 
 /** Shared real-PostgreSQL setup for Phase 03 booking integration tests. */
 
-export function requireTestDatabaseUrl(): string {
-  const url = process.env.TEST_DATABASE_URL;
-  if (!url) {
-    throw new Error(
-      "TEST_DATABASE_URL is required for integration tests. Start PostgreSQL " +
-        "(docker compose up -d postgres) and provide TEST_DATABASE_URL.",
-    );
-  }
-  if (process.env.DATABASE_URL && process.env.DATABASE_URL === url) {
-    throw new Error("TEST_DATABASE_URL must differ from DATABASE_URL.");
-  }
-  const name = new URL(url).pathname.replace(/^\//, "");
-  if (!name.endsWith("_test")) {
-    throw new Error(`Refusing to run destructive tests against non-test database "${name}".`);
-  }
-  return url;
-}
-
-export function createTestPool(max = 8): Pool {
-  return new Pool({ connectionString: requireTestDatabaseUrl(), max });
-}
-
-export async function resetDatabase(pool: Pool): Promise<void> {
-  await pool.query("DROP SCHEMA IF EXISTS odft_app CASCADE");
-  await pool.query("DROP SCHEMA IF EXISTS odft_checkpoint CASCADE");
-  await runMigrations(pool);
-  // createTrip validates geographic references, so booking tests need the
-  // committed reference data loaded.
-  await loadReferenceData(pool);
-}
+export { createTestPool, requireTestDatabaseUrl, resetDatabase } from "../_setup.js";
 
 export interface BookingFixture {
   readonly sessionId: string;
@@ -89,14 +59,25 @@ export async function createBookingFixture(pool: Pool): Promise<BookingFixture> 
       snapshotId,
     });
     const operationId = await createOperation(pool, tripId);
-    return { sessionId, tripId, operationId, snapshotId, routeValidationId, scheduleValidationId, revision: 1 };
+    return {
+      sessionId,
+      tripId,
+      operationId,
+      snapshotId,
+      routeValidationId,
+      scheduleValidationId,
+      revision: 1,
+    };
   } finally {
     client.release();
   }
 }
 
 /** A deterministic service with a fixed clock so proposals never expire mid-test. */
-export function createBookingService(pool: Pool, now = new Date("2026-12-01T12:00:00.000Z")): BookingService {
+export function createBookingService(
+  pool: Pool,
+  now = new Date("2026-12-01T12:00:00.000Z"),
+): BookingService {
   return new BookingService(new PostgresBookingStore(pool), { now: () => now });
 }
 
@@ -140,12 +121,28 @@ export async function createConfirmationDecision(
         WHERE trip_id = $1 AND status = 'pending'`,
       [input.tripId],
     );
+    const kind = input.kind ?? "booking_confirmation";
+    const revision = input.revision ?? 1;
+    // The fixture trip is a coordinator trip; bind the decision to a real run
+    // row so the row shape matches the engine binding constraint.
+    const run = await insertCoordinatorRun(client, {
+      tripId: input.tripId,
+      acceptedRevision: revision,
+      step: "awaiting_user",
+      status: "waiting",
+      waitReason: kind,
+      runData: {
+        schemaVersion: 1,
+        affectedDomains: [],
+        expectedFingerprints: {},
+      },
+    });
     return await insertDecision(client, {
       tripId: input.tripId,
-      kind: input.kind ?? "booking_confirmation",
-      threadId: input.tripId,
-      graphVersion: "graph-v0",
-      createdRevision: input.revision ?? 1,
+      kind,
+      engine: "coordinator-v1",
+      coordinatorRunId: run.id,
+      createdRevision: revision,
       sourceFingerprint: input.sourceFingerprint,
       proposalId: input.proposalId,
       allowedOfferIds: input.allowedOfferIds,

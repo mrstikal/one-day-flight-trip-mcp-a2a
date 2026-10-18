@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { McpClient } from "@odft/protocols";
-import { endWorkerPools, type WorkerPools } from "../graph/_setup.js";
+import { endWorkerPools, type WorkerPools } from "../_setup.js";
 import {
   createMcpTestPool,
   createMcpTestWorkerPools,
@@ -78,19 +78,14 @@ describe("MCP authorization", () => {
       tripId: seeded.tripId,
       agentIdentity: "city-guide-agent",
     });
-    const crossIdentity = await callTool(
-      "flight-agent",
-      "odft-geography",
-      "validate_air_route",
-      {
-        delegationId: cityGuideDelegation,
-        originAirportId: "ourairports:4408",
-        destinationCityId: "geonames:3169070",
-        sightseeingDate: "2026-12-01",
-        travelVariant: "one_night",
-        adults: 1,
-      },
-    );
+    const crossIdentity = await callTool("flight-agent", "odft-geography", "validate_air_route", {
+      delegationId: cityGuideDelegation,
+      originAirportId: "ourairports:4408",
+      destinationCityId: "geonames:3169070",
+      sightseeingDate: "2026-12-01",
+      travelVariant: "one_night",
+      adults: 1,
+    });
     expect(crossIdentity.isError).toBe(true);
     expect(crossIdentity.structuredContent?.error).toMatch(/different agent identity/);
   });
@@ -156,13 +151,18 @@ describe("MCP authorization", () => {
     expect(foreign.isError).toBe(true);
     expect(foreign.structuredContent?.error).toMatch(/not found/);
 
-    const otherSnapshot = await callTool("flight-agent", "odft-travel-data", "get_scenario_metadata", {
-      delegationId: await delegationOf(pool, {
-        tripId: seeded.tripId,
-        agentIdentity: "flight-agent",
-      }),
-      snapshotId: "22222222-2222-4222-8222-222222222222",
-    });
+    const otherSnapshot = await callTool(
+      "flight-agent",
+      "odft-travel-data",
+      "get_scenario_metadata",
+      {
+        delegationId: await delegationOf(pool, {
+          tripId: seeded.tripId,
+          agentIdentity: "flight-agent",
+        }),
+        snapshotId: "22222222-2222-4222-8222-222222222222",
+      },
+    );
     expect(otherSnapshot.isError).toBe(true);
     expect(otherSnapshot.structuredContent?.error).toMatch(/not the delegated frozen snapshot/);
   });
@@ -191,13 +191,17 @@ describe("MCP authorization", () => {
     const readonly = new Pool({ connectionString: readOnlyDatabaseUrl(), max: 1 });
     try {
       await expect(
-        readonly.query(`UPDATE odft_app.trips SET revision = revision + 1 WHERE id = $1`, [seeded.tripId]),
+        readonly.query(`UPDATE odft_app.trips SET revision = revision + 1 WHERE id = $1`, [
+          seeded.tripId,
+        ]),
       ).rejects.toThrow(/permission denied/);
       await expect(
         readonly.query(`INSERT INTO odft_app.reference_cities (id) VALUES ('x')`),
       ).rejects.toThrow(/permission denied/);
       await expect(
-        readonly.query(`DELETE FROM odft_app.scenario_snapshots WHERE id = $1`, [seeded.snapshotId]),
+        readonly.query(`DELETE FROM odft_app.scenario_snapshots WHERE id = $1`, [
+          seeded.snapshotId,
+        ]),
       ).rejects.toThrow(/permission denied/);
       await expect(
         readonly.query(

@@ -1,13 +1,13 @@
 import type { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
-  createGraphTestPool,
-  createHarnessTrip,
+  createTestPool,
+  createFixtureTrip,
   createWorkerPools,
   endWorkerPools,
-  resetGraphDatabase,
+  resetDatabase,
   type WorkerPools,
-} from "../graph/_setup.js";
+} from "../_setup.js";
 import { runClaimLoop } from "../../../apps/worker/src/claim.js";
 import { acquireTripLock, releaseTripLock } from "../../../apps/worker/src/trip-lock.js";
 import { createShutdownController } from "../../../apps/worker/src/shutdown.js";
@@ -27,12 +27,12 @@ describe("worker lifecycle", () => {
   let pools: WorkerPools;
 
   beforeAll(async () => {
-    pool = createGraphTestPool();
+    pool = createTestPool();
     pools = createWorkerPools();
   });
 
   beforeEach(async () => {
-    await resetGraphDatabase(pool);
+    await resetDatabase(pool);
   });
 
   afterAll(async () => {
@@ -41,7 +41,7 @@ describe("worker lifecycle", () => {
   });
 
   it("bounds shutdown even when an operation is blocked", async () => {
-    const { tripId } = await createHarnessTrip(pool);
+    const { tripId } = await createFixtureTrip(pool);
     const shutdown = createShutdownController(300);
     const hanging: OperationDriver = {
       runOperation: () => new Promise<void>(() => {}),
@@ -83,7 +83,7 @@ describe("worker lifecycle", () => {
   });
 
   it("survives a lost trip-lock connection via onLost", async () => {
-    const { tripId } = await createHarnessTrip(pool);
+    const { tripId } = await createFixtureTrip(pool);
     let lostError: unknown;
     let resolveLost: () => void = () => {};
     const lost = new Promise<void>((resolve) => {

@@ -19,13 +19,13 @@ import {
 import { bridgePendingObservations, reconcilePendingCancels } from "@odft/workflow";
 import { fixtureDelegation } from "./_delegation-fixture.js";
 import {
-  createGraphTestPool,
-  createHarnessTrip,
+  createTestPool,
+  createFixtureTrip,
   createWorkerPools,
   endWorkerPools,
-  resetGraphDatabase,
+  resetDatabase,
   type WorkerPools,
-} from "../graph/_setup.js";
+} from "../_setup.js";
 
 /**
  * Phase 09: atomic local cancellation, durable cancel/observation outboxes, the
@@ -45,12 +45,12 @@ describe("phase 09 cancellation and history", () => {
   let pools: WorkerPools;
 
   beforeAll(async () => {
-    pool = createGraphTestPool();
+    pool = createTestPool();
     pools = createWorkerPools();
   });
 
   beforeEach(async () => {
-    await resetGraphDatabase(pool);
+    await resetDatabase(pool);
   });
 
   afterAll(async () => {
@@ -59,7 +59,7 @@ describe("phase 09 cancellation and history", () => {
   });
 
   it("cancels a queued operation atomically without a revision bump", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     // The creation operation is queued; cancel it directly.
     const created = await pool.query<{ id: string }>(
       `SELECT id FROM odft_app.workflow_operations WHERE trip_id = $1`,
@@ -129,7 +129,7 @@ describe("phase 09 cancellation and history", () => {
   });
 
   it("refuses to cancel a stale operation while a newer one is active", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     const first = await pool.query<{ id: string }>(
       `SELECT id FROM odft_app.workflow_operations WHERE trip_id = $1 ORDER BY created_at ASC LIMIT 1`,
       [tripId],
@@ -168,7 +168,7 @@ describe("phase 09 cancellation and history", () => {
     // `cancelled` while the trip revision, reservations table, and committed
     // domain rows are untouched by the cancel transaction. A confirmed
     // reservation created BEFORE the cancel must still read back afterwards.
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     const created = await pool.query<{ id: string }>(
       `SELECT id FROM odft_app.workflow_operations WHERE trip_id = $1`,
       [tripId],
@@ -206,7 +206,7 @@ describe("phase 09 cancellation and history", () => {
   });
 
   it("revokes delegations with a durable remote-cancel intent", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     const created = await pool.query<{ id: string }>(
       `SELECT id FROM odft_app.workflow_operations WHERE trip_id = $1`,
       [tripId],
@@ -231,10 +231,9 @@ describe("phase 09 cancellation and history", () => {
     const delegation = await pool.query<{
       status: string;
       cancellation_state: string | null;
-    }>(
-      `SELECT status, cancellation_state FROM odft_app.agent_delegations WHERE id = $1`,
-      [delegationId],
-    );
+    }>(`SELECT status, cancellation_state FROM odft_app.agent_delegations WHERE id = $1`, [
+      delegationId,
+    ]);
     expect(delegation.rows[0]?.status).toBe("revoked");
     expect(delegation.rows[0]?.cancellation_state).toBe("pending");
 
@@ -302,7 +301,7 @@ describe("phase 09 cancellation and history", () => {
   });
 
   it("bridges unlinked observations to protocol.observed events in source order", async () => {
-    const { tripId } = await createHarnessTrip(pool);
+    const { tripId } = await createFixtureTrip(pool);
     const first = await insertProtocolObservation(
       pool,
       buildObservation({
@@ -361,7 +360,7 @@ describe("phase 09 cancellation and history", () => {
   });
 
   it("renders communications, MCP calls, and the timeline from persisted rows", async () => {
-    const { tripId } = await createHarnessTrip(pool);
+    const { tripId } = await createFixtureTrip(pool);
     const created = await pool.query<{ id: string }>(
       `SELECT id FROM odft_app.workflow_operations WHERE trip_id = $1`,
       [tripId],
@@ -392,16 +391,14 @@ describe("phase 09 cancellation and history", () => {
     );
 
     const inspector = await loadPublicInspector(pool, tripId);
-    expect(
-      inspector.communications.some((row) => row.agentIdentity === "flight-agent"),
-    ).toBe(true);
+    expect(inspector.communications.some((row) => row.agentIdentity === "flight-agent")).toBe(true);
     expect(inspector.mcpCalls.some((row) => row.edge === "mcp")).toBe(true);
     expect(inspector.timeline.length).toBeGreaterThanOrEqual(2);
     expect(new Set(inspector.timeline.map((row) => row.edge)).size).toBeGreaterThanOrEqual(2);
   });
 
   it("denies every write for archived trips with TRIP_ARCHIVED", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await pool.query(
       `UPDATE odft_app.trips SET archived_at = now(), archive_reason = 'test archive' WHERE id = $1`,
       [tripId],

@@ -44,7 +44,6 @@ let firstLoad: LoadResult;
 
 beforeAll(async () => {
   await pool.query("DROP SCHEMA IF EXISTS odft_app CASCADE");
-  await pool.query("DROP SCHEMA IF EXISTS odft_checkpoint CASCADE");
   await runMigrations(pool);
   firstLoad = await loadReferenceData(pool);
 });

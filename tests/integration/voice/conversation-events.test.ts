@@ -7,7 +7,7 @@ import {
   insertEvent,
   listTripEvents,
 } from "@odft/persistence";
-import { createGraphTestPool, createHarnessTrip, resetGraphDatabase } from "../graph/_setup.js";
+import { createTestPool, createFixtureTrip, resetDatabase } from "../_setup.js";
 
 /**
  * T-IT-VOICE-06/07 (VOICE_CONTROLL.md section 15): one `conversation.message_added`
@@ -21,8 +21,8 @@ describe("atomic conversation delivery", () => {
   let pool: Pool;
 
   beforeAll(async () => {
-    pool = createGraphTestPool(8);
-    await resetGraphDatabase(pool);
+    pool = createTestPool(8);
+    await resetDatabase(pool);
   });
 
   afterAll(async () => {
@@ -30,7 +30,7 @@ describe("atomic conversation delivery", () => {
   });
 
   it("writes one message and exactly one safe event per insertion, and nothing for a duplicate", async () => {
-    const { tripId } = await createHarnessTrip(pool);
+    const { tripId } = await createFixtureTrip(pool);
     const requestId = randomUUID();
     const first = await appendConversationMessage(pool, {
       tripId,
@@ -82,7 +82,7 @@ describe("atomic conversation delivery", () => {
   });
 
   it("rolls back the message and its event together", async () => {
-    const { tripId } = await createHarnessTrip(pool);
+    const { tripId } = await createFixtureTrip(pool);
     const writer = await pool.connect();
     try {
       await writer.query("BEGIN");
@@ -110,7 +110,7 @@ describe("atomic conversation delivery", () => {
   });
 
   it("orders the terminal event before its outcome message and replays stable monotonic ids", async () => {
-    const { tripId, creationOperationId } = await createHarnessTrip(pool);
+    const { tripId, creationOperationId } = await createFixtureTrip(pool);
     const revisionBefore = await pool.query<{ revision: number }>(
       `SELECT revision FROM odft_app.trips WHERE id = $1`,
       [tripId],

@@ -37,7 +37,9 @@ test.afterAll(async () => {
   await services.stop();
 });
 
-test("a crashed City Guide keeps the hotel choice and records AGENT_RESTARTED", async ({ page }) => {
+test("a crashed City Guide keeps the hotel choice and records AGENT_RESTARTED", async ({
+  page,
+}) => {
   const request = page.request;
   const session = await request.post("/api/session", { headers: { origin: ORIGIN } });
   expect([200, 201]).toContain(session.status());

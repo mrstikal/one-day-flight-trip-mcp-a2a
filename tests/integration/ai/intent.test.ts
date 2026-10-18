@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { tripPreferencesSchema } from "@odft/contracts";
 import {
@@ -12,20 +12,21 @@ import {
 } from "@odft/persistence";
 import {
   approvePendingItinerary,
-  claimNextOrFail,
-  createGraphTestPool,
-  createHarnessTrip,
+  createFixtureTrip,
   createTestAiService,
-  createTravelDriver,
-  createWorkerPools,
   driveTripToReady,
-  endWorkerPools,
-  resetGraphDatabase,
+  resolveDecision,
   resolveProgramChoices,
   sendChat,
   tripRevision,
   type WorkerPools,
 } from "./_setup.js";
+import {
+  driveUntilParked,
+  startCoordinatorHarness,
+  stopCoordinatorHarness,
+  type CoordinatorHarness,
+} from "../coordinator/_setup.js";
 
 /**
  * T-IT-AI-01 / AC-08-3,4,5: a fixture chat message becomes a validated intent,
@@ -36,19 +37,16 @@ import {
 describe("chat intent pipeline (real PostgreSQL)", () => {
   let pool: Pool;
   let pools: WorkerPools;
+  let harness: CoordinatorHarness;
 
   beforeAll(async () => {
-    pool = createGraphTestPool();
-    pools = createWorkerPools();
-  });
-
-  beforeEach(async () => {
-    await resetGraphDatabase(pool);
-  });
+    harness = await startCoordinatorHarness();
+    pool = harness.pool;
+    pools = harness.pools;
+  }, 180_000);
 
   afterAll(async () => {
-    await endWorkerPools(pools);
-    await pool.end();
+    await stopCoordinatorHarness(harness);
   });
 
   async function preferences(tripId: string) {
@@ -94,11 +92,11 @@ describe("chat intent pipeline (real PostgreSQL)", () => {
     if (!("operationId" in admitted)) {
       throw new Error(`option choice refused: ${JSON.stringify(admitted)}`);
     }
-    await createTravelDriver(pools).runOperation(await claimNextOrFail(pools));
+    await driveUntilParked(pools, tripId, 12);
   }
 
   it("applies a pace request without touching bookings or counts", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await driveTripToReady(pool, pools, tripId, sessionId);
 
     const reservationsBefore = await pool.query<{ count: string }>(
@@ -128,7 +126,7 @@ describe("chat intent pipeline (real PostgreSQL)", () => {
     expect(user?.content).toBe("Make the day less exhausting");
     expect(assistant).toBeTruthy();
     expect(assistant?.interpretation).toMatchObject({ kind: "commands" });
-    expect(JSON.stringify(assistant?.interpretation)).toContain("relaxed pace");
+    expect(assistant?.content).toContain("relaxed pace");
 
     // T-IT-LIM-03: fixture mode performs zero billable LLM calls.
     const calls = await pool.query<{ count: string }>(
@@ -139,7 +137,7 @@ describe("chat intent pipeline (real PostgreSQL)", () => {
   }, 90_000);
 
   it("keeps a numeric count absolute and independent of pace", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await driveTripToReady(pool, pools, tripId, sessionId);
 
     await sendChat(pool, pools, tripId, sessionId, "Add two more museums");
@@ -171,7 +169,12 @@ describe("chat intent pipeline (real PostgreSQL)", () => {
 
     // The user explicitly accepts the feasible reduction, which replans.
     await choosePendingOption(tripId, sessionId, reduce?.id as string);
-    await approvePendingItinerary(pool, pools, tripId, sessionId);
+    // Accepting the feasible reduction re-opens the program choices; submit them
+    // and approve the rebuilt draft (the helper also handles an approval park).
+    const afterReduce = await resolveProgramChoices(pool, pools, tripId, sessionId);
+    if (afterReduce === "itinerary_approval") {
+      await approvePendingItinerary(pool, pools, tripId, sessionId);
+    }
     prefs = await preferences(tripId);
     expect(prefs.minimumActivityCounts.museum).toBe(2);
 
@@ -183,7 +186,7 @@ describe("chat intent pipeline (real PostgreSQL)", () => {
   }, 120_000);
 
   it("asks a bounded clarification for an ambiguous request and offers typed options", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await driveTripToReady(pool, pools, tripId, sessionId);
 
     await sendChat(pool, pools, tripId, sessionId, "Make it cheaper");
@@ -197,15 +200,16 @@ describe("chat intent pipeline (real PostgreSQL)", () => {
         WHERE trip_id = $1 AND status = 'pending'`,
       [tripId],
     );
-    const options = (payload.rows[0]?.option_payload as { options?: { id: string; label: string }[] })
-      ?.options;
+    const options = (
+      payload.rows[0]?.option_payload as { options?: { id: string; label: string }[] }
+    )?.options;
     expect(options?.length).toBeGreaterThanOrEqual(2);
     expect(options?.every((option) => option.label.length > 0)).toBe(true);
     expect(options?.every((option) => !("commands" in option))).toBe(true);
   }, 90_000);
 
   it("returns a scripted limitation for unsupported input without failing the trip", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await driveTripToReady(pool, pools, tripId, sessionId);
 
     await sendChat(pool, pools, tripId, sessionId, "Please invent a moon flight");
@@ -220,13 +224,13 @@ describe("chat intent pipeline (real PostgreSQL)", () => {
       conversation.some(
         (message) =>
           message.role === "assistant" &&
-          JSON.stringify(message.interpretation).includes("unsupported"),
+          (message.interpretation as { kind?: string } | null)?.kind === "unsupported",
       ),
     ).toBe(true);
   }, 90_000);
 
   it("stores the user message inside the admission transaction (P2-5)", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await driveTripToReady(pool, pools, tripId, sessionId);
     const message = "Make the day less exhausting";
     const admitted = await admitOperation(pool, {
@@ -242,11 +246,13 @@ describe("chat intent pipeline (real PostgreSQL)", () => {
     expect("status" in admitted && admitted.status === "accepted").toBe(true);
     // The message exists BEFORE the worker ever claims the operation.
     const conversation = await listConversation(pool, tripId, 10);
-    expect(conversation.some((entry) => entry.role === "user" && entry.content === message)).toBe(true);
+    expect(conversation.some((entry) => entry.role === "user" && entry.content === message)).toBe(
+      true,
+    );
   }, 90_000);
 
   it("applies a command batch atomically and refuses the whole batch on a route change with a booking (P2-1)", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await driveTripToReady(pool, pools, tripId, sessionId);
     const before = await preferences(tripId);
     const confirmed = await pool.query<{ count: string }>(
@@ -272,7 +278,7 @@ describe("chat intent pipeline (real PostgreSQL)", () => {
   }, 90_000);
 
   it("runs a search-only request as a targeted refresh of the searched domain (P11-2)", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await driveTripToReady(pool, pools, tripId, sessionId);
 
     const reservationsBefore = await confirmedReservations(tripId);
@@ -281,7 +287,17 @@ describe("chat intent pipeline (real PostgreSQL)", () => {
     // Phase 11: the search refreshes the searched domain and presents the
     // refreshed alternatives; no confirmed reservation changed and no booking
     // was touched (the hotel stays active until an explicit confirmation).
-    const decision = await getPendingDecisionForTrip(pools.operations, tripId);
+    let decision = await getPendingDecisionForTrip(pools.operations, tripId);
+    if (decision?.kind === "agent_input") {
+      // The specialist may ask a bounded question before ranking alternatives;
+      // answer it and continue the same targeted refresh.
+      await resolveDecision(pool, pools, tripId, sessionId, {
+        action: "choose_option",
+        optionId: decision.allowedOptionIds?.[0],
+      });
+      await driveUntilParked(pools, tripId, 8);
+      decision = await getPendingDecisionForTrip(pools.operations, tripId);
+    }
     expect(decision?.kind).toBe("hotel_choice");
     expect(await confirmedReservations(tripId)).toEqual(reservationsBefore);
     const conversation = await listConversation(pool, tripId, 20);
@@ -290,7 +306,7 @@ describe("chat intent pipeline (real PostgreSQL)", () => {
   }, 90_000);
 
   it("reuses the validated interpretation effect on replay (no second call)", async () => {
-    const { tripId, sessionId } = await createHarnessTrip(pool);
+    const { tripId, sessionId } = await createFixtureTrip(pool);
     await driveTripToReady(pool, pools, tripId, sessionId);
     const { operationId } = await sendChat(
       pool,

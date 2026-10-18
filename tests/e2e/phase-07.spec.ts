@@ -1,6 +1,5 @@
-import type { ChildProcess } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
-import { startWorker, stopWorker, resetRateLimits } from "./_worker.js";
+import { startWorker, stopWorker, resetRateLimits, type E2eServices } from "./_worker.js";
 
 /**
  * AC-07-1/2/5/6: from a confirmed flight the wizard continues into hotel
@@ -20,11 +19,11 @@ test.use({ baseURL: ORIGIN });
 // worker; under the full parallel run this exceeds the 30s default.
 test.setTimeout(180_000);
 
-let worker: ChildProcess | undefined;
+let worker: E2eServices | undefined;
 
 test.beforeAll(async () => {
   await resetRateLimits();
-  worker = startWorker();
+  worker = await startWorker();
 });
 
 test.afterAll(async () => {
@@ -142,7 +141,9 @@ test("books a simulated flight and hotel, then saves the program choices", async
   });
 });
 
-test("meals and activities live on separate pages with per-meal tile sections", async ({ page }) => {
+test("meals and activities live on separate pages with per-meal tile sections", async ({
+  page,
+}) => {
   const tripId = await createTrip(page);
   expect(tripId).not.toBe("");
 
@@ -169,9 +170,7 @@ test("meals and activities live on separate pages with per-meal tile sections", 
   // no tiles, no category select, only the prominent reason.
   await expect(page.getByTestId("meal-offer-dinner")).toHaveCount(0);
   await expect(page.getByTestId("level-select-dinner")).toHaveCount(0);
-  await expect(page.getByTestId("dinner-not-included")).toContainText(
-    "too early to finish dinner",
-  );
+  await expect(page.getByTestId("dinner-not-included")).toContainText("too early to finish dinner");
   // No activities here: they live on their own step.
   await expect(page.getByLabel("Activity choices")).toHaveCount(0);
 
@@ -235,9 +234,7 @@ test("self-arranged meals and activities hide their offers and appear in the iti
     timeout: 180_000,
   });
   await expect(page.locator('[data-event-kind="meal"]')).not.toHaveCount(0);
-  const mealTexts = (
-    await page.locator('[data-event-kind="meal"]').allTextContents()
-  )
+  const mealTexts = (await page.locator('[data-event-kind="meal"]').allTextContents())
     .join(" ")
     .toLowerCase();
   expect(mealTexts).not.toContain("breakfast");
@@ -310,7 +307,11 @@ test("declining the flight and hotel booking keeps them in the plan as Not booke
   // The same two options exist for the hotel: choosing stages the review, and
   // declining keeps it as the selection and continues to meals.
   await expect(page.getByTestId("hotel-offer").first()).toBeVisible({ timeout: 90_000 });
-  await page.getByTestId("hotel-offer").first().getByRole("button", { name: "Choose this hotel" }).click();
+  await page
+    .getByTestId("hotel-offer")
+    .first()
+    .getByRole("button", { name: "Choose this hotel" })
+    .click();
   await expect(page.getByRole("button", { name: "Review booking" })).toBeVisible({
     timeout: 60_000,
   });
@@ -430,7 +431,9 @@ test("changes a settled hotel and meal from their steps", async ({ page }) => {
   await otherLunch.getByRole("button", { name: "Choose this lunch" }).click();
   await page.getByRole("button", { name: "Save program" }).click();
   await expect(page.getByRole("heading", { name: "Meals" })).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByRole("list", { name: "Saved meal choices" })).toContainText(otherLunchName);
+  await expect(page.getByRole("list", { name: "Saved meal choices" })).toContainText(
+    otherLunchName,
+  );
 });
 
 test("an early return offers no dinner selection, only a clear warning", async ({ page }) => {
@@ -465,15 +468,11 @@ test("an early return offers no dinner selection, only a clear warning", async (
   await expect(page.getByTestId("meal-offer-lunch").first()).toBeVisible();
   await expect(page.getByTestId("meal-offer-dinner")).toHaveCount(0);
   await expect(page.getByTestId("level-select-dinner")).toHaveCount(0);
-  await expect(page.getByTestId("dinner-not-included")).toContainText(
-    "too early to finish dinner",
-  );
+  await expect(page.getByTestId("dinner-not-included")).toContainText("too early to finish dinner");
 
   // Saving without dinner works, and the saved state repeats the warning.
   await page.getByRole("button", { name: "Save program" }).click();
   await expect(page.getByRole("heading", { name: "Meals" })).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByTestId("dinner-not-included")).toContainText(
-    "too early to finish dinner",
-  );
+  await expect(page.getByTestId("dinner-not-included")).toContainText("too early to finish dinner");
   await expect(page.getByRole("button", { name: "Reserve dinner" })).toHaveCount(0);
 });

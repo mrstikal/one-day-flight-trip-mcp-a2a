@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { ChildProcess } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
-import { startWorker, stopWorker, resetRateLimits } from "./_worker.js";
+import { startWorker, stopWorker, resetRateLimits, type E2eServices } from "./_worker.js";
 
 /**
  * T-E2E-10 (Phase 11): the durable SSE stream is resumable by decimal cursor —
@@ -14,11 +13,11 @@ const ORIGIN = process.env.PUBLIC_BASE_URL ?? "http://localhost:3000";
 test.use({ baseURL: ORIGIN });
 test.setTimeout(180_000);
 
-let worker: ChildProcess | undefined;
+let worker: E2eServices | undefined;
 
 test.beforeAll(async () => {
   await resetRateLimits();
-  worker = startWorker();
+  worker = await startWorker();
 });
 
 test.afterAll(async () => {
@@ -58,7 +57,6 @@ interface StreamRead {
 async function readStream(page: Page, url: string, windowMs = 4000): Promise<StreamRead> {
   return page.evaluate(
     async ({ target, windowMs: ms }) => {
-
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), ms);
       const ids: number[] = [];
@@ -67,7 +65,10 @@ async function readStream(page: Page, url: string, windowMs = 4000): Promise<Str
       let sawRetry = false;
       let sawHeartbeat = false;
       try {
-        const response = await fetch(target, { signal: controller.signal, headers: { accept: "text/event-stream" } });
+        const response = await fetch(target, {
+          signal: controller.signal,
+          headers: { accept: "text/event-stream" },
+        });
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -141,7 +142,11 @@ test("replays only events after the cursor and never leaks raw payloads", async 
   // Generate real events: an admitted command plus the worker's run.
   const submitted = await page.request.post(`/api/trips/${tripId}/commands`, {
     headers: { origin: ORIGIN, "x-csrf-token": csrfToken },
-    data: { requestId: randomUUID(), expectedRevision: revision, chat: "Make the day less exhausting" },
+    data: {
+      requestId: randomUUID(),
+      expectedRevision: revision,
+      chat: "Make the day less exhausting",
+    },
   });
   expect([200, 201, 202]).toContain(submitted.status());
   await page.waitForTimeout(6_000);
@@ -158,14 +163,26 @@ test("replays only events after the cursor and never leaks raw payloads", async 
   const maxId = Math.max(...full.ids);
   const minId = Math.min(...full.ids);
   // Reconnecting after the last applied id replays nothing older.
-  const resumed = await readStream(page, `${ORIGIN}/api/trips/${tripId}/events?after=${maxId}`, 2500);
+  const resumed = await readStream(
+    page,
+    `${ORIGIN}/api/trips/${tripId}/events?after=${maxId}`,
+    2500,
+  );
   expect(resumed.ids.every((id) => id > maxId)).toBe(true);
   // Reconnecting after an earlier id replays exactly the missed window.
-  const missed = await readStream(page, `${ORIGIN}/api/trips/${tripId}/events?after=${minId}`, 2500);
+  const missed = await readStream(
+    page,
+    `${ORIGIN}/api/trips/${tripId}/events?after=${minId}`,
+    2500,
+  );
   expect(missed.ids.length).toBeGreaterThan(0);
   expect(missed.ids.every((id) => id > minId)).toBe(true);
   // An invalid cursor is normalized to the beginning: the replay starts at the
   // first stored event, never at an arbitrary offset.
-  const invalid = await readStream(page, `${ORIGIN}/api/trips/${tripId}/events?after=not-a-number`, 2500);
+  const invalid = await readStream(
+    page,
+    `${ORIGIN}/api/trips/${tripId}/events?after=not-a-number`,
+    2500,
+  );
   expect(invalid.ids[0]).toBe(minId);
 });

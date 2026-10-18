@@ -11,12 +11,14 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "migrations"],
+  "files": [
+    "dist",
+    "migrations"
+  ],
   "scripts": {
     "build": "tsc -b tsconfig.json"
   },
   "dependencies": {
-    "@langchain/langgraph-checkpoint-postgres": "1.0.6",
     "@odft/contracts": "*",
     "@odft/data": "*",
     "pg": "8.23.1",

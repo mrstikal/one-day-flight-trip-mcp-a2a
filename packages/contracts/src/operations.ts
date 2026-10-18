@@ -79,8 +79,8 @@ export const operationRecordSchema = z
     acceptedRevision: z.number().int().min(0),
     status: operationStatusSchema,
     attempts: z.number().int().min(0),
-    /** Phase 03: engine that owns this operation (defaults to the legacy graph). */
-    engine: engineSchema.default("langgraph"),
+    /** Phase 11: new operations belong to the coordinator; legacy rows carry `langgraph`. */
+    engine: engineSchema.default("coordinator-v1"),
   })
   .strict();
 export type OperationRecord = z.infer<typeof operationRecordSchema>;
@@ -106,8 +106,8 @@ export const tripSummarySchema = z
      * unfinished checkpoint (never a newer rejected conflict row).
      */
     recoveryOperationId: uuidSchema.nullable(),
-    /** Phase 03: execution engine of this trip (legacy graph by default). */
-    engine: engineSchema.default("langgraph"),
+    /** Phase 11: new trips run the coordinator; legacy rows carry `langgraph`. */
+    engine: engineSchema.default("coordinator-v1"),
     /**
      * Phase 09 history: set when the trip was archived as read-only history
      * (Phase 11 archival; fixtures only until then). Null = modifiable.

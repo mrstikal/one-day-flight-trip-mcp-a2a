@@ -1,7 +1,6 @@
-import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { startWorker, stopWorker, resetRateLimits } from "./_worker.js";
+import { startWorker, stopWorker, resetRateLimits, type E2eServices } from "./_worker.js";
 
 /**
  * Production worker end-to-end: session issuance, a trip the real worker drives
@@ -15,11 +14,11 @@ const ORIGIN_AIRPORT = "ourairports:4408"; // PRG
 const DESTINATION_CITY = "geonames:3169070"; // Rome
 const DESTINATION_COUNTRY = "IT";
 
-let worker: ChildProcess | undefined;
+let worker: E2eServices | undefined;
 
 test.beforeAll(async () => {
   await resetRateLimits();
-  worker = startWorker();
+  worker = await startWorker();
 });
 
 test.afterAll(async () => {

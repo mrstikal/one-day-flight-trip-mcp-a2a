@@ -2,7 +2,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { insertAgentDelegation } from "@odft/persistence";
-import { DEFAULT_PROTOCOL_TIMEOUTS, trustedRegistrySchema, type ProtocolConfig } from "@odft/protocols";
+import {
+  DEFAULT_PROTOCOL_TIMEOUTS,
+  trustedRegistrySchema,
+  type ProtocolConfig,
+} from "@odft/protocols";
 import {
   FLIGHT_AGENT_PASSWORD,
   PROTOCOL_PASSWORD,
@@ -10,7 +14,7 @@ import {
   REPO_ROOT,
   runProtocolRoleSetup,
 } from "../../fixtures/protocols/roles.js";
-import { endWorkerPools, type WorkerPools } from "../graph/_setup.js";
+import { endWorkerPools, type WorkerPools } from "../_setup.js";
 import {
   MCP_TEST_PORTS,
   AGENT_TOKENS,
@@ -86,7 +90,10 @@ export function startFlightAgent(env: Record<string, string> = {}): ChildProcess
 export function waitForFlightAgent(child: ChildProcess, timeoutMs = 30_000): Promise<string> {
   return new Promise((resolve, reject) => {
     let buffer = "";
-    const timer = setTimeout(() => reject(new Error(`flight agent not ready: ${buffer}`)), timeoutMs);
+    const timer = setTimeout(
+      () => reject(new Error(`flight agent not ready: ${buffer}`)),
+      timeoutMs,
+    );
     const onData = (chunk: Buffer): void => {
       buffer += chunk.toString("utf8");
       if (buffer.includes("flight-agent ready")) {
@@ -154,10 +161,7 @@ export function flightAgentClientConfig(): ProtocolConfig {
 }
 
 /** Insert a FRESH flight delegation for one canonical task (one task per delegation). */
-export async function createFlightDelegation(
-  pool: Pool,
-  seeded: SeededSnapshot,
-): Promise<string> {
+export async function createFlightDelegation(pool: Pool, seeded: SeededSnapshot): Promise<string> {
   return createFlightDelegationFor(pool, {
     tripId: seeded.tripId,
     operationId: seeded.operationId,
@@ -251,7 +255,12 @@ export function flightTaskRequestData(input: FlightTaskMessageInput): unknown {
     searchObjective: "preserve_level",
     queryContext: {},
     deadlineAt: new Date(Date.now() + 600_000).toISOString(),
-    limits: { activeTimeMs: 60_000, mcpInvocations: 4, llmTransportAttempts: 2, maxTaskCostUsd: 0.1 },
+    limits: {
+      activeTimeMs: 60_000,
+      mcpInvocations: 4,
+      llmTransportAttempts: 2,
+      maxTaskCostUsd: 0.1,
+    },
     preferences: {
       travelVariant: "one_night",
       defaultServiceLevel: "standard",

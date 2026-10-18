@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { ChildProcess } from "node:child_process";
 import { Pool } from "pg";
 import { expect, test } from "@playwright/test";
-import { startWorker, stopWorker, resetRateLimits } from "./_worker.js";
+import { startWorker, stopWorker, resetRateLimits, type E2eServices } from "./_worker.js";
 
 /**
  * Phase 11 execution inspector (08-frontend-ux.md section 10):
  * - the graph renders from the persisted `graph.initialized` definition with the
- *   real node statuses, operations, checkpoints, and LLM cost rows;
+ *   real protocol communications, operations, decisions, and LLM cost rows;
  * - prompts and unknown payload fields are never stored, so they cannot be
  *   rendered even when a row is inserted directly;
  * - faults are labeled `Simulated failure`;
@@ -18,11 +17,11 @@ const ORIGIN = process.env.PUBLIC_BASE_URL ?? "http://localhost:3000";
 test.use({ baseURL: ORIGIN });
 test.setTimeout(240_000);
 
-let worker: ChildProcess | undefined;
+let worker: E2eServices | undefined;
 
 test.beforeAll(async () => {
   await resetRateLimits();
-  worker = startWorker();
+  worker = await startWorker();
 });
 
 test.afterAll(async () => {
@@ -63,7 +62,9 @@ async function createTripViaApi(page: import("@playwright/test").Page): Promise<
   return ((await created.json()) as { tripId: string }).tripId;
 }
 
-test("renders the real graph, nodes, operations, checkpoints, and LLM rows", async ({ page }) => {
+test("renders real communications, operations, decisions, and LLM rows without a graph", async ({
+  page,
+}) => {
   const tripId = await createTripViaApi(page);
   await page.goto(`/trips/${tripId}/flights`);
   await expect(page.getByRole("button", { name: "Choose this flight" }).first()).toBeVisible({
@@ -77,16 +78,14 @@ test("renders the real graph, nodes, operations, checkpoints, and LLM rows", asy
     "href",
     `/trips/${tripId}/flights`,
   );
-  // The graph is the persisted definition from the worker registry.
-  await expect(page.getByTestId("execution-graph")).toBeVisible();
-  const nodeTable = page.getByTestId("node-table");
-  await expect(nodeTable).toContainText("load_context");
-  await expect(nodeTable).toContainText("apply_commands");
-  await expect(nodeTable).toContainText("await_decision");
-  // Real operation/checkpoint telemetry, never a client-side graph call.
+  // Phase 11: no graph topology is persisted or rendered for coordinator trips.
+  await expect(page.getByTestId("execution-graph")).toHaveCount(0);
+  await expect(page.getByTestId("node-table")).toHaveCount(0);
+  // Real protocol, operation and decision telemetry, never client-side data.
+  await expect(page.getByTestId("communication-table")).toBeVisible();
   await expect(page.getByTestId("operation-table")).toContainText("creation");
   await expect(page.getByTestId("checkpoint-table")).toContainText("flight_choice");
-  await expect(page.getByTestId("event-list")).toContainText("node.updated");
+  await expect(page.getByTestId("event-list")).toContainText("trip.created");
   await expect(page.getByTestId("llm-table")).toBeVisible();
 });
 
@@ -152,7 +151,10 @@ test("labels faults and submits owner-protected scenario controls", async ({ pag
         const projection = (await response.json()) as {
           inspector: { faults: { label: string; mode: string }[]; scenarioMode: string } | null;
         };
-        return projection.inspector?.faults.map((fault) => `${fault.label}:${fault.mode}`).join(",") ?? "";
+        return (
+          projection.inspector?.faults.map((fault) => `${fault.label}:${fault.mode}`).join(",") ??
+          ""
+        );
       },
       { timeout: 120_000, intervals: [2_000, 3_000, 5_000] },
     )

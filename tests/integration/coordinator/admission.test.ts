@@ -28,29 +28,38 @@ afterAll(async () => {
 describe("coordinator admission and flight slice", () => {
   it("creates a coordinator trip, claims it by engine, and parks a flight_choice decision", async () => {
     // Bidirectional isolation on a controlled fixture: retire any pre-existing
-    // claimable operation, then prove that a langgraph creation operation is
-    // visible to the graph filter and invisible to the coordinator filter.
+    // claimable operation, then prove that a legacy-engine operation is visible
+    // to the legacy filter and invisible to the coordinator filter. New trips
+    // cannot be created on the legacy engine anymore, so the row is relabeled
+    // directly (the Phase 11 migration does the same to historical rows).
     await harness.pools.operations.query(
       `UPDATE odft_app.workflow_operations SET status = 'cancelled'
         WHERE status IN ('queued', 'running')`,
     );
-    const graphTrip = await createCoordinatorTrip(harness.pool, { engine: "langgraph" });
+    const legacyTrip = await createCoordinatorTrip(harness.pool);
+    await harness.pool.query(`UPDATE odft_app.trips SET engine = 'langgraph' WHERE id = $1`, [
+      legacyTrip.tripId,
+    ]);
+    await harness.pool.query(
+      `UPDATE odft_app.workflow_operations SET engine = 'langgraph' WHERE trip_id = $1`,
+      [legacyTrip.tripId],
+    );
     const coordinatorSees = await claimNextOperation(harness.pools.operations, {
       workerId: "coordinator-test",
       leaseMs: 30_000,
       engines: ["coordinator-v1"],
     });
     expect(coordinatorSees).toBeNull();
-    const graphSees = await claimNextOperation(harness.pools.operations, {
-      workerId: "graph-test",
+    const legacySees = await claimNextOperation(harness.pools.operations, {
+      workerId: "legacy-test",
       leaseMs: 30_000,
       engines: ["langgraph"],
     });
-    expect(graphSees?.tripId).toBe(graphTrip.tripId);
-    // Retire the graph fixture claim so the later filter check starts clean.
+    expect(legacySees?.tripId).toBe(legacyTrip.tripId);
+    // Retire the legacy fixture claim so the later filter check starts clean.
     await harness.pools.operations.query(
       `UPDATE odft_app.workflow_operations SET status = 'cancelled' WHERE id = $1`,
-      [graphSees?.operationId],
+      [legacySees?.operationId],
     );
 
     const { tripId } = await createCoordinatorTrip(harness.pool);
@@ -112,7 +121,10 @@ describe("coordinator admission and flight slice", () => {
     }
 
     // The delegation persisted before delivery and was acknowledged.
-    const delegation = await harness.pool.query<{ status: string; accepted_artifact_hash: string | null }>(
+    const delegation = await harness.pool.query<{
+      status: string;
+      accepted_artifact_hash: string | null;
+    }>(
       `SELECT status, accepted_artifact_hash FROM odft_app.agent_delegations
         WHERE trip_id = $1 ORDER BY created_at DESC LIMIT 1`,
       [tripId],
@@ -179,7 +191,11 @@ describe("coordinator admission and flight slice", () => {
     expect(retired.rows[0]?.status).not.toBe("pending");
 
     // The proposal is bound to the chosen offer and the accepted revision.
-    const proposal = await harness.pool.query<{ service_key: string; offer_id: string; status: string }>(
+    const proposal = await harness.pool.query<{
+      service_key: string;
+      offer_id: string;
+      status: string;
+    }>(
       `SELECT service_key, offer_id, status FROM odft_app.selection_proposals
         WHERE trip_id = $1 ORDER BY created_at DESC LIMIT 1`,
       [tripId],

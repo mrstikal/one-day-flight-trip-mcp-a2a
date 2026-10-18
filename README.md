@@ -9,38 +9,42 @@ A hybrid graphical/conversational planner for one sightseeing day in a European 
 The goal is a **stateful, human-in-the-loop AI workflow**, not a production travel agency or an
 autonomous booking agent.
 
-**LangGraph** is a framework from the LangChain ecosystem for orchestrating workflows as graphs:
-nodes perform individual steps, edges determine what happens next, and shared state carries their
-results. It is not an AI model. It combines ordinary code and model calls with conditional routing,
-parallel branches, feedback loops, and interrupts that pause for user decisions. Persistent
-checkpoints let execution resume after an interruption or worker restart. This makes a multi-step
-process explicit, testable, and observable instead of hiding it inside one large prompt.
+The active runtime is a **coordinator** that admits durable operations, routes them through an
+explicit state machine, and delegates research and itinerary work to independent **A2A agents** over
+a trusted protocol. The agents read geography, travel-data, and itinerary-tool capabilities from a
+read-only **MCP host**. Every user decision is persisted; an operation can resume after a worker
+restart from its durable operation/decision rows instead of an in-process graph checkpoint. This
+makes a multi-step process explicit, testable, and observable instead of hiding it inside one large
+prompt.
 
 This demo applies those capabilities to:
 
 - **Hybrid interaction:** graphical controls and chat use the same validated commands and business
   rules; ambiguous or conflicting requests produce bounded clarification choices.
-- **Parallel research:** hotel, breakfast, lunch, dinner, attractions, and events are independent
-  branches whose results are merged; only failed or affected domains need another search.
-- **Controlled planning:** a planner proposes a day, deterministic validation checks it, and a
-  reviewer assesses qualitative tradeoffs, with at most three planning attempts before user input.
+- **Parallel research:** the Accommodation Agent researches hotel and meals while the City Guide
+  Agent researches attractions and events; only failed or affected domains need another search.
+- **Controlled planning:** the City Guide Agent proposes a day, deterministic validation checks it,
+  and a reviewer assesses qualitative tradeoffs, with at most three planning attempts before user
+  input.
 - **Selective changes:** cheaper-hotel searches, local service-level overrides, or a less demanding
   pace refresh the relevant results without silently replacing unrelated confirmed reservations.
-- **Durability and visibility:** saved decisions, checkpoints, and events support reload/recovery;
-  an execution inspector exposes graph progress, attempts, AI usage/costs, and labeled simulated
-  faults, not private model reasoning or secrets. SQL transactions and idempotent effects complement
-  graph checkpoints to prevent duplicate simulated bookings on replay.
+- **Durability and visibility:** saved operations, decisions, delegations, and events support
+  reload/recovery; an execution inspector exposes the A2A/MCP communication map, attempts, AI
+  usage/costs, and labeled simulated faults, not private model reasoning or secrets. SQL
+  transactions, leases/fencing, and idempotent effects prevent duplicate simulated bookings on
+  replay.
 
 ### Supporting Technologies and AI
 
-| Technology                     | Role in the demo                                                                                                                                                        |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Node.js / TypeScript / Zod     | Server runtime, typed domain contracts, and strict validation of requests and model outputs.                                                                            |
-| Next.js / React / Tailwind CSS | Graphical wizard, assistant, and presentation; Next.js also acts as the backend-for-frontend (BFF).                                                                     |
-| Dedicated worker / PostgreSQL  | The worker executes LangGraph outside browser requests; PostgreSQL stores domain truth, queued operations, events, AI cost records, and official LangGraph checkpoints. |
-| OpenRouter / AI adapters       | Configurable model access for four roles: intent interpretation, optional recommendation ranking, itinerary planning, and qualitative review.                           |
-| Faker / Temporal               | Seeded fictional labels and variation; correct calendar, time-zone, DST, and elapsed-time handling. Domain algorithms, not Faker or AI, own scheduling and pricing.     |
-| Leaflet / SSE                  | Map presentation with a schematic fallback; Server-Sent Events deliver persisted workflow progress to the browser.                                                      |
+| Technology                     | Role in the demo                                                                                                                                                                              |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node.js / TypeScript / Zod     | Server runtime, typed domain contracts, and strict validation of requests and model outputs.                                                                                                  |
+| Next.js / React / Tailwind CSS | Graphical wizard, assistant, and presentation; Next.js also acts as the backend-for-frontend (BFF).                                                                                           |
+| Dedicated worker / PostgreSQL  | The worker executes the coordinator outside browser requests; PostgreSQL stores domain truth, queued operations, decisions, events, AI cost records, and protocol evidence.                   |
+| A2A agents / MCP host          | Flight, Accommodation, and City Guide agents own specialist research/planning; a read-only MCP host exposes geography, travel-data, and itinerary tools with per-agent identities and tokens. |
+| OpenRouter / AI adapters       | Configurable model access for four roles: intent interpretation, optional recommendation ranking, itinerary planning, and qualitative review.                                                 |
+| Faker / Temporal               | Seeded fictional labels and variation; correct calendar, time-zone, DST, and elapsed-time handling. Domain algorithms, not Faker or AI, own scheduling and pricing.                           |
+| Leaflet / SSE                  | Map presentation with a schematic fallback; Server-Sent Events deliver persisted workflow progress to the browser.                                                                            |
 
 AI returns structured **proposals**, never authoritative prices, feasibility decisions, or booking
 permissions. Existing candidate IDs and deterministic rules constrain every result. Direct graphical
@@ -76,7 +80,7 @@ simulated bookings, replacements, impactful route changes, and itinerary approva
    and identical feedback on unchanged structure stops early.
 5. **Revise and observe.** Chat or supported controls can change preferences, search alternatives, or
    rebuild the relevant part of the plan. Confirmed services remain fixed until an explicit replacement
-   or route-impact confirmation. Persisted decisions survive browser closure, and checkpoint/effect
+   or route-impact confirmation. Persisted decisions survive browser closure, and operation/effect
    recovery supports worker restart. Protected demo controls and the inspector demonstrate unavailable
    offers, provider failures, invalid drafts, and budget/preference conflicts with visible labels.
 
@@ -91,9 +95,11 @@ simulated bookings, replacements, impactful route changes, and itinerary approva
 | Reservations and maps      | Confirmations create only internal `DEMO-*` records, never tickets, real reservations, or payments. Optional map tiles are external imagery, not a routing service; without usable tiles, a labeled SVG schematic and textual facts remain available.                                                                                                                                  |
 
 The plan and detailed contracts are in [ODFT_PLAN.md](ODFT_PLAN.md) and
-[docs/planning](docs/planning/00-project-overview.md), especially the
-[graph design](docs/planning/03-langgraph-design.md),
-[reference data and generators](docs/planning/05-synthetic-data-design.md), and
+[docs/planning](docs/planning/00-project-overview.md). The planning documents that describe the
+retired LangGraph runtime (notably [03-langgraph-design.md](docs/planning/03-langgraph-design.md))
+are retained as historical design material; the active coordinator is specified by
+[ODFT_PLAN.md](ODTF_PLAN.md) phases 07-11. See also
+[reference data and generators](docs/planning/05-synthetic-data-design.md) and
 [AI roles](docs/planning/06-ai-agent-design.md).
 
 **Demo limitations:** Broader application performance tuning and responsive-design validation
@@ -102,18 +108,20 @@ booking system, and its schedules, estimates, and confirmations are not valid fo
 
 ## Inspector
 
-The **Inspector** is the demo's workflow observability panel: it explains what LangGraph actually
-executed, where it is waiting, and why a retry or replan happened. Enable
+The **Inspector** is the demo's workflow observability panel: it explains what the coordinator and
+its specialist agents actually executed, where it is waiting, and why a retry or replan happened. Enable
 `DEMO_CONTROLS_ENABLED=true` in the server environment, then open the trip's Inspector link or
 `/trips/<trip-id>/inspector`. Access requires the browser session that owns the trip; a trip ID alone
 does not grant access.
 
-- **Execution graph:** an SVG view of nodes, edges, and conditional branches, with active, completed,
-  pending, interrupted, and failed states. Its topology comes from the same registry as the worker's
-  graph; highlights come from persisted execution events, not a decorative animation or invented trace.
-- **Operations and recovery:** attempts, execution durations, checkpoint/interrupt IDs, pending
-  decision kinds, and resume operations help trace pauses, selective replanning, and restart recovery.
-  Updates arrive through SSE, with polling fallback when the connection is unavailable.
+- **Communication map:** one safe row per A2A delegation/task and MCP call, with agent identities,
+  task lifecycle states, correlation IDs, and durations derived from persisted protocol observations.
+- **Application timeline:** a chronological A2A/MCP/application view that makes delegation, tool use,
+  retries, and cancellations observable without exposing payloads or reasoning.
+- **Operations and recovery:** attempts, execution durations, decision kinds, and resume operations
+  help trace pauses, selective replanning, and restart recovery. Updates arrive through SSE, with
+  polling fallback when the connection is unavailable. Legacy LangGraph trips keep their inert
+  node/checkpoint history read-only.
 - **AI telemetry:** role, model, prompt-version identifier, token usage, latency, cost/validation
   status, and retries distinguish model work from deterministic steps. Fixture invocations remain
   explicitly scripted and are not presented as live AI usage or billable calls.
@@ -124,10 +132,11 @@ does not grant access.
   a rejected draft entering the bounded planning loop, or a pace/dinner change rerunning only the
   relevant work while confirmed services stay intact.
 
-The Inspector renders only safe projected data, not raw checkpoint/database dumps. It never exposes
+The Inspector renders only safe projected data, not raw protocol payloads or database dumps. It never exposes
 prompt text, raw model output, private reasoning/chain-of-thought, provider payloads, SQL, stack
 traces, cookies, or secrets. Simulation commands use the normal validated command path, not arbitrary
-graph edits; worker/database restarts remain operator actions, never browser-executed shell commands.
+coordinator edits; worker/database restarts remain operator actions, never browser-executed shell
+commands.
 See the [Inspector specification](docs/planning/08-frontend-ux.md#10-inspector).
 
 ## Requirements
@@ -144,9 +153,17 @@ npm ci                     # reproducible install from the committed lockfile
 npm run setup:env          # writes a git-ignored .env with a random SESSION_HMAC_KEY
 docker compose up -d postgres
 npm run db:migrate         # applies SQL migrations (repeat-safe)
-npm run checkpointer:setup # one-time LangGraph checkpointer schema setup
 npm run reference:load     # upserts the committed offline reference assets
+npm run protocol:roles     # creates restricted protocol/agent DB roles (needs passwords)
+cp agent-registry.example.json agent-registry.json
+cp mcp-registry.example.json mcp-registry.json
+cp mcp-host-registry.example.json mcp-host-registry.json
 ```
+
+Set `ODFT_PROTOCOL_ROLE_PASSWORD`, `ODFT_MCP_READONLY_PASSWORD`, the three
+`ODFT_*_AGENT_PASSWORD` values and the `ODFT_AGENT_TOKEN_*` values in `.env` before
+`npm run protocol:roles` and `npm run dev`. The registries contain identities and
+credential references, never secrets.
 
 `setup:env` never overwrites an existing `.env` and never prints the generated secret. Values in
 `.env.example` are development placeholders, not production defaults.
@@ -173,8 +190,10 @@ report per source. `reference:load` is safe to run repeatedly.
 npm run dev
 ```
 
-Runs three tracked sibling processes with shutdown forwarding: shared-package TypeScript watch,
-Next.js dev server (`apps/web`), and the worker watch process (`apps/worker`). The worker exposes
+Runs the tracked development stack with shutdown forwarding: shared-package TypeScript watch,
+Next.js dev server (`apps/web`), the MCP host (`apps/mcp-server`), the Flight/Accommodation/City
+Guide A2A agents, and the coordinator worker (`apps/worker`). Each agent receives its own
+restricted-role database URL; the worker receives the trusted agent registry. The worker exposes
 **no public HTTP port**; it connects to PostgreSQL and writes a heartbeat every 10 seconds.
 
 ## Verification commands
@@ -308,14 +327,14 @@ Example (`ai-profiles.json`, one role shown; all four roles use the same shape):
 | `model`                                                                  | Exact OpenRouter model id (`author/slug`)                                                                                                              |
 | `reasoningEffort`                                                        | Optional: `none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`; must be supported by the matched endpoint                                              |
 | `temperature`                                                            | Optional, 0–2; only when the matched endpoints publish `temperature` — an unpublished parameter makes routing fail with HTTP 404 (checked pre-billing) |
-| `timeoutMs`                                                              | 1000–45000; keep below the worker operation lease (default 60 s)                                                                   |
-| `maxInputTokens`                                                         | ≤ 6000 (whole role input cap, history included)                                                                                    |
-| `maxOutputTokens`                                                        | Role output cap (defaults: 1024; reviewer 2048, planner 6144; hidden reasoning tokens count toward it)                             |
-| `maxAttempts`                                                            | 1–2 (the adapter owns at most one repair/retry; never stacked)                                                                     |
-| `maxCallCostUsd`                                                         | Worst-case per-call ceiling in USD; the tool refuses a profile whose worst case exceeds it                                         |
-| `inputPriceUsdPerMillion`, `outputPriceUsdPerMillion`, `requestPriceUsd` | **Verified upper bounds** (USD); must be ≥ every matched endpoint's published rate, otherwise the call fails closed before billing |
-| `pricingVersion`                                                         | Machine-managed pin; leave `"unverified"` and let `ai:validate-models` stamp the manifest version                                  |
-| `allowedEndpointProviderIds`                                             | Endpoint provider slugs (OpenRouter `tag`) allowed to serve the calls; fallback is disabled                                        |
+| `timeoutMs`                                                              | 1000–45000; keep below the worker operation lease (default 60 s)                                                                                       |
+| `maxInputTokens`                                                         | ≤ 6000 (whole role input cap, history included)                                                                                                        |
+| `maxOutputTokens`                                                        | Role output cap (defaults: 1024; reviewer 2048, planner 6144; hidden reasoning tokens count toward it)                                                 |
+| `maxAttempts`                                                            | 1–2 (the adapter owns at most one repair/retry; never stacked)                                                                                         |
+| `maxCallCostUsd`                                                         | Worst-case per-call ceiling in USD; the tool refuses a profile whose worst case exceeds it                                                             |
+| `inputPriceUsdPerMillion`, `outputPriceUsdPerMillion`, `requestPriceUsd` | **Verified upper bounds** (USD); must be ≥ every matched endpoint's published rate, otherwise the call fails closed before billing                     |
+| `pricingVersion`                                                         | Machine-managed pin; leave `"unverified"` and let `ai:validate-models` stamp the manifest version                                                      |
+| `allowedEndpointProviderIds`                                             | Endpoint provider slugs (OpenRouter `tag`) allowed to serve the calls; fallback is disabled                                                            |
 
 ### Setting it up (first run)
 
@@ -379,7 +398,7 @@ the example ceilings.
   `maxCallCostUsd` refuse further calls with a typed `AI_BUDGET_EXCEEDED`.
 - An uncertain charge (timeout/transport/abort) stays `unknown_reserved` and is never released as zero;
   it is cleared only by explicit reconciliation.
-- AI failures are terminal for that operation: a message is never automatically re-sent through the graph
+- AI failures are terminal for that operation: a message is never automatically re-sent through the coordinator
   and no second billable call is stacked on it. The trip stays usable (the last decision/controls keep
   working); a graceful shutdown is the exception and leaves the operation recoverable.
 - Prompts, raw model output, and reasoning are never persisted for display; only safe telemetry (role,
@@ -465,16 +484,15 @@ must be refused) and the real serving/billing with a short non-sensitive recordi
 
 - `docker compose down` preserves the named volume. Only an explicitly requested reset may remove it.
 - Integration tests use a separate disposable database (`TEST_DATABASE_URL`, default `odft_test`).
-  They drop and recreate the `odft_app` and `odft_checkpoint` schemas, so never point
+  They drop and recreate the `odft_app` and `odft_protocol` schemas, so never point
   `TEST_DATABASE_URL` at a database that holds data you care about.
 - Migrations run under a session-level advisory lock and are recorded with content checksums; a
   modified applied migration is rejected instead of silently diverging.
 
 ## Health
 
-`GET /api/health/ready` returns `200` only when the database is reachable, migrations and the
-checkpointer schema are present, and a worker heartbeat is recent; otherwise `503`. Liveness never
-calls OpenRouter or map tiles.
+`GET /api/health/ready` returns `200` only when the database is reachable, migrations are applied,
+and a worker heartbeat is recent; otherwise `503`. Liveness never calls OpenRouter or map tiles.
 
 ## Shutdown
 
