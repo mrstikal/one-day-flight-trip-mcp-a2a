@@ -42,11 +42,11 @@ FR-PRD-2.
   trip at revision 1. Later route edits use `/api/trips/:id/commands` with `expectedRevision`. Never create a
   trip before the destination city is chosen.
 - A handler `202 Accepted` means the command was queued, never success. The UI shows `Accepted - planning in
-  progress` and only claims success after the persisted outcome/SSE event arrives. No fake offer cards or
+progress` and only claims success after the persisted outcome/SSE event arrives. No fake offer cards or
   placeholder prices.
 - Flight gating is absolute: an `INFEASIBLE` or `UNDETERMINED` route renders a structured decision card with
   reason codes, a plain explanation, and alternatives (`change origin`, `change destination`, `choose ground
-  travel elsewhere`); the wizard does not advance and never displays fabricated flights. The UI must not claim
+travel elsewhere`); the wizard does not advance and never displays fabricated flights. The UI must not claim
   the destination is unreachable by ground.
 - Welcome choice is provisional while availability is unknown. Never promise Economy before its own StageB passes; no-offer results show a reason and an explicit two-night request with fresh StageA. Later one-night hotels require luggage storage.
 - Flight choice is a decision (`choose_offer`) that stages a proposal; only an explicit `confirm_booking` decision
@@ -86,7 +86,7 @@ FR-PRD-2.
 9. Implement the status/error presentation table from 08 section 14 (`idle`, `queued`, `running`, `waiting_user`,
    `blocked`, `ready`, `failed`) and the SSE-to-polling fallback.
 10. Implement accessibility (focus management, live regions, target size, reduced motion) and responsive layouts
-   (desktop wizard + assistant rail; mobile single column).
+    (desktop wizard + assistant rail; mobile single column).
 11. Write the tests in section 10 (wizard E2E subset, rejection UX, disclaimers, keyboard).
 
 ## 6. Concrete Target Paths

@@ -10,13 +10,28 @@ import {
 const ROUTING = {
   estimate(leg: ItineraryRouteLeg) {
     if (leg.mode === "walking") {
-      return { distanceKm: 0.8, estimatedMinutes: 10, partyTotalMinor: 0, simulated: true as const };
+      return {
+        distanceKm: 0.8,
+        estimatedMinutes: 10,
+        partyTotalMinor: 0,
+        simulated: true as const,
+      };
     }
     if (leg.mode === "public_transport") {
-      return { distanceKm: 3.2, estimatedMinutes: 15, partyTotalMinor: 600, simulated: true as const };
+      return {
+        distanceKm: 3.2,
+        estimatedMinutes: 15,
+        partyTotalMinor: 600,
+        simulated: true as const,
+      };
     }
     if (leg.mode === "airport_transfer") {
-      return { distanceKm: 18, estimatedMinutes: 20, partyTotalMinor: 4000, simulated: true as const };
+      return {
+        distanceKm: 18,
+        estimatedMinutes: 20,
+        partyTotalMinor: 4000,
+        simulated: true as const,
+      };
     }
     return { distanceKm: 5, estimatedMinutes: 12, partyTotalMinor: 1800, simulated: true as const };
   },
@@ -393,7 +408,9 @@ describe("itinerary assembly (Phase 10)", () => {
     const result = assembleItinerary(
       input({
         proposal: {
-          stops: [{ kind: "activity", refId: "act-park", startMinute: 21 * 60, durationMinutes: 60 }],
+          stops: [
+            { kind: "activity", refId: "act-park", startMinute: 21 * 60, durationMinutes: 60 },
+          ],
         },
       }),
     );
@@ -448,7 +465,12 @@ describe("proposedStopWindow (assembly/normalization geometry contract)", () => 
   });
 
   it("uses the pace duration and clamps an unbooked meal into its window", () => {
-    const measured = window({ kind: "meal", refId: "meal-dinner", startMinute: 10 * 60, durationMinutes: 45 });
+    const measured = window({
+      kind: "meal",
+      refId: "meal-dinner",
+      startMinute: 10 * 60,
+      durationMinutes: 45,
+    });
     // Relaxed dinner is 120 minutes: 10:00 clamps to the 18:30 window start.
     expect(measured.durationMinutes).toBe(120);
     expect(measured.startMinute).toBe(18 * 60 + 30);
@@ -457,14 +479,24 @@ describe("proposedStopWindow (assembly/normalization geometry contract)", () => 
   });
 
   it("uses the candidate's fixed duration for an activity, never the proposal", () => {
-    const measured = window({ kind: "activity", refId: "act-museum", startMinute: 9 * 60, durationMinutes: 45 });
+    const measured = window({
+      kind: "activity",
+      refId: "act-museum",
+      startMinute: 9 * 60,
+      durationMinutes: 45,
+    });
     expect(measured.durationMinutes).toBe(90);
     expect(measured.startMinute).toBe(9 * 60);
     expect(measured.anchor).not.toBeNull();
   });
 
   it("caps a filler block at 180 minutes and reports no window", () => {
-    const measured = window({ kind: "free_time", refId: null, startMinute: 9 * 60, durationMinutes: 300 });
+    const measured = window({
+      kind: "free_time",
+      refId: null,
+      startMinute: 9 * 60,
+      durationMinutes: 300,
+    });
     expect(measured.durationMinutes).toBe(180);
     expect(measured.anchor).toBeNull();
     expect(measured.latestStartMinute).toBeNull();
@@ -476,7 +508,12 @@ describe("activity opening-window clamping (2026-10-14)", () => {
     // The live planner starts the museum right after breakfast although it opens
     // at 09:00; the resolver clamps it instead of failing opening_hours_mismatch.
     const measured = proposedStopWindow({
-      stop: { kind: "activity", refId: "act-museum", startMinute: 8 * 60 + 30, durationMinutes: 90 } as never,
+      stop: {
+        kind: "activity",
+        refId: "act-museum",
+        startMinute: 8 * 60 + 30,
+        durationMinutes: 90,
+      } as never,
       meals: input().meals,
       activities: input().activities,
       confirmedMealIds: [],
@@ -492,7 +529,12 @@ describe("activity opening-window clamping (2026-10-14)", () => {
       input({
         proposal: {
           stops: [
-            { kind: "activity", refId: "act-museum", startMinute: 8 * 60 + 30, durationMinutes: 90 },
+            {
+              kind: "activity",
+              refId: "act-museum",
+              startMinute: 8 * 60 + 30,
+              durationMinutes: 90,
+            },
             { kind: "meal", refId: "meal-lunch", startMinute: 12 * 60, durationMinutes: 90 },
           ],
         },

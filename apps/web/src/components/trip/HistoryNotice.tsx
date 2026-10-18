@@ -22,8 +22,8 @@ export function HistoryNotice({ tripId }: { readonly tripId: string }): React.JS
       data-testid="history-notice"
       className="rounded border border-border bg-cream px-4 py-2 text-sm text-ink-muted"
     >
-      This trip is archived history and is read-only — bookings, changes, and assistant
-      messages are disabled.
+      This trip is archived history and is read-only — bookings, changes, and assistant messages are
+      disabled.
     </p>
   );
 }

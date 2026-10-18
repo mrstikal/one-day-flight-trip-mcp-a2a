@@ -1,5 +1,10 @@
 import type { PoolClient } from "pg";
-import type { BookableKey, InsertReservationInput, ReservationRecord, ReservationStatus } from "@odft/contracts";
+import type {
+  BookableKey,
+  InsertReservationInput,
+  ReservationRecord,
+  ReservationStatus,
+} from "@odft/contracts";
 
 type Queryable = Pick<PoolClient, "query">;
 

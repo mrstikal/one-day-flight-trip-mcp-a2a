@@ -21,21 +21,23 @@ const MODES = [
     label: "Budget conflict",
     description: "Sets an explicit low budget; the itinerary planner reports a budget conflict.",
     outcome:
-      "persists a €1 budget; the replan reports a budget conflict as a clarification card in the assistant rail (\"No price was changed\") where you can raise the budget.",
+      'persists a €1 budget; the replan reports a budget conflict as a clarification card in the assistant rail ("No price was changed") where you can raise the budget.',
   },
   {
     mode: "preference_conflict" as const,
     label: "Preference conflict",
-    description: "Requests six museums at a relaxed pace; the graph clarifies instead of inventing.",
+    description:
+      "Requests six museums at a relaxed pace; the graph clarifies instead of inventing.",
     outcome:
       "the replan asks for a clarification card in the assistant rail instead of inventing a plan (e.g. a denser pace or fewer museums).",
   },
   {
     mode: "invalid_itinerary" as const,
     label: "Invalid itinerary (first attempt)",
-    description: "Injects one labeled overlap on the first planning attempt; replanning repairs it.",
+    description:
+      "Injects one labeled overlap on the first planning attempt; replanning repairs it.",
     outcome:
-      "adds one labeled overlap to the next first planning attempt; replanning repairs it and the draft keeps the \"Simulated failure\" label on the itinerary page.",
+      'adds one labeled overlap to the next first planning attempt; replanning repairs it and the draft keeps the "Simulated failure" label on the itinerary page.',
   },
 ];
 

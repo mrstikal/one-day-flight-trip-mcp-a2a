@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { DEFAULT_PROTOCOL_TIMEOUTS, trustedRegistrySchema, type ProtocolConfig, type TrustedRegistry } from "@odft/protocols";
+import {
+  DEFAULT_PROTOCOL_TIMEOUTS,
+  trustedRegistrySchema,
+  type ProtocolConfig,
+  type TrustedRegistry,
+} from "@odft/protocols";
 
 /**
  * Phase 04 MCP host configuration (plan §3.4).
@@ -20,7 +25,12 @@ export type McpEndpointKey = keyof typeof MCP_ENDPOINTS;
 /** Which authenticated agent identities may call which endpoint. */
 export const ENDPOINT_ALLOWED_AGENTS: Readonly<Record<McpEndpointKey, readonly string[]>> = {
   geography: ["flight-agent", "accommodation-agent", "accommodation-agent-alt", "city-guide-agent"],
-  travelData: ["flight-agent", "accommodation-agent", "accommodation-agent-alt", "city-guide-agent"],
+  travelData: [
+    "flight-agent",
+    "accommodation-agent",
+    "accommodation-agent-alt",
+    "city-guide-agent",
+  ],
   itineraryTools: ["city-guide-agent"],
 };
 
@@ -39,8 +49,18 @@ export const TRAVEL_DATA_DOMAIN_ALLOWLIST: Readonly<Record<string, readonly stri
 const endpointConfigSchema = z
   .object({
     geographyPort: z.number().int().min(1).max(65535).default(MCP_ENDPOINTS.geography.defaultPort),
-    travelDataPort: z.number().int().min(1).max(65535).default(MCP_ENDPOINTS.travelData.defaultPort),
-    itineraryToolsPort: z.number().int().min(1).max(65535).default(MCP_ENDPOINTS.itineraryTools.defaultPort),
+    travelDataPort: z
+      .number()
+      .int()
+      .min(1)
+      .max(65535)
+      .default(MCP_ENDPOINTS.travelData.defaultPort),
+    itineraryToolsPort: z
+      .number()
+      .int()
+      .min(1)
+      .max(65535)
+      .default(MCP_ENDPOINTS.itineraryTools.defaultPort),
     host: z.string().min(1).default("127.0.0.1"),
   })
   .strict();
@@ -65,7 +85,9 @@ function envNumber(env: Record<string, string | undefined>, key: string, fallbac
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function loadMcpHostConfig(env: Record<string, string | undefined> = process.env): McpHostConfig {
+export function loadMcpHostConfig(
+  env: Record<string, string | undefined> = process.env,
+): McpHostConfig {
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required for the MCP host");
@@ -79,8 +101,16 @@ export function loadMcpHostConfig(env: Record<string, string | undefined> = proc
   const inbound = trustedRegistrySchema.parse(JSON.parse(readFileSync(registryPath, "utf8")));
   const endpoints = endpointConfigSchema.parse({
     geographyPort: envNumber(env, "ODFT_MCP_GEOGRAPHY_PORT", MCP_ENDPOINTS.geography.defaultPort),
-    travelDataPort: envNumber(env, "ODFT_MCP_TRAVEL_DATA_PORT", MCP_ENDPOINTS.travelData.defaultPort),
-    itineraryToolsPort: envNumber(env, "ODFT_MCP_ITINERARY_TOOLS_PORT", MCP_ENDPOINTS.itineraryTools.defaultPort),
+    travelDataPort: envNumber(
+      env,
+      "ODFT_MCP_TRAVEL_DATA_PORT",
+      MCP_ENDPOINTS.travelData.defaultPort,
+    ),
+    itineraryToolsPort: envNumber(
+      env,
+      "ODFT_MCP_ITINERARY_TOOLS_PORT",
+      MCP_ENDPOINTS.itineraryTools.defaultPort,
+    ),
     host: env.ODFT_MCP_HOST ?? "127.0.0.1",
   });
   const selfAgentIdentity = env.ODFT_MCP_SELF_IDENTITY ?? MCP_ENDPOINTS.geography.name;

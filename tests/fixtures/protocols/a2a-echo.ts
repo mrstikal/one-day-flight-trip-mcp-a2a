@@ -88,7 +88,8 @@ const telemetry = new ProtocolTelemetryWriter(pool);
 
 const agentCard: AgentCard = {
   name: "ODFT flight echo agent (fixture)",
-  description: "Phase 03 interoperability fixture: echoes validated flight-recommendation artifacts.",
+  description:
+    "Phase 03 interoperability fixture: echoes validated flight-recommendation artifacts.",
   version: "1.0.0",
   supportedInterfaces: [
     { url: endpointUrl, protocolBinding: "JSONRPC", tenant: "", protocolVersion: "1.0" },
@@ -122,7 +123,14 @@ function agentMessage(taskId: string, contextId: string, text: string): Message 
     contextId,
     taskId,
     role: Role.ROLE_AGENT,
-    parts: [{ content: { $case: "text", value: text }, mediaType: "text/plain", filename: "", metadata: {} }],
+    parts: [
+      {
+        content: { $case: "text", value: text },
+        mediaType: "text/plain",
+        filename: "",
+        metadata: {},
+      },
+    ],
     metadata: undefined,
     extensions: [],
     referenceTaskIds: [],
@@ -170,7 +178,11 @@ const executor: AgentExecutor = {
       kind: "task",
       data: {
         ...task,
-        status: { state: TaskState.TASK_STATE_WORKING, message: undefined, timestamp: new Date().toISOString() },
+        status: {
+          state: TaskState.TASK_STATE_WORKING,
+          message: undefined,
+          timestamp: new Date().toISOString(),
+        },
       },
     });
     // 2. Streamed progress.
@@ -286,7 +298,12 @@ const executor: AgentExecutor = {
       description: "fixture artifact",
       parts: [
         dataPart(artifact, "application/vnd.odft.flight-recommendations.v1+json"),
-        { content: { $case: "text", value: `echo:${message.messageId}` }, mediaType: "text/plain", filename: "", metadata: {} },
+        {
+          content: { $case: "text", value: `echo:${message.messageId}` },
+          mediaType: "text/plain",
+          filename: "",
+          metadata: {},
+        },
       ],
       metadata: undefined,
       extensions: [],
@@ -317,7 +334,11 @@ const executor: AgentExecutor = {
       },
     });
     eventBus.finished();
-    await admission.markSettled({ messageId: message.messageId, taskId: task.id, state: "completed" });
+    await admission.markSettled({
+      messageId: message.messageId,
+      taskId: task.id,
+      state: "completed",
+    });
   },
 
   async cancelTask(taskId: string, eventBus: ExecutionEventBus): Promise<void> {
@@ -326,7 +347,11 @@ const executor: AgentExecutor = {
       data: {
         taskId,
         contextId: taskId,
-        status: { state: TaskState.TASK_STATE_CANCELED, message: undefined, timestamp: new Date().toISOString() },
+        status: {
+          state: TaskState.TASK_STATE_CANCELED,
+          message: undefined,
+          timestamp: new Date().toISOString(),
+        },
         metadata: undefined,
       },
     });
@@ -357,9 +382,7 @@ mountA2AServer(app, {
 // reconciliation: tasks a stopped process left active become explicit restart
 // failures before any duplicate can be admitted.
 const serviceLock = await ServiceInstanceLock.acquire(pool, agentIdentity).catch((error) => {
-  process.stderr.write(
-    `a2a-echo: ${error instanceof Error ? error.message : String(error)}\n`,
-  );
+  process.stderr.write(`a2a-echo: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
 });
 const reconciled = await admission.reconcileRestartedTasks(serviceLock);

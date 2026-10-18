@@ -18,13 +18,13 @@ Fence official saver `put`/`putWrites` as well as domain writes. An operation-bo
 
 ## Alternatives
 
-| Alternative | Reason not chosen |
-| --- | --- |
-| Memory checkpointer | Cannot survive a new process |
-| All state inside checkpoint JSON | Poor domain constraints, booking idempotency, authorized reads, and queryability |
-| "One transaction" claim for independent saver/domain writes | Not true for the official independent pool/API |
-| Only domain fencing | A stale process could still write checkpoints after losing its lock connection |
-| Distributed event-sourcing platform | Excess infrastructure/complexity for this scope |
+| Alternative                                                 | Reason not chosen                                                                |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Memory checkpointer                                         | Cannot survive a new process                                                     |
+| All state inside checkpoint JSON                            | Poor domain constraints, booking idempotency, authorized reads, and queryability |
+| "One transaction" claim for independent saver/domain writes | Not true for the official independent pool/API                                   |
+| Only domain fencing                                         | A stale process could still write checkpoints after losing its lock connection   |
+| Distributed event-sourcing platform                         | Excess infrastructure/complexity for this scope                                  |
 
 ## Consequences
 

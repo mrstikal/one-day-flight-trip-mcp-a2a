@@ -3,7 +3,9 @@ import { expect, test } from "@playwright/test";
 const DEMO_DISCLAIMER =
   "DEMO APPLICATION - No real reservations are made and no payments are processed.";
 
-test("the wizard welcome page renders and the permanent disclaimer is visible", async ({ page }) => {
+test("the wizard welcome page renders and the permanent disclaimer is visible", async ({
+  page,
+}) => {
   await page.goto("/");
 
   await expect(page).toHaveTitle(/AI Travel Planner/);

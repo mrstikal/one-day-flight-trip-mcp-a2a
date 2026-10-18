@@ -51,9 +51,7 @@ function cancelTransport(): {
   }
   let config: ProtocolConfig;
   try {
-    const registry = trustedRegistrySchema.parse(
-      JSON.parse(readFileSync(registryPath, "utf8")),
-    );
+    const registry = trustedRegistrySchema.parse(JSON.parse(readFileSync(registryPath, "utf8")));
     config = {
       selfAgentIdentity: "coordinator",
       registry,
@@ -104,7 +102,11 @@ export async function POST(
   }
   const parsed = technicalCancelApiRequestSchema.safeParse(body.value);
   if (!parsed.success) {
-    return envelopeResponse({ code: "VALIDATION_FAILED", message: "invalid cancel request", retryable: false });
+    return envelopeResponse({
+      code: "VALIDATION_FAILED",
+      message: "invalid cancel request",
+      retryable: false,
+    });
   }
 
   const { id, operationId } = await context.params;

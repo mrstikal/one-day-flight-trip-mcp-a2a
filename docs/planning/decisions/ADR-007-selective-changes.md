@@ -18,12 +18,12 @@ Use the [invalidation matrix](../03-langgraph-design.md#10-selective-invalidatio
 
 ## Alternatives
 
-| Alternative | Reason not chosen |
-| --- | --- |
-| Global level mutates all selections | Breaks confirmed-state preservation and local overrides |
-| Dinner shares one meal-level preference | Cannot perform dinner-only changes without touching breakfast/lunch |
-| Relaxed means only parks | Confuses category with intensity and violates the requested semantics |
-| Rebuild every domain after chat | Expensive, nondeterministic, and overwrites unrelated user choices |
+| Alternative                               | Reason not chosen                                                     |
+| ----------------------------------------- | --------------------------------------------------------------------- |
+| Global level mutates all selections       | Breaks confirmed-state preservation and local overrides               |
+| Dinner shares one meal-level preference   | Cannot perform dinner-only changes without touching breakfast/lunch   |
+| Relaxed means only parks                  | Confuses category with intensity and violates the requested semantics |
+| Rebuild every domain after chat           | Expensive, nondeterministic, and overwrites unrelated user choices    |
 | Automatically downgrade to satisfy budget | Requires explicit user consent and can violate same-category requests |
 
 ## Consequences

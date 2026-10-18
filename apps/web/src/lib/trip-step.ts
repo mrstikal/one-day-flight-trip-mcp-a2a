@@ -89,8 +89,7 @@ export function hasSavedProgram(
 ): boolean {
   return (
     program !== null &&
-    (program.selectedMeals.breakfast !== null ||
-      program.selfArrangedMeals?.breakfast === true)
+    (program.selectedMeals.breakfast !== null || program.selfArrangedMeals?.breakfast === true)
   );
 }
 

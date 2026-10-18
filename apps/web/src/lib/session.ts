@@ -148,7 +148,11 @@ export async function issueSession(pool: Pool, config: ServerConfig): Promise<Re
     sessionId,
     csrfToken,
     expiresAt: expiresAt.toISOString(),
-    setCookie: serializeSessionCookie(`${sessionId}.${token}.${signToken(token, config)}`, SESSION_TTL_MS, config),
+    setCookie: serializeSessionCookie(
+      `${sessionId}.${token}.${signToken(token, config)}`,
+      SESSION_TTL_MS,
+      config,
+    ),
   };
 }
 

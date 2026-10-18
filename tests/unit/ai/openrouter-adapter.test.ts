@@ -186,9 +186,7 @@ describe("OpenRouter adapter transport", () => {
       profiles: profiles(),
       fetchImpl: fetchImpl as never,
     });
-    await expect(
-      adapter.generateObject(request()),
-    ).rejects.toBeInstanceOf(AdapterError);
+    await expect(adapter.generateObject(request())).rejects.toBeInstanceOf(AdapterError);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 

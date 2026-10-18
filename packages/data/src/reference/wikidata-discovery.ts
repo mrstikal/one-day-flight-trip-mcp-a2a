@@ -95,7 +95,9 @@ export function landmarkLabelQuery(input: {
 }
 
 interface SparqlResponse {
-  readonly results?: { readonly bindings?: readonly Record<string, { readonly value?: unknown }>[] };
+  readonly results?: {
+    readonly bindings?: readonly Record<string, { readonly value?: unknown }>[];
+  };
 }
 
 async function runSparql(
@@ -103,13 +105,16 @@ async function runSparql(
   query: string,
   signal: AbortSignal,
 ): Promise<SparqlResponse> {
-  const response = await fetchImpl(`${WIKIDATA_SPARQL_ENDPOINT}?query=${encodeURIComponent(query)}&format=json`, {
-    headers: {
-      accept: "application/sparql-results+json",
-      "user-agent": "one-day-flight-trip-demo/1.0 (landmark reference discovery)",
+  const response = await fetchImpl(
+    `${WIKIDATA_SPARQL_ENDPOINT}?query=${encodeURIComponent(query)}&format=json`,
+    {
+      headers: {
+        accept: "application/sparql-results+json",
+        "user-agent": "one-day-flight-trip-demo/1.0 (landmark reference discovery)",
+      },
+      signal,
     },
-    signal,
-  });
+  );
   if (!response.ok) {
     throw new Error(`Wikidata discovery failed with HTTP ${response.status}`);
   }
@@ -195,7 +200,8 @@ export async function discoverCityLandmarks(
     const labelByQid = new Map<string, string>();
     for (const binding of labels.results?.bindings ?? []) {
       const qid = qidOf(binding["item"]?.value);
-      const label = typeof binding["itemLabel"]?.value === "string" ? binding["itemLabel"].value : "";
+      const label =
+        typeof binding["itemLabel"]?.value === "string" ? binding["itemLabel"].value : "";
       // An unlabeled item falls back to its QID; never present that as a venue.
       if (qid && label.length > 0 && label !== qid) {
         labelByQid.set(qid, label);

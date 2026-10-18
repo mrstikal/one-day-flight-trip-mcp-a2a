@@ -34,7 +34,13 @@ const policySchema = z
         .strict(),
     ),
     islandExceptions: z.array(
-      z.object({ name: z.string().min(1), countryKey: z.string().regex(/^[A-Z]{2}$/), note: z.string().min(1) }).strict(),
+      z
+        .object({
+          name: z.string().min(1),
+          countryKey: z.string().regex(/^[A-Z]{2}$/),
+          note: z.string().min(1),
+        })
+        .strict(),
     ),
     excludedCountryKeys: z.array(z.string().regex(/^[A-Z]{2}$/)),
     curatedCities: z.array(

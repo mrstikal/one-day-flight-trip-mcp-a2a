@@ -98,7 +98,10 @@ export const itineraryEventSchema = z
     /** Offer/reference id for meal/activity events (never invented by AI). */
     refId: nonEmptyStringSchema.nullable(),
     /** Resolved activity tags (empty for non-activity events). */
-    activityTags: z.array(activityTagSchema).max(9).default(() => []),
+    activityTags: z
+      .array(activityTagSchema)
+      .max(9)
+      .default(() => []),
     /** Human-readable provenance labels ("Selected breakfast (Standard)"). */
     provenance: z.array(nonEmptyStringSchema.max(200)).min(1).max(6),
     physicalDemand: itineraryPhysicalDemandSchema,
@@ -127,8 +130,14 @@ export const itineraryMetricsSchema = z
     museumCount: z.number().int().min(0).max(80),
     /** Only tags present in the plan are recorded (partial by design). */
     activityTagCounts: z.partialRecord(activityTagSchema, z.number().int().min(0).max(80)),
-    firstContentStartLocal: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
-    lastContentEndLocal: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
+    firstContentStartLocal: z
+      .string()
+      .regex(/^\d{2}:\d{2}$/)
+      .nullable(),
+    lastContentEndLocal: z
+      .string()
+      .regex(/^\d{2}:\d{2}$/)
+      .nullable(),
     totalCostMinor: moneyMinorSchema,
     budgetMinor: moneyMinorSchema.nullable(),
     remainingBudgetMinor: z.number().int().nullable(),

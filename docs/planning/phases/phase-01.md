@@ -66,14 +66,14 @@ These are future implementation targets. Adjust only mechanical scaffolder filen
 
 ## 7. Functions and Contracts
 
-| Contract | Required behavior |
-| --- | --- |
-| `parseServerConfig(env)` | Strict typed config; fixture default; safe actionable validation errors |
-| `createPool(config)` | Bounded pool, shutdown/error handling, no credentials in logs |
-| `runMigrations(pool)` | Ordered versioned SQL, ledger, serialization, repeat execution safe |
-| `setupCheckpointer(pool/schema)` | Official saver schema setup as a one-shot deployment command |
+| Contract                         | Required behavior                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------- |
+| `parseServerConfig(env)`         | Strict typed config; fixture default; safe actionable validation errors       |
+| `createPool(config)`             | Bounded pool, shutdown/error handling, no credentials in logs                 |
+| `runMigrations(pool)`            | Ordered versioned SQL, ledger, serialization, repeat execution safe           |
+| `setupCheckpointer(pool/schema)` | Official saver schema setup as a one-shot deployment command                  |
 | `writeWorkerHeartbeat(workerId)` | Upsert actual process heartbeat; readiness does not pretend a worker is alive |
-| readiness response | `ready` only after schema/setup and recent heartbeat; no travel-success claim |
+| readiness response               | `ready` only after schema/setup and recent heartbeat; no travel-success claim |
 
 Root `dev` uses a small approved process runner such as `concurrently --kill-others` for shared-package watch, Next dev, and worker watch. It forwards termination to children. Use the environment's tracked background-process tool for servers during verification, not shell `&`/nohup.
 

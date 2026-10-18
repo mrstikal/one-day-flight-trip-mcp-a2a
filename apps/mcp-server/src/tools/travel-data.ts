@@ -96,7 +96,8 @@ export function registerTravelDataTools(
     "search_hotels",
     {
       title: "Search hotels",
-      description: "Hotel candidates of the delegated frozen snapshot within the delegated category.",
+      description:
+        "Hotel candidates of the delegated frozen snapshot within the delegated category.",
       inputSchema: scoped,
     },
     createToolHandler(context, "travelData", "search_hotels", async (input) => {

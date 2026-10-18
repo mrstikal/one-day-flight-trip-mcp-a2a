@@ -30,7 +30,9 @@ export function checkInDate(sightseeingDate: string): string {
 
 /** Hotel checkout is `D` for one night or `D+1` for two nights. */
 export function checkOutDate(sightseeingDate: string, variant: TravelVariant): string {
-  return date(sightseeingDate).add({ days: nightsForVariant(variant) - 1 }).toString();
+  return date(sightseeingDate)
+    .add({ days: nightsForVariant(variant) - 1 })
+    .toString();
 }
 
 /** Return departure is late on `D` (one night) or `D+1` (two nights). */

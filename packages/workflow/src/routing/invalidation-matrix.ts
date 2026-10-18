@@ -17,14 +17,7 @@ import {
 
 /** The work item a routing decision hands to the graph. */
 export type NextWork =
-  | "none"
-  | "route"
-  | "research"
-  | "progress"
-  | "plan"
-  | "validate"
-  | "summary"
-  | "decision";
+  "none" | "route" | "research" | "progress" | "plan" | "validate" | "summary" | "decision";
 
 export interface RoutingRefsInput {
   readonly preferences: Pick<TripPreferences, "defaultServiceLevel" | "serviceOverrides">;
@@ -35,9 +28,9 @@ export interface RoutingRefsInput {
 }
 
 export function routingRefs(input: RoutingRefsInput): InvalidationRefs {
-  const inheritedServices = (
-    ["hotel", "breakfast", "lunch", "dinner"] as const
-  ).filter((service) => input.preferences.serviceOverrides[service] === undefined);
+  const inheritedServices = (["hotel", "breakfast", "lunch", "dinner"] as const).filter(
+    (service) => input.preferences.serviceOverrides[service] === undefined,
+  );
   return {
     inheritedServices,
     confirmedServices: input.confirmedServices,
@@ -127,14 +120,7 @@ export function mergeResolutions(
     .flatMap((resolution) => resolution.affectedDomains)
     .filter((domain, index, all) => all.indexOf(domain) === index);
   const affected = new Set<string>(affectedDomains);
-  const allDomains = [
-    "hotel",
-    "breakfast",
-    "lunch",
-    "dinner",
-    "attractions",
-    "events",
-  ] as const;
+  const allDomains = ["hotel", "breakfast", "lunch", "dinner", "attractions", "events"] as const;
   const nextDecisionKind =
     resolutions
       .map((resolution) => resolution.nextDecisionKind)

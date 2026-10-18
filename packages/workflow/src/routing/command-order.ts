@@ -6,9 +6,7 @@ import type { DomainCommand } from "@odft/contracts";
  * confirmed reservation, a program selection) run first, so a refusal never
  * leaves earlier preference writes behind. The batch itself is one transaction.
  */
-export function orderCommandsForApplication(
-  commands: readonly DomainCommand[],
-): DomainCommand[] {
+export function orderCommandsForApplication(commands: readonly DomainCommand[]): DomainCommand[] {
   const rank = (command: DomainCommand): number => {
     if (command.type === "set_route") return 0;
     if (command.type === "set_program") return 1;

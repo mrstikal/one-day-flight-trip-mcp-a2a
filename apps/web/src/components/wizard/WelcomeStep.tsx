@@ -127,9 +127,7 @@ export function WelcomeStep(): React.JSX.Element {
         placeholder="Type a city or airport code"
         options={airportOptions}
         value={
-          draft.originAirportId
-            ? { id: draft.originAirportId, label: draft.originLabel }
-            : null
+          draft.originAirportId ? { id: draft.originAirportId, label: draft.originLabel } : null
         }
         loading={airportsLoading}
         disabled={tripCreated}

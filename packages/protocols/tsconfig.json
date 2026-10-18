@@ -7,8 +7,5 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "references": [
-    { "path": "../contracts" },
-    { "path": "../persistence" }
-  ]
+  "references": [{ "path": "../contracts" }, { "path": "../persistence" }]
 }

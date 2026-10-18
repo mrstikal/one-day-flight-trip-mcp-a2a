@@ -126,7 +126,11 @@ describe("intent semantic validation", () => {
             commands: [{ type: "propose_selection", service: "hotel", offerId: "offer-999" }],
           },
           { id: "b", label: "Pace", commands: [{ type: "set_activity_pace", pace: "relaxed" }] },
-          { id: "c", label: "Intensive", commands: [{ type: "set_activity_pace", pace: "intensive" }] },
+          {
+            id: "c",
+            label: "Intensive",
+            commands: [{ type: "set_activity_pace", pace: "intensive" }],
+          },
         ],
       },
       context,
@@ -184,7 +188,11 @@ describe("intent semantic validation", () => {
         commands: [
           {
             type: "set_program",
-            mealOfferIds: { breakfast: "restaurant-1", lunch: "restaurant-2", dinner: "restaurant-1" },
+            mealOfferIds: {
+              breakfast: "restaurant-1",
+              lunch: "restaurant-2",
+              dinner: "restaurant-1",
+            },
             selfArrangedMeals: [],
             preferredActivityIds: [],
             activitiesSelfArranged: false,
@@ -248,7 +256,11 @@ describe("intent semantic validation", () => {
             ],
           },
           { id: "a", label: "Pace", commands: [{ type: "set_activity_pace", pace: "relaxed" }] },
-          { id: "b", label: "Intensive", commands: [{ type: "set_activity_pace", pace: "intensive" }] },
+          {
+            id: "b",
+            label: "Intensive",
+            commands: [{ type: "set_activity_pace", pace: "intensive" }],
+          },
         ],
       },
       context,

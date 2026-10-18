@@ -137,7 +137,10 @@ async function download(url: string, fileName: string, refresh: boolean): Promis
   if (!response.ok || !response.body) {
     throw new Error(`Failed to download ${url}: HTTP ${response.status}`);
   }
-  await pipeline(Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(dest));
+  await pipeline(
+    Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
+    createWriteStream(dest),
+  );
   return sha256File(dest);
 }
 
@@ -237,7 +240,10 @@ async function runGeonames(refresh: boolean): Promise<void> {
   }
 
   const curated = new Map(
-    loadCountryPolicy().curatedCities.map((city) => [`${city.countryKey}:${city.name.toLowerCase()}`, city]),
+    loadCountryPolicy().curatedCities.map((city) => [
+      `${city.countryKey}:${city.name.toLowerCase()}`,
+      city,
+    ]),
   );
   const rejected: RejectedReport = new Map();
   const cities: CityRow[] = [];
@@ -266,7 +272,12 @@ async function runGeonames(refresh: boolean): Promise<void> {
       reject(rejected, "partial_admission_city_excluded");
       continue;
     }
-    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+    if (
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lon) ||
+      Math.abs(lat) > 90 ||
+      Math.abs(lon) > 180
+    ) {
       reject(rejected, "coordinates_out_of_range");
       continue;
     }
@@ -288,18 +299,16 @@ async function runGeonames(refresh: boolean): Promise<void> {
     emittedCountries.add(countryKey);
   }
 
-  const countries = [...emittedCountries]
-    .sort()
-    .map((countryKey) => {
-      const note = manifest.extensionNote(countryKey) ?? manifest.partialAdmission(countryKey)?.note;
-      return {
-        countryKey,
-        name: countryNames.get(countryKey) ?? COUNTRY_NAME_FALLBACK[countryKey] ?? countryKey,
-        admitted: true as const,
-        extension: countryKey === "XK",
-        ...(note ? { policyNote: note } : {}),
-      };
-    });
+  const countries = [...emittedCountries].sort().map((countryKey) => {
+    const note = manifest.extensionNote(countryKey) ?? manifest.partialAdmission(countryKey)?.note;
+    return {
+      countryKey,
+      name: countryNames.get(countryKey) ?? COUNTRY_NAME_FALLBACK[countryKey] ?? countryKey,
+      admitted: true as const,
+      extension: countryKey === "XK",
+      ...(note ? { policyNote: note } : {}),
+    };
+  });
 
   const cityCount = await writeNdjson(join(DATA_DIR, "cities.ndjson"), cities);
   await writeNdjson(join(DATA_DIR, "countries.ndjson"), countries);
@@ -310,16 +319,20 @@ async function runGeonames(refresh: boolean): Promise<void> {
     retrievedAt: RETRIEVED_AT,
     revision: `${RETRIEVED_AT}-cities15000`,
     sha256: zipSha,
-    license: "CC BY 4.0 (GeoNames); attribution and transformation notice in data/manifests/licenses/geonames-cc-by.txt",
+    license:
+      "CC BY 4.0 (GeoNames); attribution and transformation notice in data/manifests/licenses/geonames-cc-by.txt",
     licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
     transformVersion: TRANSFORM_VERSION,
     hashTarget: "downloaded cities15000.zip (upstream GeoNames artifact)",
     recordCount: cityCount,
     rejectedCount: reportToRows(rejected).reduce((sum, row) => sum + row.count, 0),
     rejectedReport: reportToRows(rejected),
-    attribution: "Contains data from GeoNames (https://www.geonames.org/), licensed under CC BY 4.0.",
+    attribution:
+      "Contains data from GeoNames (https://www.geonames.org/), licensed under CC BY 4.0.",
   });
-  process.stdout.write(`geonames: ${cityCount} cities, ${countries.length} countries (countryInfo sha ${countryInfoSha.slice(0, 12)})\n`);
+  process.stdout.write(
+    `geonames: ${cityCount} cities, ${countries.length} countries (countryInfo sha ${countryInfoSha.slice(0, 12)})\n`,
+  );
 }
 
 // --- ourairports + zones ----------------------------------------------------
@@ -366,7 +379,13 @@ async function resolveAirportZones(): Promise<{
   const resolved = airports.map((airport) => {
     const candidates = findZone(airport.lat, airport.lon);
     const cityZone = nearestCityZone(airport, cities);
-    const zone = resolveZone(candidates, airport.lat, airport.lon, cityZone, overrides.get(airport.iata));
+    const zone = resolveZone(
+      candidates,
+      airport.lat,
+      airport.lon,
+      cityZone,
+      overrides.get(airport.iata),
+    );
     const eligibleOrigin =
       isOriginCandidateType(airport.airportType) &&
       zone.eligibleOrigin &&
@@ -397,8 +416,14 @@ async function resolveAirportZones(): Promise<{
 async function runOurairports(refresh: boolean): Promise<void> {
   const manifest = new AdmissionManifest(loadCountryPolicy());
   const airportsSha = await download(SOURCES.ourairports, "airports.csv", refresh);
-  const countriesSha = await download(SOURCES.ourairportsCountries, "oa-countries.csv", refresh).catch(() => "");
-  const regionsSha = await download(SOURCES.ourairportsRegions, "oa-regions.csv", refresh).catch(() => "");
+  const countriesSha = await download(
+    SOURCES.ourairportsCountries,
+    "oa-countries.csv",
+    refresh,
+  ).catch(() => "");
+  const regionsSha = await download(SOURCES.ourairportsRegions, "oa-regions.csv", refresh).catch(
+    () => "",
+  );
   void regionsSha;
 
   const rejected: RejectedReport = new Map();
@@ -442,7 +467,12 @@ async function runOurairports(refresh: boolean): Promise<void> {
     }
     const lat = Number(get("latitude_deg"));
     const lon = Number(get("longitude_deg"));
-    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+    if (
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lon) ||
+      Math.abs(lat) > 90 ||
+      Math.abs(lon) > 180
+    ) {
       reject(rejected, "coordinates_out_of_range");
       continue;
     }
@@ -470,7 +500,9 @@ async function runOurairports(refresh: boolean): Promise<void> {
   }
 
   // Reject duplicate conflicting IATA codes entirely (report, never silently drop).
-  const duplicates = new Set([...seenIata.entries()].filter(([, count]) => count > 1).map(([iata]) => iata));
+  const duplicates = new Set(
+    [...seenIata.entries()].filter(([, count]) => count > 1).map(([iata]) => iata),
+  );
   const kept = rows.filter((row) => {
     if (duplicates.has(row.iata)) {
       reject(rejected, `duplicate_iata:${row.iata}`);
@@ -518,7 +550,8 @@ async function runZones(): Promise<void> {
     retrievedAt: RETRIEVED_AT,
     revision: "8.1.9",
     sha256: airportsSha,
-    license: "geo-tz code MIT; underlying boundary data ODbL (see data/manifests/licenses/odbl-timezone.txt).",
+    license:
+      "geo-tz code MIT; underlying boundary data ODbL (see data/manifests/licenses/odbl-timezone.txt).",
     licenseUrl: "https://github.com/evansiroky/node-geo-tz",
     transformVersion: TRANSFORM_VERSION,
     hashTarget: "derived data/reference/airports.ndjson zone-resolution output",
@@ -533,14 +566,16 @@ async function runZones(): Promise<void> {
     retrievedAt: RETRIEVED_AT,
     revision: "paired-with-geo-tz-8.1.9",
     sha256: odblSha,
-    license: "ODbL v1.0 (boundary data). Not redistributed; only derived zone lookups and this notice are committed.",
+    license:
+      "ODbL v1.0 (boundary data). Not redistributed; only derived zone lookups and this notice are committed.",
     licenseUrl: "https://opendatacommons.org/licenses/odbl/1-0/",
     transformVersion: TRANSFORM_VERSION,
     hashTarget: "data/manifests/licenses/odbl-timezone.txt (committed license notice)",
     recordCount: 0,
     rejectedCount: 0,
     rejectedReport: [],
-    attribution: "Contains data derived from OpenStreetMap contributors and timezone-boundary-builder, licensed under ODbL.",
+    attribution:
+      "Contains data derived from OpenStreetMap contributors and timezone-boundary-builder, licensed under ODbL.",
   });
   process.stdout.write(`zones: resolved ${count} airports\n`);
 }
@@ -622,7 +657,9 @@ async function runCatchments(): Promise<void> {
     });
   }
   await writeNdjson(join(DATA_DIR, "route-evidence.ndjson"), routeEvidence);
-  process.stdout.write(`catchments: ${linkCount} reviewed links, ${routeEvidence.length} evidence records\n`);
+  process.stdout.write(
+    `catchments: ${linkCount} reviewed links, ${routeEvidence.length} evidence records\n`,
+  );
 }
 
 // --- landmarks --------------------------------------------------------------
@@ -647,7 +684,12 @@ const LANDMARK_SEEDS: Record<string, LandmarkSeed[]> = {
     { name: "Pantheon", qid: "Q99309", lat: 41.89861111111111, lon: 12.476944444444445 },
     { name: "Roman Forum", qid: "Q180212", lat: 41.8922, lon: 12.4852 },
     { name: "Galleria Borghese", qid: "Q841506", lat: 41.91421, lon: 12.492144 },
-    { name: "Capitoline Museums", qid: "Q333906", lat: 41.893055555555556, lon: 12.482777777777777 },
+    {
+      name: "Capitoline Museums",
+      qid: "Q333906",
+      lat: 41.893055555555556,
+      lon: 12.482777777777777,
+    },
     { name: "Villa Borghese gardens", qid: "Q678313", lat: 41.913647, lon: 12.485104 },
     { name: "Piazza Navona", qid: "Q463400", lat: 41.89871, lon: 12.47316 },
   ],
@@ -656,8 +698,18 @@ const LANDMARK_SEEDS: Record<string, LandmarkSeed[]> = {
     { name: "Louvre Museum", qid: "Q19675", lat: 48.861111, lon: 2.335833 },
     { name: "Notre-Dame de Paris", qid: "Q2981", lat: 48.853, lon: 2.3498 },
     { name: "Musée d'Orsay", qid: "Q23402", lat: 48.859972, lon: 2.326527 },
-    { name: "Musée de l'Orangerie", qid: "Q726781", lat: 48.86384535145145, lon: 2.322538337460585 },
-    { name: "Jardin du Luxembourg", qid: "Q309458", lat: 48.846944444444446, lon: 2.337222222222222 },
+    {
+      name: "Musée de l'Orangerie",
+      qid: "Q726781",
+      lat: 48.86384535145145,
+      lon: 2.322538337460585,
+    },
+    {
+      name: "Jardin du Luxembourg",
+      qid: "Q309458",
+      lat: 48.846944444444446,
+      lon: 2.337222222222222,
+    },
     { name: "Tuileries Garden", qid: "Q818517", lat: 48.863888888889, lon: 2.3261111111111 },
     { name: "Banks of the Seine", qid: "Q2233532", lat: 48.85, lon: 2.35889 },
   ],
@@ -666,7 +718,12 @@ const LANDMARK_SEEDS: Record<string, LandmarkSeed[]> = {
     { name: "Park Güell", qid: "Q212867", lat: 41.41361111111111, lon: 2.1527777777777777 },
     { name: "Casa Batlló", qid: "Q461371", lat: 41.39158, lon: 2.16492 },
     { name: "Museu Picasso", qid: "Q1050032", lat: 41.385216, lon: 2.180893 },
-    { name: "Museu Nacional d'Art de Catalunya", qid: "Q861252", lat: 41.368333333333, lon: 2.1533055555556 },
+    {
+      name: "Museu Nacional d'Art de Catalunya",
+      qid: "Q861252",
+      lat: 41.368333333333,
+      lon: 2.1533055555556,
+    },
     { name: "Barceloneta", qid: "Q591874", lat: 41.3824734, lon: 2.1856404 },
     { name: "Parc de la Ciutadella", qid: "Q301135", lat: 41.388111, lon: 2.187517 },
     { name: "Gothic Quarter", qid: "Q17154", lat: 41.382777777778, lon: 2.1769444444444 },
@@ -703,7 +760,9 @@ async function wikidataSearch(name: string): Promise<string[]> {
   return (data?.search ?? []).map((entry) => entry.id);
 }
 
-async function wikidataCoordinates(qid: string): Promise<{ lat: number; lon: number; label?: string } | undefined> {
+async function wikidataCoordinates(
+  qid: string,
+): Promise<{ lat: number; lon: number; label?: string } | undefined> {
   const url = `https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&props=claims|labels&languages=en&ids=${qid}`;
   const data = (await wdFetch(url)) as
     | {
@@ -711,7 +770,11 @@ async function wikidataCoordinates(qid: string): Promise<{ lat: number; lon: num
           string,
           {
             labels?: Record<string, { value: string }>;
-            claims?: { P625?: { mainsnak?: { datavalue?: { value?: { latitude: number; longitude: number } } } }[] };
+            claims?: {
+              P625?: {
+                mainsnak?: { datavalue?: { value?: { latitude: number; longitude: number } } };
+              }[];
+            };
           }
         >;
       }
@@ -731,7 +794,9 @@ async function runLandmarks(): Promise<void> {
 
   for (const curated of policy.curatedCities) {
     const city = cities.find(
-      (candidate) => candidate.countryKey === curated.countryKey && candidate.name.toLowerCase() === curated.name.toLowerCase(),
+      (candidate) =>
+        candidate.countryKey === curated.countryKey &&
+        candidate.name.toLowerCase() === curated.name.toLowerCase(),
     );
     if (!city) {
       throw new Error(`Curated city not found in cities.ndjson: ${curated.name}`);
@@ -745,7 +810,9 @@ async function runLandmarks(): Promise<void> {
     for (const seed of seeds) {
       let qid: string | undefined = seed.qid;
       let point: { lat: number; lon: number } | undefined =
-        seed.lat !== undefined && seed.lon !== undefined ? { lat: seed.lat, lon: seed.lon } : undefined;
+        seed.lat !== undefined && seed.lon !== undefined
+          ? { lat: seed.lat, lon: seed.lon }
+          : undefined;
       if (!point) {
         for (const candidate of await wikidataSearch(seed.name)) {
           const coords = await wikidataCoordinates(candidate);

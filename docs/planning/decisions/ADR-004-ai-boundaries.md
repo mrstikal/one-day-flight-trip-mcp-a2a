@@ -20,13 +20,13 @@ Worst cost includes fixed per-request fees and all published tariff overrides, n
 
 ## Alternatives
 
-| Alternative | Reason not chosen |
-| --- | --- |
-| One hardcoded LLM for all work | Violates independent role configuration and obscures cost/reasoning tradeoffs |
-| Model creates offers/prices/bookings | Unverifiable, unsafe, and nondeterministic |
-| Extra response/summarization agents | Outcome templates and deterministic structured summaries suffice |
-| Silent live-to-fixture or model fallback | Misrepresents genuine AI and can change semantics/cost |
-| Raw reasoning inspection | Not needed for observability and risks disclosure |
+| Alternative                              | Reason not chosen                                                             |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| One hardcoded LLM for all work           | Violates independent role configuration and obscures cost/reasoning tradeoffs |
+| Model creates offers/prices/bookings     | Unverifiable, unsafe, and nondeterministic                                    |
+| Extra response/summarization agents      | Outcome templates and deterministic structured summaries suffice              |
+| Silent live-to-fixture or model fallback | Misrepresents genuine AI and can change semantics/cost                        |
+| Raw reasoning inspection                 | Not needed for observability and risks disclosure                             |
 
 ## Consequences
 

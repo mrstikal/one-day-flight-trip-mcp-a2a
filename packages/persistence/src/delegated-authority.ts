@@ -1,5 +1,9 @@
 import type { Pool, PoolClient } from "pg";
-import { delegationScopeSchema, type DelegationDomain, type DelegationScope } from "@odft/contracts";
+import {
+  delegationScopeSchema,
+  type DelegationDomain,
+  type DelegationScope,
+} from "@odft/contracts";
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 

@@ -66,7 +66,7 @@ One module, SDK-typed, reused by all three executors without coupling them:
   load → claim (first use) → `assertAuthorityCovers`;
 - `createFailurePublisher({ eventBus, admission, task, messageId })` →
   `{ publishFailure(code, reason), publishCancelled(), publishInputRequired(...),
-     cancellationRequested() }`;
+ cancellationRequested() }`;
 - `publishStatus(eventBus, task, state, text?, metadata?)`, `publishArtifact(...)`.
 
 The flight executor is refactored onto this module (behavior and Phase 05 tests
@@ -82,10 +82,10 @@ unchanged), so the new executors stay thin and independently implemented.
 - `task-control.ts` gains `TASK_LIMITS` for both skills (60 s/4/2/0.10 and
   90 s/8/2/0.10, two inputs each) and:
   - `recordInputRequest(pool, {agentIdentity, taskId, requestId, requestHash,
-    expiresAt})`: sets `input_required` + pending-request columns + counts one
+expiresAt})`: sets `input_required` + pending-request columns + counts one
     input (cap two, `assertAllowance({input:true})` before asking);
   - `consumeInputContinuation(pool, {agentIdentity, taskId, inputGeneration,
-    answerRequestId})`: a compare-and-swap that requires the admission's
+answerRequestId})`: a compare-and-swap that requires the admission's
     incremented generation and the pending request id and must not be expired
     (`INPUT_EXPIRED`); on success the pending columns are cleared exactly once.
     The stored request hash is correlation evidence only (the contract's
@@ -137,7 +137,7 @@ question plus the chosen-order artifact against the real snapshot.
   already accepts it) through a **generalized** delegated offer ranker in
   `packages/services/src/ai/runtime.ts`:
   `rankDelegatedOffers(pool, config, deps, { rolePrompt, context, allowedIds,
-  deterministicOrder, authority, effectScope, signal, limits })`, with
+deterministicOrder, authority, effectScope, signal, limits })`, with
   `createDelegatedFlightRanker` kept as a thin wrapper (no behavior change).
   Validation is permutation/subset of supplied ids; invalid output → deterministic
   order + `findings` note; settlement records the real validation status.

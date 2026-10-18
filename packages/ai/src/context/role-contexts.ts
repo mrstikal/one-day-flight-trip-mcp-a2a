@@ -106,7 +106,10 @@ export const plannerContextSchema = z
      * planner plans exactly these plus whatever satisfies the tag minimums and
      * never adds any other visit.
      */
-    preferredActivityIds: z.array(nonEmptyStringSchema).max(30).default(() => []),
+    preferredActivityIds: z
+      .array(nonEmptyStringSchema)
+      .max(30)
+      .default(() => []),
     budgetMinor: moneyMinorSchema.nullable(),
     fixedWindows: z.array(fixedWindowSchema).max(24),
     candidates: z.array(plannerCandidateSchema).max(60),
@@ -156,7 +159,9 @@ export const reviewerContextSchema = z
       .max(3)
       .default(() => []),
     requirements: z
-      .array(z.object({ tag: activityTagSchema, minimumCount: z.number().int().min(1).max(7) }).strict())
+      .array(
+        z.object({ tag: activityTagSchema, minimumCount: z.number().int().min(1).max(7) }).strict(),
+      )
       .max(8),
   })
   .strict();

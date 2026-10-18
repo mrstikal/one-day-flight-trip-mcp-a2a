@@ -17,10 +17,22 @@ import {
   loadOverlay,
   type AgentDelegationRecord,
 } from "@odft/persistence";
-import { ProtocolTelemetryWriter, buildObservation, createMcpServerMiddleware } from "@odft/protocols";
+import {
+  ProtocolTelemetryWriter,
+  buildObservation,
+  createMcpServerMiddleware,
+} from "@odft/protocols";
 import { createTravelSnapshotReadService, type TravelSnapshotReadService } from "@odft/services";
-import { createTravelItineraryToolsService, type TravelItineraryToolsService } from "@odft/services";
-import { ENDPOINT_ALLOWED_AGENTS, MCP_ENDPOINTS, type McpEndpointKey, type McpHostConfig } from "./config.js";
+import {
+  createTravelItineraryToolsService,
+  type TravelItineraryToolsService,
+} from "@odft/services";
+import {
+  ENDPOINT_ALLOWED_AGENTS,
+  MCP_ENDPOINTS,
+  type McpEndpointKey,
+  type McpHostConfig,
+} from "./config.js";
 
 /**
  * Phase 04 MCP host (plan §3.4): three read-only endpoints over two database
@@ -57,12 +69,15 @@ export interface McpHostContext {
   /** The caller's newest active delegation for a snapshot (resource reads). */
   delegationForSnapshot(identity: string, snapshotId: string): Promise<string>;
   /** Best-effort correlation for a tool-call observation (never throws). */
-  correlationForDelegation(delegationId: string): Promise<{
-    readonly tripId: string;
-    readonly operationId: string;
-    readonly delegationId: string;
-    readonly taskId: string | null;
-  } | undefined>;
+  correlationForDelegation(delegationId: string): Promise<
+    | {
+        readonly tripId: string;
+        readonly operationId: string;
+        readonly delegationId: string;
+        readonly taskId: string | null;
+      }
+    | undefined
+  >;
   authorize(input: {
     readonly identity: string;
     readonly endpoint: McpEndpointKey;
@@ -99,7 +114,11 @@ export function createMcpHostContext(config: McpHostConfig): McpHostContext {
       "ODFT_MCP_READONLY_DATABASE_URL is required: the MCP host reads domain/reference data only through the read-only role",
     );
   }
-  const readPool = new Pool({ connectionString: readOnlyUrl, max: 6, application_name: "odft-mcp-read" });
+  const readPool = new Pool({
+    connectionString: readOnlyUrl,
+    max: 6,
+    application_name: "odft-mcp-read",
+  });
   const telemetry = new ProtocolTelemetryWriter(authPool);
 
   const context: McpHostContext = {
@@ -159,7 +178,11 @@ export function createMcpHostContext(config: McpHostConfig): McpHostContext {
           "the delegation belongs to a different agent identity",
         );
       }
-      if (delegation.status === "revoked" || delegation.status === "cancelled" || delegation.status === "failed") {
+      if (
+        delegation.status === "revoked" ||
+        delegation.status === "cancelled" ||
+        delegation.status === "failed"
+      ) {
         throw new McpAuthorizationError("FORBIDDEN", `delegation is ${delegation.status}`);
       }
       if (delegation.deadlineAt && Date.parse(delegation.deadlineAt) < Date.now()) {
@@ -179,10 +202,16 @@ export function createMcpHostContext(config: McpHostConfig): McpHostContext {
         );
       }
       if (input.needRouteValidation && !scope.allowRouteValidation) {
-        throw new McpAuthorizationError("FORBIDDEN", "route validation is outside the delegated scope");
+        throw new McpAuthorizationError(
+          "FORBIDDEN",
+          "route validation is outside the delegated scope",
+        );
       }
       if (input.needItinerary && !scope.allowItinerary) {
-        throw new McpAuthorizationError("FORBIDDEN", "itinerary tools are outside the delegated scope");
+        throw new McpAuthorizationError(
+          "FORBIDDEN",
+          "itinerary tools are outside the delegated scope",
+        );
       }
       const trip = await getTrip(readPool, delegation.tripId);
       if (!trip) {
@@ -190,7 +219,12 @@ export function createMcpHostContext(config: McpHostConfig): McpHostContext {
       }
       const domain = input.domain ?? scope.domains[0];
       const behavior = domain
-        ? await loadOverlay(readPool, delegation.tripId, overlayDomainFor(domain), delegation.originatingOperationId)
+        ? await loadOverlay(
+            readPool,
+            delegation.tripId,
+            overlayDomainFor(domain),
+            delegation.originatingOperationId,
+          )
         : null;
       return { delegation, scope, trip, behavior, attempt: delegation.attempt };
     },
@@ -218,7 +252,11 @@ export function createEndpointApp(
   const mounted = createMcpServerMiddleware({
     config: context.config.protocol,
     factory,
-    allowedHostnames: [new URL(context.config.protocol.mcpRegistry.services[0]!.endpointUrl).hostname, "localhost", "127.0.0.1"],
+    allowedHostnames: [
+      new URL(context.config.protocol.mcpRegistry.services[0]!.endpointUrl).hostname,
+      "localhost",
+      "127.0.0.1",
+    ],
     onerror: (error) => {
       void context.telemetry.record(
         buildObservation({
@@ -233,7 +271,9 @@ export function createEndpointApp(
   return app;
 }
 
-export function sourceFor(endpoint: McpEndpointKey): "mcp-geography" | "mcp-travel-data" | "mcp-itinerary-tools" {
+export function sourceFor(
+  endpoint: McpEndpointKey,
+): "mcp-geography" | "mcp-travel-data" | "mcp-itinerary-tools" {
   return endpoint === "geography"
     ? "mcp-geography"
     : endpoint === "travelData"
@@ -251,7 +291,11 @@ export function createToolHandler<Input, Output>(
   endpoint: McpEndpointKey,
   toolName: string,
   handler: (input: Input) => Promise<Output>,
-): (input: Input) => Promise<{ content: { type: "text"; text: string }[]; structuredContent: Output; isError?: boolean }> {
+): (input: Input) => Promise<{
+  content: { type: "text"; text: string }[];
+  structuredContent: Output;
+  isError?: boolean;
+}> {
   return async (input: Input) => {
     const startedAt = Date.now();
     const delegationId = (input as { delegationId?: unknown } | null)?.delegationId;

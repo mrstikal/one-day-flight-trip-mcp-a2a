@@ -53,7 +53,10 @@ export async function consumeRateLimit(
 }
 
 /** Opportunistic cleanup of buckets far outside any active window. */
-export async function pruneRateLimitBuckets(pool: Pool, olderThanMs = 60 * 60 * 1000): Promise<void> {
+export async function pruneRateLimitBuckets(
+  pool: Pool,
+  olderThanMs = 60 * 60 * 1000,
+): Promise<void> {
   await pool.query(
     `DELETE FROM odft_app.rate_limit_buckets WHERE window_start < now() - ($1::bigint * interval '1 millisecond')`,
     [olderThanMs],

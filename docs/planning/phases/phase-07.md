@@ -76,14 +76,14 @@ Keep the app-router root established in Phase 01 (`apps/web/src/app`). Do not du
 
 Reuse the Phase 03 names; implement only the missing pieces.
 
-| Contract | Input -> Output | Required failure behavior |
-| --- | --- | --- |
-| `BookingService.propose({ tripId, service, offerId, operationId })` | Phase03 API with admitted revision/fencing context -> proposal | stale inputs/offer rejected; no partial writes |
-| `BookingService.confirm({ tripId, proposalId, decisionId, operationId, acceptedDemoDisclaimer, confirmationKey })` | trusted envelope -> reservation result (reference, terms snapshot) | effect replay returns stored result; failures per `09` section 6 table |
-| `BookingService.replaceConfirmed(...)` | approved replacement -> superseded old + confirmed new | old superseded BEFORE insert; full rollback on failure |
-| `generateDemoReference(serviceKey)` | service key -> `DEMO-*` reference | savepoint-bounded, at most 3 collision attempts; exhaustion -> `REF_GENERATION_FAILED` |
-| `stage_selection(ctx)` / `commit_booking(ctx)` / `validate_selected_logistics(ctx)` | graph node contracts per `03` section 4 | deterministic; no LLM; no reservation edits on validation conflict |
-| `applySetProgram(ctx, command)` | meal selections + activity IDs -> updated selections / replacement proposal | never moves, removes, or re-keys a confirmed reservation |
+| Contract                                                                                                           | Input -> Output                                                             | Required failure behavior                                                              |
+| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `BookingService.propose({ tripId, service, offerId, operationId })`                                                | Phase03 API with admitted revision/fencing context -> proposal              | stale inputs/offer rejected; no partial writes                                         |
+| `BookingService.confirm({ tripId, proposalId, decisionId, operationId, acceptedDemoDisclaimer, confirmationKey })` | trusted envelope -> reservation result (reference, terms snapshot)          | effect replay returns stored result; failures per `09` section 6 table                 |
+| `BookingService.replaceConfirmed(...)`                                                                             | approved replacement -> superseded old + confirmed new                      | old superseded BEFORE insert; full rollback on failure                                 |
+| `generateDemoReference(serviceKey)`                                                                                | service key -> `DEMO-*` reference                                           | savepoint-bounded, at most 3 collision attempts; exhaustion -> `REF_GENERATION_FAILED` |
+| `stage_selection(ctx)` / `commit_booking(ctx)` / `validate_selected_logistics(ctx)`                                | graph node contracts per `03` section 4                                     | deterministic; no LLM; no reservation edits on validation conflict                     |
+| `applySetProgram(ctx, command)`                                                                                    | meal selections + activity IDs -> updated selections / replacement proposal | never moves, removes, or re-keys a confirmed reservation                               |
 
 ## 8. Outputs / Deliverables
 

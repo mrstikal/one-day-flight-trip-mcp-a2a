@@ -19,7 +19,9 @@ import { createToolHandler } from "../app.js";
  * route tool additionally requires a valid delegated context.
  */
 
-const countryQuery = z.object({ q: z.string().max(80).default(""), limit: z.number().int().min(1).max(50).default(20) }).strict();
+const countryQuery = z
+  .object({ q: z.string().max(80).default(""), limit: z.number().int().min(1).max(50).default(20) })
+  .strict();
 const cityQuery = z
   .object({
     countryKey: z.string().length(2).nullable().default(null),
@@ -27,7 +29,9 @@ const cityQuery = z
     limit: z.number().int().min(1).max(50).default(20),
   })
   .strict();
-const airportQuery = z.object({ q: z.string().max(80).default(""), limit: z.number().int().min(1).max(50).default(20) }).strict();
+const airportQuery = z
+  .object({ q: z.string().max(80).default(""), limit: z.number().int().min(1).max(50).default(20) })
+  .strict();
 const cityId = z.object({ cityId: z.string().min(1).max(120) }).strict();
 const airportId = z.object({ airportId: z.string().min(1).max(120) }).strict();
 const distanceInput = z
@@ -42,7 +46,10 @@ const distanceInput = z
     (value) =>
       (value.fromCityId !== null) !== (value.fromAirportId !== null) &&
       (value.toCityId !== null) !== (value.toAirportId !== null),
-    { message: "exactly one of fromCityId/fromAirportId and one of toCityId/toAirportId is required" },
+    {
+      message:
+        "exactly one of fromCityId/fromAirportId and one of toCityId/toAirportId is required",
+    },
   );
 const routeInput = z
   .object({
@@ -136,7 +143,11 @@ export function registerGeographyTools(
 
   server.registerTool(
     "get_airport_details",
-    { title: "Airport details", description: "Reference details of one airport.", inputSchema: airportId },
+    {
+      title: "Airport details",
+      description: "Reference details of one airport.",
+      inputSchema: airportId,
+    },
     createToolHandler(context, "geography", "get_airport_details", async (input) => {
       const airport = await getReferenceAirport(context.readPool, input.airportId);
       if (!airport) {
@@ -160,9 +171,16 @@ export function registerGeographyTools(
 
   server.registerTool(
     "estimate_distance",
-    { title: "Estimate distance", description: "Haversine distance between two reference anchors.", inputSchema: distanceInput },
+    {
+      title: "Estimate distance",
+      description: "Haversine distance between two reference anchors.",
+      inputSchema: distanceInput,
+    },
     createToolHandler(context, "geography", "estimate_distance", async (input) => {
-      const from = await anchorOf(context, { cityId: input.fromCityId, airportId: input.fromAirportId });
+      const from = await anchorOf(context, {
+        cityId: input.fromCityId,
+        airportId: input.fromAirportId,
+      });
       const to = await anchorOf(context, { cityId: input.toCityId, airportId: input.toAirportId });
       return {
         from: from.label,

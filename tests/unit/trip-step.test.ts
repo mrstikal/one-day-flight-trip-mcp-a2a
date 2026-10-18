@@ -156,13 +156,13 @@ describe("tripStepHeading (no server calls)", () => {
 
 describe("nextTripStep (no server calls)", () => {
   it("starts with flight selection until a flight is confirmed", () => {
-    expect(nextTripStep({ tripId, reservations: [], hasProgram: false, hasItinerary: false })).toEqual(
-      {
-        href: `/trips/${tripId}/flights`,
-        cta: "Go to flight selection",
-        open: "Open flight selection",
-      },
-    );
+    expect(
+      nextTripStep({ tripId, reservations: [], hasProgram: false, hasItinerary: false }),
+    ).toEqual({
+      href: `/trips/${tripId}/flights`,
+      cta: "Go to flight selection",
+      open: "Open flight selection",
+    });
   });
 
   it("advances through hotel, meals, and activities as steps complete", () => {

@@ -10,12 +10,7 @@ import type { NextConfig } from "next";
  */
 function loadRootEnv(): void {
   const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
-  const candidates = [
-    join(repoRoot, ".env.local"),
-    join(repoRoot, ".env"),
-    ".env.local",
-    ".env",
-  ];
+  const candidates = [join(repoRoot, ".env.local"), join(repoRoot, ".env"), ".env.local", ".env"];
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
       try {

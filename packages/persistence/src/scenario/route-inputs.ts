@@ -311,11 +311,7 @@ export async function buildSnapshotContext(
   client: Queryable,
   trip: Pick<
     TripRecord,
-    | "destinationCityId"
-    | "destinationCountryKey"
-    | "sightseeingDate"
-    | "travelVariant"
-    | "adults"
+    "destinationCityId" | "destinationCountryKey" | "sightseeingDate" | "travelVariant" | "adults"
   >,
   inputs: RouteInputs,
 ): Promise<SnapshotContext> {

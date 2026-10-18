@@ -1,6 +1,10 @@
 import type { Pool } from "pg";
 import type { Engine } from "@odft/contracts";
-import { claimNextOperation, reapExhaustedOperations, type ClaimedOperation } from "@odft/persistence";
+import {
+  claimNextOperation,
+  reapExhaustedOperations,
+  type ClaimedOperation,
+} from "@odft/persistence";
 import type { OperationDriver } from "./driver.js";
 import type { ShutdownController } from "./shutdown.js";
 

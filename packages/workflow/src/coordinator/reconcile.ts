@@ -33,11 +33,7 @@ import {
 
 export interface CancelTaskTransport {
   /** Best-effort remote SDK cancellation of one specialist task. */
-  cancelTask(input: {
-    agentIdentity: string;
-    delegationId: string;
-    taskId: string;
-  }): Promise<void>;
+  cancelTask(input: { agentIdentity: string; delegationId: string; taskId: string }): Promise<void>;
 }
 
 export interface ObservationBridgeSummary {

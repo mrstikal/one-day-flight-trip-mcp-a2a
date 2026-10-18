@@ -79,9 +79,10 @@ beforeAll(async () => {
     [seeded.snapshotId],
   );
   standardPriceOrder = standard.rows.map((row) => row.id);
-  closestStandardId = [...standard.rows].sort(
-    (a, b) => Number(a.dist) - Number(b.dist) || a.id.localeCompare(b.id),
-  )[0]?.id ?? "";
+  closestStandardId =
+    [...standard.rows].sort(
+      (a, b) => Number(a.dist) - Number(b.dist) || a.id.localeCompare(b.id),
+    )[0]?.id ?? "";
   mcpHost = startMcpHost();
   await waitForHostReady(mcpHost);
   agent = startAccommodationAgent();
@@ -123,7 +124,9 @@ describe("accommodation agent", () => {
   }, 60_000);
 
   it("asks a genuine tradeoff question for an ambiguous cheaper search", async () => {
-    const delegationId = await createAccommodationDelegation(pool, seeded, { objective: "cheaper" });
+    const delegationId = await createAccommodationDelegation(pool, seeded, {
+      objective: "cheaper",
+    });
     const task = await send(
       agentTaskRequestData({
         skillId: "accommodation.recommend.v1",
@@ -149,7 +152,11 @@ describe("accommodation agent", () => {
     expect(request.contextId).toBe(task.contextId);
     expect(request.inputGeneration).toBe(1);
     expect(request.options.map((option) => option.id).sort()).toEqual(["central", "cheapest"]);
-    const control = await pool.query<{ state: string; input_count: number; input_request_id: string | null }>(
+    const control = await pool.query<{
+      state: string;
+      input_count: number;
+      input_request_id: string | null;
+    }>(
       `SELECT state, input_count, input_request_id FROM odft_app.protocol_task_control
         WHERE agent_identity = 'accommodation-agent' AND task_id = $1`,
       [task.id],
@@ -160,7 +167,9 @@ describe("accommodation agent", () => {
   }, 60_000);
 
   it("answers the question in the same task and ranks for the chosen tradeoff", async () => {
-    const delegationId = await createAccommodationDelegation(pool, seeded, { objective: "cheaper" });
+    const delegationId = await createAccommodationDelegation(pool, seeded, {
+      objective: "cheaper",
+    });
     const asked = await send(
       agentTaskRequestData({
         skillId: "accommodation.recommend.v1",
@@ -219,7 +228,9 @@ describe("accommodation agent", () => {
   }, 90_000);
 
   it("refuses a continuation that does not match the pending question", async () => {
-    const delegationId = await createAccommodationDelegation(pool, seeded, { objective: "cheaper" });
+    const delegationId = await createAccommodationDelegation(pool, seeded, {
+      objective: "cheaper",
+    });
     const asked = await send(
       agentTaskRequestData({
         skillId: "accommodation.recommend.v1",
@@ -277,7 +288,9 @@ describe("accommodation agent", () => {
     const agentPool = new Pool({ connectionString: accommodationAgentDatabaseUrl(), max: 1 });
     try {
       await expect(
-        agentPool.query(`UPDATE odft_app.trips SET revision = revision + 1 WHERE id = $1`, [seeded.tripId]),
+        agentPool.query(`UPDATE odft_app.trips SET revision = revision + 1 WHERE id = $1`, [
+          seeded.tripId,
+        ]),
       ).rejects.toThrow(/permission denied/);
       await expect(
         agentPool.query(

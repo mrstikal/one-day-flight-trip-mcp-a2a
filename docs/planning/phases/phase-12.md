@@ -68,14 +68,14 @@ Extend existing suites instead of duplicating modules; reuse the P05 fault harne
 
 ## 7. Functions and Interfaces to Implement
 
-| Contract | Input -> Output | Required failure behavior |
-| --- | --- | --- |
-| `runScenario(recipeId, seed, overlay)` | operator/inspector recipe + persisted seed/overlay -> deterministic scenario run | unknown recipe/seed -> typed refusal; browser never executes shell |
-| `restartWorker(mode)` / `restartPostgres(mode)` (test harness) | signal/service restart -> new OS process or service | harness-driven only; asserts same thread/reservations recovered |
-| `finalFeasibilitySweep()` | regression matrix -> per-ID pass/fail evidence | 10d requires a real restart and restored-checkpoint evidence |
-| `bundleSecretScan(distDir)` | production build -> findings | any secret/server module in client chunks fails the gate |
-| `cleanupExpiredSessions(now)` | expired sessions policy -> removed rows/checkpoints | never deletes active owned trips; uses supported checkpointer APIs |
-| `reportLiveAiStatus(env)` | credential/config presence -> passed or `UNVERIFIED` | never fabricates usage/cost; never claims fixture output is live |
+| Contract                                                       | Input -> Output                                                                  | Required failure behavior                                          |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `runScenario(recipeId, seed, overlay)`                         | operator/inspector recipe + persisted seed/overlay -> deterministic scenario run | unknown recipe/seed -> typed refusal; browser never executes shell |
+| `restartWorker(mode)` / `restartPostgres(mode)` (test harness) | signal/service restart -> new OS process or service                              | harness-driven only; asserts same thread/reservations recovered    |
+| `finalFeasibilitySweep()`                                      | regression matrix -> per-ID pass/fail evidence                                   | 10d requires a real restart and restored-checkpoint evidence       |
+| `bundleSecretScan(distDir)`                                    | production build -> findings                                                     | any secret/server module in client chunks fails the gate           |
+| `cleanupExpiredSessions(now)`                                  | expired sessions policy -> removed rows/checkpoints                              | never deletes active owned trips; uses supported checkpointer APIs |
+| `reportLiveAiStatus(env)`                                      | credential/config presence -> passed or `UNVERIFIED`                             | never fabricates usage/cost; never claims fixture output is live   |
 
 ## 8. Outputs / Deliverables
 

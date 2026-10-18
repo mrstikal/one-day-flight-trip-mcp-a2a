@@ -31,18 +31,15 @@ export function ProtocolTimeline({
       <section aria-label="MCP calls">
         <h2 className="text-base font-semibold">MCP calls</h2>
         <p className="mt-1 text-xs text-ink-muted">
-          Safe discovery/invocation evidence only (MCP edge): tool or resource identity,
-          kind, and outcome. Arguments and results are never stored.
+          Safe discovery/invocation evidence only (MCP edge): tool or resource identity, kind, and
+          outcome. Arguments and results are never stored.
         </p>
         {mcpCalls.length === 0 ? (
           <p className="mt-1 text-sm text-ink-muted" data-testid="no-mcp-calls">
             No MCP calls have been persisted for this trip yet.
           </p>
         ) : (
-          <table
-            className="mt-2 w-full border-collapse text-left text-xs"
-            data-testid="mcp-table"
-          >
+          <table className="mt-2 w-full border-collapse text-left text-xs" data-testid="mcp-table">
             <thead>
               <tr className="border-b border-border text-ink-muted">
                 <th className="py-1 pr-3">Edge</th>
@@ -55,7 +52,10 @@ export function ProtocolTimeline({
             </thead>
             <tbody>
               {mcpCalls.map((call, index) => (
-                <tr key={`${call.name}-${call.occurredAt}-${index}`} className="border-b border-border/50">
+                <tr
+                  key={`${call.name}-${call.occurredAt}-${index}`}
+                  className="border-b border-border/50"
+                >
                   <td className="py-1 pr-3 font-mono">mcp</td>
                   <td className="py-1 pr-3 font-mono">{call.name}</td>
                   <td className="py-1 pr-3">{MCP_KIND_LABELS[call.kind] ?? call.kind}</td>
@@ -72,9 +72,9 @@ export function ProtocolTimeline({
       <section aria-label="Protocol timeline">
         <h2 className="text-base font-semibold">Protocol timeline</h2>
         <p className="mt-1 text-xs text-ink-muted" data-testid="timeline-legend">
-          Chronological source order across all edges: a2a (agent communications),
-          mcp (tool/resource calls), application (coordinator observations). Late
-          observations appear at their source time, not at ingestion time.
+          Chronological source order across all edges: a2a (agent communications), mcp
+          (tool/resource calls), application (coordinator observations). Late observations appear at
+          their source time, not at ingestion time.
         </p>
         {timeline.length === 0 ? (
           <p className="mt-1 text-sm text-ink-muted" data-testid="no-timeline">

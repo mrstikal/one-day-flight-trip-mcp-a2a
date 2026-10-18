@@ -146,11 +146,12 @@ describe("flight agent delegated AI wiring", () => {
         OPENROUTER_API_KEY: "sk-unit-test",
       }),
     );
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ error: { code: 503, message: "unavailable" } }), {
-        status: 503,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { code: 503, message: "unavailable" } }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
     // The source profile allows two attempts; the delegated path must send once.

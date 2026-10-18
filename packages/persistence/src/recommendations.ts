@@ -127,7 +127,9 @@ export async function listRecommendationArtifacts(
     serviceKey: row.service_key,
     inputFingerprint: row.input_fingerprint,
     rankedOfferIds: Array.isArray(row.ranked_offers)
-      ? (row.ranked_offers as unknown[]).filter((value): value is string => typeof value === "string")
+      ? (row.ranked_offers as unknown[]).filter(
+          (value): value is string => typeof value === "string",
+        )
       : [],
     explanation: row.explanation,
   }));

@@ -26,7 +26,9 @@ export const reasoningEffortSchema = z.enum([
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 
 /** Fixed-precision USD decimal string (never travel EUR money). */
-export const usdDecimalSchema = z.string().regex(/^\d+(\.\d{1,9})?$/, "must be a USD decimal string");
+export const usdDecimalSchema = z
+  .string()
+  .regex(/^\d+(\.\d{1,9})?$/, "must be a USD decimal string");
 
 export const roleProfileSchema = z
   .object({

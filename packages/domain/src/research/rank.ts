@@ -19,9 +19,7 @@ export interface RankableOffer {
  * carries the deterministic filter result (membership, category, dates, party,
  * price); offers outside it are dropped before ordering.
  */
-export function rankDeterministically(
-  eligible: readonly RankableOffer[],
-): string[] {
+export function rankDeterministically(eligible: readonly RankableOffer[]): string[] {
   return [...eligible]
     .sort((a, b) => a.partyTotalMinor - b.partyTotalMinor || a.id.localeCompare(b.id))
     .map((offer) => offer.id);

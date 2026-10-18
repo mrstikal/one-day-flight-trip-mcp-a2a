@@ -51,11 +51,9 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
   // planner still owns full feasibility). The check is keyed by the selection it
   // was computed for, so a stale result never blocks or warns for a new one.
   const hasProgram = Boolean(projection?.program);
-  const selectionKey = (
-    selectedOverride ??
-    projection?.program?.preferredActivityIds ??
-    []
-  ).join(",");
+  const selectionKey = (selectedOverride ?? projection?.program?.preferredActivityIds ?? []).join(
+    ",",
+  );
   const selfArrangedKey =
     selfArrangedOverride ?? projection?.program?.activitiesSelfArranged ?? false;
   const paceKey = projection?.trip.preferences.activityPace ?? null;
@@ -95,7 +93,10 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
       .map((event) => [event.refId as string, `${event.startLocal}–${event.endLocal}`]),
   );
   const durationById = new Map(
-    (projection?.program?.activities ?? []).map((activity) => [activity.id, activity.durationMinutes]),
+    (projection?.program?.activities ?? []).map((activity) => [
+      activity.id,
+      activity.durationMinutes,
+    ]),
   );
   const planMetrics = projection?.itinerary?.validation.metrics ?? null;
   const planTagBreakdown =
@@ -112,11 +113,12 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
           .join(", ")}`
       : null;
 
-  const visitBudget =
-    selfArrangedKey || budgetCheck?.key !== selectionKey ? null : budgetCheck.fit;
-  const newSelectedIds = (selectedOverride ?? projection?.program?.preferredActivityIds ?? []).filter(
-    (id) => !plannedById.has(id),
-  );
+  const visitBudget = selfArrangedKey || budgetCheck?.key !== selectionKey ? null : budgetCheck.fit;
+  const newSelectedIds = (
+    selectedOverride ??
+    projection?.program?.preferredActivityIds ??
+    []
+  ).filter((id) => !plannedById.has(id));
   const newSelectionCount = newSelectedIds.length;
   const newSelectionMinutes = newSelectedIds.reduce(
     (sum, id) => sum + (durationById.get(id) ?? 0),
@@ -324,15 +326,19 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
                   ))}
                 </div>
                 <p className="text-sm text-ink-muted">
-                  The planner plans only what you request here or pin below; everything else stays free
-                  time.
+                  The planner plans only what you request here or pin below; everything else stays
+                  free time.
                 </p>
               </div>
             ) : null}
             {pendingDecision ? (
-              <p role="note" data-testid="activities-replan-note" className="text-sm text-ink-muted">
-                Saving your preferences replaces the pending decision and replans the day; the updated
-                itinerary asks for approval again.
+              <p
+                role="note"
+                data-testid="activities-replan-note"
+                className="text-sm text-ink-muted"
+              >
+                Saving your preferences replaces the pending decision and replans the day; the
+                updated itinerary asks for approval again.
               </p>
             ) : null}
             <label className="flex w-fit items-center gap-2 text-sm">
@@ -351,8 +357,8 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
                 data-testid="self-arranged-activities-note"
                 className="rounded border border-border bg-cream p-3 text-sm text-ink-muted"
               >
-                You arrange the activities yourself. The plan will contain no sightseeing stops; your
-                activity preferences are kept for when you opt back in.
+                You arrange the activities yourself. The plan will contain no sightseeing stops;
+                your activity preferences are kept for when you opt back in.
               </p>
             ) : null}
             <InterestControls
@@ -360,8 +366,8 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
               revision={projection.trip.revision}
               pace={projection.trip.preferences.activityPace}
               onChanged={refresh}
-          disabled={readOnly}
-        />
+              disabled={readOnly}
+            />
             {actionError ? (
               <p role="alert" className="text-sm text-clay">
                 {actionError}
@@ -389,25 +395,26 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
             <div
               data-testid="activity-status-bar"
               className="sticky bottom-0 z-10 flex flex-col gap-2 border border-border bg-paper/90 py-3 px-4"
-              >
+            >
               {activitiesSelfArranged ? null : (
                 <div className="flex flex-col gap-1">
                   <p data-testid="activity-plan-summary" className="text-sm text-ink-muted">
                     {planVisitSummary
                       ? `In your current plan: ${planVisitSummary}. The planner adds nothing beyond your requests and pins (cards marked below).`
-                      : "No visits planned yet — the day stays free time apart from the fixed meals and transfers. Ask the assistant (for example \"two museums\") or pin activities below."}
+                      : 'No visits planned yet — the day stays free time apart from the fixed meals and transfers. Ask the assistant (for example "two museums") or pin activities below.'}
                   </p>
-                  {visitBudget === null ? null : visitBudget.selectedCount === 0 ? null : newSelectionCount === 0 ? (
+                  {visitBudget === null ? null : visitBudget.selectedCount ===
+                    0 ? null : newSelectionCount === 0 ? (
                     <p data-testid="activity-fit-summary" className="text-sm text-ink-muted">
-                      Everything you selected is already part of the plan — pinning keeps it in the day
-                      (nothing is added twice).
+                      Everything you selected is already part of the plan — pinning keeps it in the
+                      day (nothing is added twice).
                     </p>
                   ) : visitBudget.fits ? (
                     <p data-testid="activity-fit-summary" className="text-sm text-ink-muted">
                       Pinning adds {newSelectionCount} new{" "}
                       {newSelectionCount === 1 ? "visit" : "visits"}, about{" "}
-                      {formatVisitMinutes(newSelectionMinutes)} — your full selection stays within the{" "}
-                      {Math.round(visitBudget.capMinutes / 60)} h visit budget of a{" "}
+                      {formatVisitMinutes(newSelectionMinutes)} — your full selection stays within
+                      the {Math.round(visitBudget.capMinutes / 60)} h visit budget of a{" "}
                       {paceKey ?? "standard"} day.
                     </p>
                   ) : (
@@ -416,10 +423,10 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
                       data-testid="activity-fit-warning"
                       className="rounded border border-clay bg-cream p-3 text-sm text-clay"
                     >
-                      Your selection needs about {formatVisitMinutes(visitBudget.selectedMinutes)}, over
-                      the {Math.round(visitBudget.capMinutes / 60)} h visit budget of a{" "}
-                      {paceKey ?? "standard"} day by {formatVisitMinutes(visitBudget.overMinutes)}. Remove a
-                      visit or lower the requirement, then save.
+                      Your selection needs about {formatVisitMinutes(visitBudget.selectedMinutes)},
+                      over the {Math.round(visitBudget.capMinutes / 60)} h visit budget of a{" "}
+                      {paceKey ?? "standard"} day by {formatVisitMinutes(visitBudget.overMinutes)}.
+                      Remove a visit or lower the requirement, then save.
                     </p>
                   )}
                 </div>
@@ -433,12 +440,12 @@ export function ActivitiesView({ tripId }: { readonly tripId: string }): React.J
                 >
                   {busy ? "Saving…" : "Save plan"}
                 </button>
-            </div>
-            <p className="text-sm">
-              <Link href={`/trips/${tripId}/itinerary`} className="button-link">
-                Continue to the itinerary
-              </Link>
-            </p>
+              </div>
+              <p className="text-sm">
+                <Link href={`/trips/${tripId}/itinerary`} className="button-link">
+                  Continue to the itinerary
+                </Link>
+              </p>
             </div>
           </>
         ) : (

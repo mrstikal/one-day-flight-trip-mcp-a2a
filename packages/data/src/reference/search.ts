@@ -81,7 +81,11 @@ export interface Paginated<T> {
 }
 
 /** Offset-based pagination with an opaque numeric cursor. */
-export function paginate<T>(items: readonly T[], cursor: string | undefined, limit: number): Paginated<T> {
+export function paginate<T>(
+  items: readonly T[],
+  cursor: string | undefined,
+  limit: number,
+): Paginated<T> {
   const safeLimit = Math.max(1, Math.min(limit, 50));
   const offset = cursor ? Number.parseInt(cursor, 10) : 0;
   const start = Number.isFinite(offset) && offset > 0 ? offset : 0;

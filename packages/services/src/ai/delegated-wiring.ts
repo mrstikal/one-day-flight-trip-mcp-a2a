@@ -37,7 +37,9 @@ export async function loadDelegatedRankingDeps(
   }
   const profile: RoleProfile | undefined = loaded.profiles.recommendation;
   if (!profile) {
-    throw new Error("the AI profile config has no recommendation profile for the delegated specialist");
+    throw new Error(
+      "the AI profile config has no recommendation profile for the delegated specialist",
+    );
   }
   // One delegated reservation must cover EXACTLY one billable transport
   // attempt: the ledger counts reservations, so the adapter's internal retry
@@ -85,7 +87,9 @@ export async function loadDelegatedItineraryDeps(
   const planner = loaded.profiles.planner;
   const reviewer = loaded.profiles.reviewer;
   if (!planner || !reviewer) {
-    throw new Error("the AI profile config has no planner/reviewer profile for the itinerary skill");
+    throw new Error(
+      "the AI profile config has no planner/reviewer profile for the itinerary skill",
+    );
   }
   const plannerProfile: RoleProfile = { ...planner, maxAttempts: 1 };
   const reviewerProfile: RoleProfile = { ...reviewer, maxAttempts: 1 };

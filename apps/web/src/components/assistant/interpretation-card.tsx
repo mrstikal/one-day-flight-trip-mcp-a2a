@@ -10,7 +10,10 @@ export function InterpretationCard({
 }): React.JSX.Element {
   const preserve = interpretation.preserve ?? [];
   return (
-    <div data-testid="interpretation-card" className="mt-2 flex flex-col gap-1 text-xs text-ink-muted">
+    <div
+      data-testid="interpretation-card"
+      className="mt-2 flex flex-col gap-1 text-xs text-ink-muted"
+    >
       <p>
         <span className="font-medium">Understood as:</span>{" "}
         {interpretation.interpretation ?? interpretation.question ?? interpretation.kind}

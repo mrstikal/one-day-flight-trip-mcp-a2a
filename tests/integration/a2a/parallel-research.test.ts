@@ -136,8 +136,12 @@ describe("parallel research", () => {
       ]);
       expect(accommodation.status?.state).toBe(TaskState.TASK_STATE_COMPLETED);
       expect(cityGuide.status?.state).toBe(TaskState.TASK_STATE_COMPLETED);
-      expect(accommodation.artifacts?.some((entry) => entry.name === "accommodation-recommendations")).toBe(true);
-      expect(cityGuide.artifacts?.some((entry) => entry.name === "city-guide-recommendations")).toBe(true);
+      expect(
+        accommodation.artifacts?.some((entry) => entry.name === "accommodation-recommendations"),
+      ).toBe(true);
+      expect(
+        cityGuide.artifacts?.some((entry) => entry.name === "city-guide-recommendations"),
+      ).toBe(true);
     } finally {
       await monitor;
     }

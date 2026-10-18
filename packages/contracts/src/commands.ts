@@ -15,7 +15,12 @@ import {
   moneyMinorSchema,
   nonEmptyStringSchema,
 } from "./primitives.js";
-import { interestsSchema, mealSelectionsSchema, refineProgramSelection, selfArrangedMealsSchema } from "./preferences.js";
+import {
+  interestsSchema,
+  mealSelectionsSchema,
+  refineProgramSelection,
+  selfArrangedMealsSchema,
+} from "./preferences.js";
 
 /** The exhaustive initial command family (04-domain-model.md section 6). */
 
@@ -93,7 +98,9 @@ const conversationalMembers = [
   z.object({ type: z.literal("retry_failed_domains") }).strict(),
 ] as const;
 
-const setSimulation = z.object({ type: z.literal("set_simulation"), mode: simulationModeSchema }).strict();
+const setSimulation = z
+  .object({ type: z.literal("set_simulation"), mode: simulationModeSchema })
+  .strict();
 
 export const domainCommandSchema = z.discriminatedUnion("type", [
   ...conversationalMembers,

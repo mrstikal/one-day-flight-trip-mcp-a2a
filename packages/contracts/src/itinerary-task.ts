@@ -1,10 +1,6 @@
 import { z } from "zod";
 import { mealSchema } from "./enums.js";
-import {
-  localDateSchema,
-  nonEmptyStringSchema,
-  uuidSchema,
-} from "./primitives.js";
+import { localDateSchema, nonEmptyStringSchema, uuidSchema } from "./primitives.js";
 import {
   mealSelectionsSchema,
   selfArrangedMealsSchema,
@@ -79,10 +75,7 @@ export const itineraryStopSchema = z
 export type ItineraryStop = z.infer<typeof itineraryStopSchema>;
 
 /** Meal refs of one proposal: a null ref means the meal is not planned. */
-export const itineraryMealRefsSchema = z.record(
-  mealSchema,
-  nonEmptyStringSchema.nullable(),
-);
+export const itineraryMealRefsSchema = z.record(mealSchema, nonEmptyStringSchema.nullable());
 export type ItineraryMealRefs = z.infer<typeof itineraryMealRefsSchema>;
 
 /** Snapshot metadata the itinerary task must echo (safe discovery facts). */

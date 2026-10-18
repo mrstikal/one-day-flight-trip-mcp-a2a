@@ -74,14 +74,14 @@ tests/e2e/{phase-11,inspector,sse-replay}.spec.ts
 
 ## 7. Functions and Interfaces to Implement
 
-| Contract | Input -> Output | Required failure behavior |
-| --- | --- | --- |
-| `resolveInvalidation(change, currentRefs)` | accepted change -> `{ affectedDomains, itineraryAction, requiresConfirmation }` | matrix-exact; unrelated refs untouched |
-| `commitRouteChange(ctx, decision)` | confirmed impact + affected IDs -> new route inputs + cancelled/superseded reservations | atomic; rejected route creates no booking |
-| `chooseInvocation(state, operation)` (extend) | completed/waiting/crashed state -> exact invocation or typed conflict | never `Command({update})`; `null` only for unfinished tasks |
-| `admitModification(ctx, operationRef)` | pending decision + admitted operation -> `modify` envelope or 409 | browser cannot supply operation identity; old decision resolved explicitly |
-| `projectSafeEvent(event)` | internal event -> persisted public payload | redaction allowlist; forbidden fields never stored |
-| `playEvents(tripId, after)` | authorized cursor -> ordered deduplicated events | authorize before replay; decimal-string IDs |
+| Contract                                      | Input -> Output                                                                         | Required failure behavior                                                  |
+| --------------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `resolveInvalidation(change, currentRefs)`    | accepted change -> `{ affectedDomains, itineraryAction, requiresConfirmation }`         | matrix-exact; unrelated refs untouched                                     |
+| `commitRouteChange(ctx, decision)`            | confirmed impact + affected IDs -> new route inputs + cancelled/superseded reservations | atomic; rejected route creates no booking                                  |
+| `chooseInvocation(state, operation)` (extend) | completed/waiting/crashed state -> exact invocation or typed conflict                   | never `Command({update})`; `null` only for unfinished tasks                |
+| `admitModification(ctx, operationRef)`        | pending decision + admitted operation -> `modify` envelope or 409                       | browser cannot supply operation identity; old decision resolved explicitly |
+| `projectSafeEvent(event)`                     | internal event -> persisted public payload                                              | redaction allowlist; forbidden fields never stored                         |
+| `playEvents(tripId, after)`                   | authorized cursor -> ordered deduplicated events                                        | authorize before replay; decimal-string IDs                                |
 
 ## 8. Outputs / Deliverables
 

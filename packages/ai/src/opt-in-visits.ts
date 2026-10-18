@@ -65,9 +65,7 @@ export function enforceOptInVisits(
       stops.push(stop);
       continue;
     }
-    const needed = (tagsById.get(stop.refId) ?? []).some(
-      (tag) => (outstanding.get(tag) ?? 0) > 0,
-    );
+    const needed = (tagsById.get(stop.refId) ?? []).some((tag) => (outstanding.get(tag) ?? 0) > 0);
     if (!needed) {
       dropped += 1;
       continue;

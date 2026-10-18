@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { acceptDelegationArtifact, admitResume, cancelOperation, revokeDelegation } from "@odft/persistence";
+import {
+  acceptDelegationArtifact,
+  admitResume,
+  cancelOperation,
+  revokeDelegation,
+} from "@odft/persistence";
 import {
   createAccommodationDelegation,
   startAccommodationAgent,
@@ -192,10 +197,9 @@ describe("cancellation races", () => {
     const after = await harness.pool.query<{
       status: string;
       cancellation_state: string | null;
-    }>(
-      `SELECT status, cancellation_state FROM odft_app.agent_delegations WHERE id = $1`,
-      [delegation.id],
-    );
+    }>(`SELECT status, cancellation_state FROM odft_app.agent_delegations WHERE id = $1`, [
+      delegation.id,
+    ]);
     expect(after.rows[0]?.status).toBe("revoked");
     expect(["pending", "acknowledged", "failed"]).toContain(
       after.rows[0]?.cancellation_state ?? "",

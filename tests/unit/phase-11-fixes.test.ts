@@ -25,17 +25,15 @@ describe("alternative-search objectives (Phase 11 review fix)", () => {
 
   it("cheaper falls back to the category minus the bound offer when nothing is cheaper", () => {
     const expensiveBound = { offerId: "dear", partyTotalMinor: 100 };
-    expect(orderSearchCandidates(offers, "cheaper", expensiveBound).map((offer) => offer.id)).toEqual(
-      ["cheap", "mid", "current"],
-    );
+    expect(
+      orderSearchCandidates(offers, "cheaper", expensiveBound).map((offer) => offer.id),
+    ).toEqual(["cheap", "mid", "current"]);
   });
 
   it("better_location orders by distance and never returns the bound offer", () => {
-    expect(orderSearchCandidates(offers, "better_location", bound).map((offer) => offer.id)).toEqual([
-      "dear",
-      "mid",
-      "cheap",
-    ]);
+    expect(
+      orderSearchCandidates(offers, "better_location", bound).map((offer) => offer.id),
+    ).toEqual(["dear", "mid", "cheap"]);
   });
 
   it("higher_rating orders by rating and never returns the bound offer", () => {
@@ -47,9 +45,9 @@ describe("alternative-search objectives (Phase 11 review fix)", () => {
   });
 
   it("match_preferences keeps the bound offer and the deterministic price order", () => {
-    expect(orderSearchCandidates(offers, "match_preferences", bound).map((offer) => offer.id)).toEqual(
-      ["cheap", "mid", "current", "dear"],
-    );
+    expect(
+      orderSearchCandidates(offers, "match_preferences", bound).map((offer) => offer.id),
+    ).toEqual(["cheap", "mid", "current", "dear"]);
     expect(orderSearchCandidates(offers, null, undefined).map((offer) => offer.id)).toEqual([
       "cheap",
       "mid",
@@ -103,7 +101,9 @@ describe("inspector execution frontier (Phase 11 review fix)", () => {
 
 describe("node start events are allowlisted (Phase 11 review fix)", () => {
   it("stores only the node name", () => {
-    expect(projectSafeEvent("node.started", { node: "apply_commands", input: { secret: 1 } })).toEqual({
+    expect(
+      projectSafeEvent("node.started", { node: "apply_commands", input: { secret: 1 } }),
+    ).toEqual({
       node: "apply_commands",
     });
   });

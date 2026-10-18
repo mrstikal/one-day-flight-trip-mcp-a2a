@@ -113,11 +113,13 @@ function worstComponent(
  * verified upper bound the reservation must use. `web_search` is billed per
  * search, not per token, so it joins the per-request component.
  */
-function worstCasePerToken(pricing: Record<string, unknown>): {
-  input: string;
-  output: string;
-  request: string;
-} | undefined {
+function worstCasePerToken(pricing: Record<string, unknown>):
+  | {
+      input: string;
+      output: string;
+      request: string;
+    }
+  | undefined {
   const overrides = Array.isArray(pricing.overrides)
     ? (pricing.overrides as unknown[]).filter(
         (value): value is Record<string, unknown> => typeof value === "object" && value !== null,
@@ -125,8 +127,7 @@ function worstCasePerToken(pricing: Record<string, unknown>): {
     : [];
   const candidates = [pricing, ...overrides];
   const hasPricing = candidates.some(
-    (candidate) =>
-      typeof candidate.prompt === "string" && typeof candidate.completion === "string",
+    (candidate) => typeof candidate.prompt === "string" && typeof candidate.completion === "string",
   );
   if (!hasPricing) {
     return undefined;
@@ -244,7 +245,9 @@ export async function refreshCapabilityManifest(
         headers,
       });
     } catch (error) {
-      skipped.push(`${model}: transport error (${error instanceof Error ? error.message : "unknown"})`);
+      skipped.push(
+        `${model}: transport error (${error instanceof Error ? error.message : "unknown"})`,
+      );
       continue;
     }
     if (!response.ok) {
@@ -264,7 +267,11 @@ export async function refreshCapabilityManifest(
       `no configured model returned usable endpoint capability and pricing (${skipped.join("; ")})`,
     );
   }
-  const manifest = capabilityManifestSchema.parse({ fetchedAt: pricingVersion, pricingVersion, models });
+  const manifest = capabilityManifestSchema.parse({
+    fetchedAt: pricingVersion,
+    pricingVersion,
+    models,
+  });
   mkdirSync(dirname(options.cachePath), { recursive: true });
   writeFileSync(options.cachePath, JSON.stringify(manifest, null, 2), "utf8");
   return manifest;
@@ -394,7 +401,10 @@ export function assertModelCapable(
   // Routing uses `require_parameters`, so ANY parameter the matched endpoints do not
   // publish makes the whole request unroutable (HTTP 404, AI_UNSUPPORTED). Refuse it
   // before billing instead: `temperature` must be dropped or the model swapped.
-  if (profile.temperature !== undefined && !structured.some((endpoint) => endpoint.supportsTemperature)) {
+  if (
+    profile.temperature !== undefined &&
+    !structured.some((endpoint) => endpoint.supportsTemperature)
+  ) {
     throw new AdapterError(
       "AI_UNSUPPORTED",
       `model ${profile.model} does not publish a temperature parameter on any verified endpoint; remove the profile temperature or choose a model that supports it`,

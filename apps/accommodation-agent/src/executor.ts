@@ -157,7 +157,11 @@ export function createAccommodationExecutor(runtime: AccommodationAgentRuntime):
         kind: "task",
         data: {
           ...task,
-          status: { state: TaskState.TASK_STATE_WORKING, message: undefined, timestamp: new Date().toISOString() },
+          status: {
+            state: TaskState.TASK_STATE_WORKING,
+            message: undefined,
+            timestamp: new Date().toISOString(),
+          },
         },
       });
 
@@ -169,7 +173,10 @@ export function createAccommodationExecutor(runtime: AccommodationAgentRuntime):
         }
         const request = agentTaskRequestSchema.safeParse(dataPartOf(message));
         if (!request.success || request.data.skillId !== ACCOMMODATION_SKILL_ID) {
-          await session.publishFailure("INVALID_ARTIFACT", "the task request is not a valid accommodation request");
+          await session.publishFailure(
+            "INVALID_ARTIFACT",
+            "the task request is not a valid accommodation request",
+          );
           return;
         }
         const data = request.data;
@@ -235,7 +242,10 @@ export function createAccommodationExecutor(runtime: AccommodationAgentRuntime):
           startedAtMs: startedAt,
         });
         clock.assertNow({ mcpInvocation: true });
-        session.publishStatus(TaskState.TASK_STATE_WORKING, "MCP discovery: travel-data search_hotels");
+        session.publishStatus(
+          TaskState.TASK_STATE_WORKING,
+          "MCP discovery: travel-data search_hotels",
+        );
         await countedToolCall({
           mcp: runtime.mcp,
           pool: runtime.pool,
@@ -295,11 +305,7 @@ export function createAccommodationExecutor(runtime: AccommodationAgentRuntime):
 
         // 3. The genuine missing-tradeoff question: asked once, only for a
         // cheaper search whose eligible set is actually ambiguous.
-        if (
-          data.searchObjective === "cheaper" &&
-          !answerOption &&
-          hotelTradeoffAmbiguous(facts)
-        ) {
+        if (data.searchObjective === "cheaper" && !answerOption && hotelTradeoffAmbiguous(facts)) {
           clock.assertNow({ input: true });
           const control = await getTaskControl(runtime.pool, {
             agentIdentity: ACCOMMODATION_AGENT_IDENTITY,
@@ -390,37 +396,45 @@ export function createAccommodationExecutor(runtime: AccommodationAgentRuntime):
               centerDistanceKm: fact.centerDistanceKm,
             })),
           };
-          ranking = await rankDelegatedOffers(runtime.pool, runtime.serverConfig, runtime.rankingDeps ?? {}, {
-            authority: {
-              kind: "delegation",
-              delegationId: authority.delegationId,
-              agentIdentity: ACCOMMODATION_AGENT_IDENTITY,
-              skillId: ACCOMMODATION_SKILL_ID,
-              taskId: task.id,
-              traceId: `trace-${task.id}`,
+          ranking = await rankDelegatedOffers(
+            runtime.pool,
+            runtime.serverConfig,
+            runtime.rankingDeps ?? {},
+            {
+              authority: {
+                kind: "delegation",
+                delegationId: authority.delegationId,
+                agentIdentity: ACCOMMODATION_AGENT_IDENTITY,
+                skillId: ACCOMMODATION_SKILL_ID,
+                taskId: task.id,
+                traceId: `trace-${task.id}`,
+              },
+              effectScope: `recommendation:${task.history.length}`,
+              signal: AbortSignal.timeout(Math.max(1, clock.deadlineMs - Date.now())),
+              limits: {
+                maxCallCostUsd: String(limitsForSkill(ACCOMMODATION_SKILL_ID).maxTaskCostUsd),
+                maxCallsPerTrip: runtime.serverConfig.maxLlmCallsPerTrip,
+                maxCostUsdPerTrip: String(runtime.serverConfig.maxLlmCostUsdPerTrip),
+                maxAttemptsPerScope: 2,
+                taskMaxCostUsd: String(limitsForSkill(ACCOMMODATION_SKILL_ID).maxTaskCostUsd),
+              },
+              rolePrompt: {
+                promptVersion: RECOMMENDATION_PROMPT_VERSION,
+                systemPrompt: RECOMMENDATION_SYSTEM_PROMPT,
+              },
+              context,
+              allowedIds: facts.map((fact) => fact.id),
+              deterministicOrder,
             },
-            effectScope: `recommendation:${task.history.length}`,
-            signal: AbortSignal.timeout(Math.max(1, clock.deadlineMs - Date.now())),
-            limits: {
-              maxCallCostUsd: String(limitsForSkill(ACCOMMODATION_SKILL_ID).maxTaskCostUsd),
-              maxCallsPerTrip: runtime.serverConfig.maxLlmCallsPerTrip,
-              maxCostUsdPerTrip: String(runtime.serverConfig.maxLlmCostUsdPerTrip),
-              maxAttemptsPerScope: 2,
-              taskMaxCostUsd: String(limitsForSkill(ACCOMMODATION_SKILL_ID).maxTaskCostUsd),
-            },
-            rolePrompt: {
-              promptVersion: RECOMMENDATION_PROMPT_VERSION,
-              systemPrompt: RECOMMENDATION_SYSTEM_PROMPT,
-            },
-            context,
-            allowedIds: facts.map((fact) => fact.id),
-            deterministicOrder,
-          });
+          );
         }
         const byId = new Map(facts.map((fact) => [fact.id, fact]));
         const rankedIds = ranking.rankedOfferIds.filter((id) => byId.has(id));
         if (rankedIds.length === 0) {
-          await session.publishFailure("INVALID_ARTIFACT", "the ranking contained no usable hotel offer");
+          await session.publishFailure(
+            "INVALID_ARTIFACT",
+            "the ranking contained no usable hotel offer",
+          );
           return;
         }
         if (await session.cancellationRequested()) {
@@ -515,7 +529,10 @@ export function createAccommodationExecutor(runtime: AccommodationAgentRuntime):
         agentIdentity: ACCOMMODATION_AGENT_IDENTITY,
         taskId,
       });
-      await requestTaskCancellation(runtime.pool, { agentIdentity: ACCOMMODATION_AGENT_IDENTITY, taskId });
+      await requestTaskCancellation(runtime.pool, {
+        agentIdentity: ACCOMMODATION_AGENT_IDENTITY,
+        taskId,
+      });
       await setTaskState(runtime.pool, {
         agentIdentity: ACCOMMODATION_AGENT_IDENTITY,
         taskId,
@@ -526,7 +543,11 @@ export function createAccommodationExecutor(runtime: AccommodationAgentRuntime):
         data: {
           taskId,
           contextId: control?.contextId ?? taskId,
-          status: { state: TaskState.TASK_STATE_CANCELED, message: undefined, timestamp: new Date().toISOString() },
+          status: {
+            state: TaskState.TASK_STATE_CANCELED,
+            message: undefined,
+            timestamp: new Date().toISOString(),
+          },
           metadata: undefined,
         },
       });

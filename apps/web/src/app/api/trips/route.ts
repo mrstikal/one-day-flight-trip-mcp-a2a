@@ -34,7 +34,11 @@ export async function POST(request: Request): Promise<Response> {
   }
   const parsed = createTripRequestSchema.safeParse(body.value);
   if (!parsed.success) {
-    return envelopeResponse({ code: "VALIDATION_FAILED", message: "invalid trip creation input", retryable: false });
+    return envelopeResponse({
+      code: "VALIDATION_FAILED",
+      message: "invalid trip creation input",
+      retryable: false,
+    });
   }
   if (!isValidSightseeingDate(parsed.data.sightseeingDate)) {
     return envelopeResponse({

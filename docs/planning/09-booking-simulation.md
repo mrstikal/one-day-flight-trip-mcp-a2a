@@ -17,22 +17,22 @@ This document is the authoritative home for the internal demo reservation lifecy
 
 ## 2. Bookable Services and Data
 
-| Service key | Offer source | Notes |
-| --- | --- | --- |
-| `flights` | One flight combination (outbound + return legs) | Requires current Stage A + Stage B validation; party-total EUR; optional booking - the chosen combination stays a selection when the user declines (`decline_booking`, 2026-10-14) |
-| `hotel` | One hotel offer | Nights derived from travel variant; luggage storage required for `one_night`; optional booking - the chosen offer stays a selection when declined |
-| `breakfast` | One restaurant offer | Optional reservation; selection may exist without booking |
-| `lunch` | One restaurant offer | Optional reservation |
-| `dinner` | One restaurant offer | Optional reservation |
+| Service key | Offer source                                    | Notes                                                                                                                                                                              |
+| ----------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `flights`   | One flight combination (outbound + return legs) | Requires current Stage A + Stage B validation; party-total EUR; optional booking - the chosen combination stays a selection when the user declines (`decline_booking`, 2026-10-14) |
+| `hotel`     | One hotel offer                                 | Nights derived from travel variant; luggage storage required for `one_night`; optional booking - the chosen offer stays a selection when declined                                  |
+| `breakfast` | One restaurant offer                            | Optional reservation; selection may exist without booking                                                                                                                          |
+| `lunch`     | One restaurant offer                            | Optional reservation                                                                                                                                                               |
+| `dinner`    | One restaurant offer                            | Optional reservation                                                                                                                                                               |
 
 A declined flight/hotel booking (`decline_booking`) persists the chosen offer in `trip_selections` exactly like an unbooked meal: no reservation exists, but the plan, its costs, the airport buffer, and the hotel anchor are computed as if the service existed, and the overviews mark it `Not booked` with a later booking action.
 
 Booking implications by travel variant (destination-local dates, `D` = sightseeing date):
 
-| Variant | Hotel check-in -> checkout | Nights | Return departure window |
-| --- | --- | --- | --- |
-| `one_night` | D-1 -> D | 1 | Late on D after required activities + transfer + 120-minute departure buffer; hotel luggage storage required |
-| `two_nights` | D-1 -> D+1 | 2 | Day D+1 after the feasible checkout/transfer window |
+| Variant      | Hotel check-in -> checkout | Nights | Return departure window                                                                                      |
+| ------------ | -------------------------- | ------ | ------------------------------------------------------------------------------------------------------------ |
+| `one_night`  | D-1 -> D                   | 1      | Late on D after required activities + transfer + 120-minute departure buffer; hotel luggage storage required |
+| `two_nights` | D-1 -> D+1                 | 2      | Day D+1 after the feasible checkout/transfer window                                                          |
 
 Each offer referenced by a booking is an immutable snapshot record with `scenarioSnapshotId`, `domainVersion`, `synthetic: true`, and a party-total price in EUR ([04 Domain Model](04-domain-model.md) section 5, [05 Synthetic data](05-synthetic-data-design.md) section 7). An ID supplied by chat is only a reference to an existing authorized offer, re-checked at confirmation.
 
@@ -96,17 +96,17 @@ The deterministic service then performs, in order:
 
 If the transaction commits and the coordinator cursor/effect write then fails, recovery replays `commit_booking`: the effect key returns the stored result and the reservation is not duplicated ([02 Architecture](02-architecture.md) section 7, [Coordinator design](../architecture/coordinator.md)).
 
-| Check at confirmation | Failure behavior |
-| --- | --- |
-| Session, ownership, CSRF, exact origin | 403/404 envelope; no state change |
-| Revision mismatch | `409 STALE_REVISION`; UI refreshes and does not replay |
-| Decision missing, resolved, wrong kind, or foreign | `409 STALE_DECISION` |
-| Proposal absent, expired, or withdrawn | `409 STALE_DECISION` or `PROPOSAL_EXPIRED` |
-| Offer not in current snapshot; availability fails | `OFFER_UNAVAILABLE`; proposal withdrawn |
-| Party size, dates, nights, or variant mismatch | `OFFER_MISMATCH`; proposal withdrawn |
-| Disclaimer not acknowledged | `DISCLAIMER_REQUIRED` |
-| Same-offer active reservation already exists | Idempotent success; existing reference returned |
-| Different-offer active reservation, replacement not approved | `REPLACEMENT_CONFIRMATION_REQUIRED` |
+| Check at confirmation                                        | Failure behavior                                       |
+| ------------------------------------------------------------ | ------------------------------------------------------ |
+| Session, ownership, CSRF, exact origin                       | 403/404 envelope; no state change                      |
+| Revision mismatch                                            | `409 STALE_REVISION`; UI refreshes and does not replay |
+| Decision missing, resolved, wrong kind, or foreign           | `409 STALE_DECISION`                                   |
+| Proposal absent, expired, or withdrawn                       | `409 STALE_DECISION` or `PROPOSAL_EXPIRED`             |
+| Offer not in current snapshot; availability fails            | `OFFER_UNAVAILABLE`; proposal withdrawn                |
+| Party size, dates, nights, or variant mismatch               | `OFFER_MISMATCH`; proposal withdrawn                   |
+| Disclaimer not acknowledged                                  | `DISCLAIMER_REQUIRED`                                  |
+| Same-offer active reservation already exists                 | Idempotent success; existing reference returned        |
+| Different-offer active reservation, replacement not approved | `REPLACEMENT_CONFIRMATION_REQUIRED`                    |
 
 All failures use the standard safe error envelope ([10 Security](10-security-reliability.md) section 9) and never render a success state or demo reference.
 
@@ -126,28 +126,28 @@ No-payment enforcement is structural: no payment module, dependency, endpoint, c
 
 ## 8. Idempotency and Concurrency
 
-| Mechanism | Key / rule |
-| --- | --- |
-| Request deduplication | Unique `(trip_id, request_id)` in `workflow_operations`; same payload hash returns the stored result, different payload is rejected |
-| Effect replay | Unique `(operation_id, node_name, effect_scope)` in `workflow_effects`; replay returns stored result |
-| Booking confirmation | Unique confirmation key tied to the resolved decision + proposal; repeated confirms return the active reservation |
-| Active reservation invariant | Partial unique index: one `confirmed` row per `(trip_id, service_key)` |
-| Demo reference | Unique index plus bounded regeneration |
-| Concurrent browsers | At most one queued/running operation per trip; same-revision conflicts yield one winner and `409 STALE_REVISION` / `409 OPERATION_IN_PROGRESS` for the loser |
-| Worker safety | Advisory-lock single trip writer, lease + fencing token, commit-before-cursor replay |
+| Mechanism                    | Key / rule                                                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Request deduplication        | Unique `(trip_id, request_id)` in `workflow_operations`; same payload hash returns the stored result, different payload is rejected                          |
+| Effect replay                | Unique `(operation_id, node_name, effect_scope)` in `workflow_effects`; replay returns stored result                                                         |
+| Booking confirmation         | Unique confirmation key tied to the resolved decision + proposal; repeated confirms return the active reservation                                            |
+| Active reservation invariant | Partial unique index: one `confirmed` row per `(trip_id, service_key)`                                                                                       |
+| Demo reference               | Unique index plus bounded regeneration                                                                                                                       |
+| Concurrent browsers          | At most one queued/running operation per trip; same-revision conflicts yield one winner and `409 STALE_REVISION` / `409 OPERATION_IN_PROGRESS` for the loser |
+| Worker safety                | Advisory-lock single trip writer, lease + fencing token, commit-before-cursor replay                                                                         |
 
 Every repeated confirmation, coordinator retry, or operation recovery must produce the same stored outcome (brief Scenario M). Concurrent conflicting modifications produce a deterministic winner and no mixed state (brief Scenario N).
 
 ## 9. Fault and Recovery Windows
 
-| Window | Expected behavior |
-| --- | --- |
-| Commit succeeds, cursor/effect write fails | Replay `commit_booking`; effect key returns stored result; exactly one active reservation |
-| Worker crashes mid-confirmation | Lease expires; next claimant recovers the same thread; unfinished nodes rerun idempotently |
-| Browser closes while awaiting booking decision | Pending decision and interrupt binding reload; exact descriptor is re-presented |
-| Backend restart while suspended | Coordinator run + domain rows restored; persisted decision/task retrieved before any resume; stale/failed state never hand-repaired |
-| Duplicate confirm submitted twice | One reservation; second response returns the same demo reference |
-| Injection overlay active | Only provider/validator behavior changes; reservations are never regenerated (Scenario D) |
+| Window                                         | Expected behavior                                                                                                                   |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Commit succeeds, cursor/effect write fails     | Replay `commit_booking`; effect key returns stored result; exactly one active reservation                                           |
+| Worker crashes mid-confirmation                | Lease expires; next claimant recovers the same thread; unfinished nodes rerun idempotently                                          |
+| Browser closes while awaiting booking decision | Pending decision and interrupt binding reload; exact descriptor is re-presented                                                     |
+| Backend restart while suspended                | Coordinator run + domain rows restored; persisted decision/task retrieved before any resume; stale/failed state never hand-repaired |
+| Duplicate confirm submitted twice              | One reservation; second response returns the same demo reference                                                                    |
+| Injection overlay active                       | Only provider/validator behavior changes; reservations are never regenerated (Scenario D)                                           |
 
 Faults are recorded on the same operation and labeled `Simulated failure` in the inspector. Recovery details are owned by the [Coordinator design](../architecture/coordinator.md) and [10 Security and reliability](10-security-reliability.md); this document adds no competing contract.
 
@@ -165,15 +165,15 @@ Faults are recorded on the same operation and labeled `Simulated failure` in the
 
 Booking entry points:
 
-| Entry point | Action | Confirmation surface |
-| --- | --- | --- |
-| Flight results (Step 3) | `choose_offer` decision, then booking confirmation (`Confirm simulated booking` / `I don't want to book`) | Confirmation dialog with route, dates, party total |
-| Hotel results (Step 4) | `choose_offer`, then confirmation (`Confirm simulated booking` / `I don't want to book`); replacement uses the same dialog | Before/after impact table |
-| Meal results (Step 5) | Optional per-meal reservation after program selection | Per-meal confirmation dialog |
-| Flight/hotel `Not booked` panel (Step 3/4, summary) | `propose_selection` for the kept selection | Ordinary review/confirmation dialog |
-| Assistant proposal | Called out as a proposal card with `Review` action | Same dialogs; no auto-confirm |
-| Route-change preview | `route_change_confirmation` list | Affected-reservation cancellation list |
-| Summary | View active/history records plus `Not booked` selections with a booking action; initiate supported replacement or route-change review | Existing explicit impact/confirmation dialogs |
+| Entry point                                         | Action                                                                                                                                | Confirmation surface                               |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Flight results (Step 3)                             | `choose_offer` decision, then booking confirmation (`Confirm simulated booking` / `I don't want to book`)                             | Confirmation dialog with route, dates, party total |
+| Hotel results (Step 4)                              | `choose_offer`, then confirmation (`Confirm simulated booking` / `I don't want to book`); replacement uses the same dialog            | Before/after impact table                          |
+| Meal results (Step 5)                               | Optional per-meal reservation after program selection                                                                                 | Per-meal confirmation dialog                       |
+| Flight/hotel `Not booked` panel (Step 3/4, summary) | `propose_selection` for the kept selection                                                                                            | Ordinary review/confirmation dialog                |
+| Assistant proposal                                  | Called out as a proposal card with `Review` action                                                                                    | Same dialogs; no auto-confirm                      |
+| Route-change preview                                | `route_change_confirmation` list                                                                                                      | Affected-reservation cancellation list             |
+| Summary                                             | View active/history records plus `Not booked` selections with a booking action; initiate supported replacement or route-change review | Existing explicit impact/confirmation dialogs      |
 
 - Booking surfaces reuse the accessibility rules in [08 Frontend UX](08-frontend-ux.md) section 11 (focus management, announcements, target size) and render on desktop and mobile without a separate flow.
 

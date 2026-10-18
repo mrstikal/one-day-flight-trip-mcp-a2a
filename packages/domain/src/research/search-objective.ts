@@ -34,7 +34,9 @@ interface SearchCandidate {
 
 /** Deterministic candidate order: ascending party total, then id. */
 function byPartyTotal<T extends SearchCandidate>(offers: readonly T[]): T[] {
-  return [...offers].sort((a, b) => a.partyTotalMinor - b.partyTotalMinor || a.id.localeCompare(b.id));
+  return [...offers].sort(
+    (a, b) => a.partyTotalMinor - b.partyTotalMinor || a.id.localeCompare(b.id),
+  );
 }
 
 export function orderSearchCandidates<T extends SearchCandidate>(

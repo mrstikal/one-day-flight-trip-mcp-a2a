@@ -46,7 +46,14 @@ export function preservedContentDomains(change: InvalidationChange): ResearchDom
       return ["breakfast", "lunch", "dinner", "attractions", "events"];
     case "meal_level":
     case "selected_meal_replacement": {
-      const all: ResearchDomain[] = ["hotel", "breakfast", "lunch", "dinner", "attractions", "events"];
+      const all: ResearchDomain[] = [
+        "hotel",
+        "breakfast",
+        "lunch",
+        "dinner",
+        "attractions",
+        "events",
+      ];
       return all.filter((domain) => domain !== change.meal);
     }
     case "activity_pace":

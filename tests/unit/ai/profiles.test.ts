@@ -156,7 +156,10 @@ describe("model capability and pricing (T-UT-AI-02)", () => {
       }),
       variantManifest,
     );
-    expect(check.endpoints.map((endpoint) => endpoint.providerId)).toEqual(["openai", "openai/turbo"]);
+    expect(check.endpoints.map((endpoint) => endpoint.providerId)).toEqual([
+      "openai",
+      "openai/turbo",
+    ]);
     expect(check.worstInputPriceUsdPerMillion).toBe("3");
     expect(check.worstOutputPriceUsdPerMillion).toBe("4");
     // A profile that only covers the base rate is refused (would under-reserve).

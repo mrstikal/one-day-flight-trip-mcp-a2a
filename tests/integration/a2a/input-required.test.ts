@@ -138,7 +138,11 @@ describe("input-required lifecycle", () => {
     const replay = await send(data, messageId, task.id, task.contextId);
     expect(replay.id).toBe(completed.id);
     expect(replay.status?.state).toBe(TaskState.TASK_STATE_COMPLETED);
-    const control = await pool.query<{ input_count: number; mcp_invocations: number; state: string }>(
+    const control = await pool.query<{
+      input_count: number;
+      mcp_invocations: number;
+      state: string;
+    }>(
       `SELECT input_count, mcp_invocations, state FROM odft_app.protocol_task_control
         WHERE agent_identity = 'accommodation-agent' AND task_id = $1`,
       [task.id],
@@ -155,7 +159,12 @@ describe("input-required lifecycle", () => {
         WHERE agent_identity = 'accommodation-agent' AND task_id = $1`,
       [task.id],
     );
-    const failed = await send(answer(task, delegationId, "cheapest"), undefined, task.id, task.contextId);
+    const failed = await send(
+      answer(task, delegationId, "cheapest"),
+      undefined,
+      task.id,
+      task.contextId,
+    );
     expect(failed.status?.state).toBe(TaskState.TASK_STATE_FAILED);
     expect(
       failed.status?.message?.parts?.[0]?.content?.$case === "text"
@@ -211,7 +220,11 @@ describe("input-required lifecycle", () => {
     ).toMatch(/unknown option/i);
     // The pending binding was consumed by the CAS: the same answer can never be
     // accepted later, and no new question was published.
-    const control = await pool.query<{ input_request_id: string | null; input_count: number; state: string }>(
+    const control = await pool.query<{
+      input_request_id: string | null;
+      input_count: number;
+      state: string;
+    }>(
       `SELECT input_request_id, input_count, state FROM odft_app.protocol_task_control
         WHERE agent_identity = 'accommodation-agent' AND task_id = $1`,
       [task.id],
@@ -225,10 +238,16 @@ describe("input-required lifecycle", () => {
 
   it("refuses a continuation whose delegation was revoked", async () => {
     const { task, delegationId } = await ask();
-    await pool.query(`UPDATE odft_app.agent_delegations SET status = 'revoked', revoked_at = now() WHERE id = $1`, [
-      delegationId,
-    ]);
-    const failed = await send(answer(task, delegationId, "cheapest"), undefined, task.id, task.contextId);
+    await pool.query(
+      `UPDATE odft_app.agent_delegations SET status = 'revoked', revoked_at = now() WHERE id = $1`,
+      [delegationId],
+    );
+    const failed = await send(
+      answer(task, delegationId, "cheapest"),
+      undefined,
+      task.id,
+      task.contextId,
+    );
     expect(failed.status?.state).toBe(TaskState.TASK_STATE_FAILED);
     expect(
       failed.status?.message?.parts?.[0]?.content?.$case === "text"

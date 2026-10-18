@@ -1,5 +1,9 @@
 import type { AgentCard } from "@a2a-js/sdk";
-import { ACCOMMODATION_AGENT_IDENTITY, ACCOMMODATION_SKILL_ID, type AccommodationAgentConfig } from "./config.js";
+import {
+  ACCOMMODATION_AGENT_IDENTITY,
+  ACCOMMODATION_SKILL_ID,
+  type AccommodationAgentConfig,
+} from "./config.js";
 
 /** Phase 06 agent card: one specialist skill, streaming, no push notifications. */
 export function buildAccommodationAgentCard(config: AccommodationAgentConfig): AgentCard {
@@ -22,7 +26,9 @@ export function buildAccommodationAgentCard(config: AccommodationAgentConfig): A
         description:
           "Returns ranked existing hotel offers of the delegated snapshot with effective level and comparison facts; never generates or books hotels.",
         tags: ["hotels", "recommendation"],
-        examples: ["Rank the hotel candidates of the delegated snapshot for the cheaper objective."],
+        examples: [
+          "Rank the hotel candidates of the delegated snapshot for the cheaper objective.",
+        ],
         inputModes: [],
         outputModes: [],
         securityRequirements: [],

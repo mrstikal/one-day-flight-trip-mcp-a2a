@@ -16,13 +16,13 @@ The web tier validates ownership, schemas, and command admission; the worker exc
 
 ## Alternatives
 
-| Alternative | Reason not chosen |
-| --- | --- |
-| Next.js request-inline graph | Request cancellation/host lifecycle cannot provide durable ownership |
-| Untracked background promise in web process | Lost on restart/deploy; no reliable queue/recovery |
-| Separate Fastify/Nest API plus frontend | Adds routing/authentication/deployment duplication without need |
-| Redis queue plus worker | Useful at scale, unnecessary infrastructure for a small PostgreSQL-backed demo |
-| Python graph service | Violates the primary TypeScript design and adds another runtime/API boundary |
+| Alternative                                 | Reason not chosen                                                              |
+| ------------------------------------------- | ------------------------------------------------------------------------------ |
+| Next.js request-inline graph                | Request cancellation/host lifecycle cannot provide durable ownership           |
+| Untracked background promise in web process | Lost on restart/deploy; no reliable queue/recovery                             |
+| Separate Fastify/Nest API plus frontend     | Adds routing/authentication/deployment duplication without need                |
+| Redis queue plus worker                     | Useful at scale, unnecessary infrastructure for a small PostgreSQL-backed demo |
+| Python graph service                        | Violates the primary TypeScript design and adds another runtime/API boundary   |
 
 ## Consequences
 

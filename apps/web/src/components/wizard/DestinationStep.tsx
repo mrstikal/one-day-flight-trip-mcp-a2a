@@ -112,11 +112,9 @@ export function DestinationStep(): React.JSX.Element {
     try {
       const created = await runWithOperationPreloader("Creating your plan...", async () => {
         const csrfToken = await ensureSession();
-        return apiPost<{ tripId: string; operationId: string }>(
-          "/api/trips",
-          parsed.data,
-          { "x-csrf-token": csrfToken },
-        );
+        return apiPost<{ tripId: string; operationId: string }>("/api/trips", parsed.data, {
+          "x-csrf-token": csrfToken,
+        });
       });
       operationPreloader.trackAcceptedOperation(created.operationId, "Creating your plan...");
       update({ creationRequestId, tripId: created.tripId });

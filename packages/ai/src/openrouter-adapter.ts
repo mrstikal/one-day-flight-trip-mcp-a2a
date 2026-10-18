@@ -62,7 +62,9 @@ interface ChatResponse {
  * `null` that its `.optional()` member rejects, while genuinely nullable fields
  * such as `set_service_override.level` must keep their `null`).
  */
-export const OPTIONAL_TRANSPORT_FIELDS: Readonly<Record<string, ReadonlyMap<string, ReadonlySet<string>>>> = {
+export const OPTIONAL_TRANSPORT_FIELDS: Readonly<
+  Record<string, ReadonlyMap<string, ReadonlySet<string>>>
+> = {
   intent: new Map([
     [
       "set_route",
@@ -123,10 +125,7 @@ function branchDiscriminator(node: Record<string, unknown>): string | undefined 
  * not already nullable, so the caller can strip their transport `null` back to
  * `undefined` after parsing.
  */
-function strictifySchema(
-  node: unknown,
-  collected?: Map<string, Set<string>>,
-): unknown {
+function strictifySchema(node: unknown, collected?: Map<string, Set<string>>): unknown {
   if (Array.isArray(node)) {
     return node.map((item) => strictifySchema(item, collected));
   }
@@ -145,7 +144,9 @@ function strictifySchema(
   if (result.type === "object" && result.properties && typeof result.properties === "object") {
     const properties = result.properties as Record<string, unknown>;
     const originallyRequired = new Set(
-      Array.isArray(result.required) ? result.required.filter((k): k is string => typeof k === "string") : [],
+      Array.isArray(result.required)
+        ? result.required.filter((k): k is string => typeof k === "string")
+        : [],
     );
     const discriminator = branchDiscriminator(record);
     const strictProperties: Record<string, unknown> = {};
@@ -281,7 +282,11 @@ function classifyHttpFailure(status: number, body: ChatResponse): AdapterError {
     );
   }
   if (status === 400 || status === 404 || status === 422) {
-    return new AdapterError("AI_UNSUPPORTED", "provider rejected the request parameters or schema", false);
+    return new AdapterError(
+      "AI_UNSUPPORTED",
+      "provider rejected the request parameters or schema",
+      false,
+    );
   }
   if (status === 429 || status >= 500) {
     return new AdapterError("AI_TRANSPORT_FAILED", `provider returned status ${status}`, true);
@@ -292,9 +297,7 @@ function classifyHttpFailure(status: number, body: ChatResponse): AdapterError {
 function estimatedCostUsd(profile: RoleProfile, usage: ChatResponse["usage"]): string {
   const inputTokens = usage?.prompt_tokens ?? profile.maxInputTokens;
   const outputTokens = usage?.completion_tokens ?? profile.maxOutputTokens;
-  return formatUsd(
-    worstCaseCostUsd(profile, { inputTokens, outputTokens }),
-  );
+  return formatUsd(worstCaseCostUsd(profile, { inputTokens, outputTokens }));
 }
 
 export class OpenRouterAdapter implements LLMAdapter {
@@ -404,7 +407,9 @@ export class OpenRouterAdapter implements LLMAdapter {
       if (request.signal.aborted) {
         throw new AdapterError("AI_ABORTED", "the AI request was aborted", false);
       }
-      const attemptContent = repairNote ? `${userContent}\n\nSchema errors: ${repairNote}` : userContent;
+      const attemptContent = repairNote
+        ? `${userContent}\n\nSchema errors: ${repairNote}`
+        : userContent;
       // The reservation must cover what is actually sent: system prompt, context,
       // and any repair note must fit the profile's input cap (fail closed).
       const attemptTokens = systemTokens + estimateTokens(attemptContent);
@@ -527,7 +532,11 @@ export class OpenRouterAdapter implements LLMAdapter {
         try {
           parsedJson = JSON.parse(content);
         } catch {
-          const failure = new AdapterError("AI_SCHEMA_INVALID", "the response was not valid JSON", false);
+          const failure = new AdapterError(
+            "AI_SCHEMA_INVALID",
+            "the response was not valid JSON",
+            false,
+          );
           if (reservation) {
             await settleOnce(reservation.callId, {
               inputTokens: parsedBody.usage?.prompt_tokens,
@@ -568,7 +577,11 @@ export class OpenRouterAdapter implements LLMAdapter {
             });
           }
           repairNote = message;
-          lastError = new AdapterError("AI_SCHEMA_INVALID", `structured output failed validation: ${message}`, true);
+          lastError = new AdapterError(
+            "AI_SCHEMA_INVALID",
+            `structured output failed validation: ${message}`,
+            true,
+          );
           continue;
         }
 

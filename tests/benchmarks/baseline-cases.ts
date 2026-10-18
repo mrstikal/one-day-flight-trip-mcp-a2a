@@ -130,7 +130,9 @@ export function assertDisposableDatabaseUrl(databaseUrl: string): string {
     throw new Error("DATABASE_URL must name a database.");
   }
   if (databaseName === "postgres" || databaseName.startsWith("template")) {
-    throw new Error(`Refusing to run the benchmark against maintenance database "${databaseName}".`);
+    throw new Error(
+      `Refusing to run the benchmark against maintenance database "${databaseName}".`,
+    );
   }
   if (!databaseName.endsWith("_test")) {
     throw new Error(

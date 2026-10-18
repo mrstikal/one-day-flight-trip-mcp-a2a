@@ -116,7 +116,8 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
       const mealOfferIds = {
         breakfast: flags.breakfast ? null : offerFor(program, "breakfast"),
         lunch: flags.lunch ? null : offerFor(program, "lunch"),
-        dinner: program.dinnerNotIncludedReason || flags.dinner ? null : offerFor(program, "dinner"),
+        dinner:
+          program.dinnerNotIncludedReason || flags.dinner ? null : offerFor(program, "dinner"),
       };
       setBusy(true);
       setActionError(undefined);
@@ -263,15 +264,11 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
       breakfast: program.selectedMeals.breakfast ?? program.mealDefaults.breakfast,
       lunch: program.selectedMeals.lunch ?? program.mealDefaults.lunch,
       // An excluded dinner is never selectable, even if a stale selection exists.
-      dinner: dinnerOptional
-        ? null
-        : (program.selectedMeals.dinner ?? program.mealDefaults.dinner),
+      dinner: dinnerOptional ? null : (program.selectedMeals.dinner ?? program.mealDefaults.dinner),
     };
     const ready = MEALS.every(
       (meal) =>
-        selfArranged[meal] ||
-        selection[meal] !== null ||
-        (meal === "dinner" && dinnerOptional),
+        selfArranged[meal] || selection[meal] !== null || (meal === "dinner" && dinnerOptional),
     );
     return (
       <div className="flex flex-col gap-6">
@@ -280,8 +277,8 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
           <StepIndicator step="meals" />
           <h1 className="text-2xl">Plan your day</h1>
           <p className="text-sm text-ink-muted">
-            Choose one option per meal; activities live on their own step. Selecting a meal here does
-            not book it; restaurant reservations are optional and confirmed separately. Tick
+            Choose one option per meal; activities live on their own step. Selecting a meal here
+            does not book it; restaurant reservations are optional and confirmed separately. Tick
             &quot;I&apos;ll arrange it myself&quot; to leave a meal out of the plan.
           </p>
         </header>
@@ -293,8 +290,7 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
         <SimulatedFailureNote
           state={
             MEALS.map(
-              (meal) =>
-                projection.research?.domains.find((entry) => entry.domain === meal) ?? null,
+              (meal) => projection.research?.domains.find((entry) => entry.domain === meal) ?? null,
             ).find((state) => state?.simulatedFailure) ?? null
           }
         />
@@ -362,8 +358,8 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
                     levelState={serviceLevels[meal]}
                     customObjective={searchObjectives[meal]}
                     onChanged={refresh}
-          disabled={readOnly}
-        />
+                    disabled={readOnly}
+                  />
                   {offers.length === 0 ? (
                     <p className="text-sm text-ink-muted">
                       No {meal} offers are available for this category.
@@ -605,7 +601,9 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
                         type="checkbox"
                         data-testid={`saved-self-arranged-${meal}`}
                         checked={isSelfArranged}
-                        disabled={busy || activeWork || readOnly || (!isSelfArranged && offerId === null)}
+                        disabled={
+                          busy || activeWork || readOnly || (!isSelfArranged && offerId === null)
+                        }
                         onChange={(event) => void toggleSelfArranged(meal, event.target.checked)}
                       />
                       I&apos;ll arrange it myself
@@ -692,8 +690,8 @@ export function MealsView({ tripId }: { readonly tripId: string }): React.JSX.El
                 levelState={serviceLevels[meal]}
                 customObjective={searchObjectives[meal]}
                 onChanged={refresh}
-          disabled={readOnly}
-        />
+                disabled={readOnly}
+              />
             ))}
           </div>
         </div>

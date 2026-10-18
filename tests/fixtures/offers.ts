@@ -8,7 +8,12 @@ interface FixtureOffer {
 }
 
 function offer(partyTotalMinor: number): FixtureOffer {
-  return { partyTotalMinor, adults: 2, supportedVariants: ["one_night", "two_nights"], synthetic: true };
+  return {
+    partyTotalMinor,
+    adults: 2,
+    supportedVariants: ["one_night", "two_nights"],
+    synthetic: true,
+  };
 }
 
 /** Fixture snapshot offers marked synthetic; party-total EUR minor units. */

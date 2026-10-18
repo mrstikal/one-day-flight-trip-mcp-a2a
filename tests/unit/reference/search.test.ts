@@ -57,7 +57,15 @@ describe("T-UT-REF-03 origin-airport eligibility", () => {
   it("accepts only large/medium airports, rejecting closed/heliport/seaplane/unknown", () => {
     expect(isOriginCandidateType("large_airport")).toBe(true);
     expect(isOriginCandidateType("medium_airport")).toBe(true);
-    for (const rejected of ["closed", "heliport", "seaplane_base", "balloonport", "small_airport", "unknown", ""]) {
+    for (const rejected of [
+      "closed",
+      "heliport",
+      "seaplane_base",
+      "balloonport",
+      "small_airport",
+      "unknown",
+      "",
+    ]) {
       expect(isOriginCandidateType(rejected), rejected).toBe(false);
     }
   });
@@ -66,21 +74,56 @@ describe("T-UT-REF-03 origin-airport eligibility", () => {
 describe("T-UT-REF-04 destination airport resolution", () => {
   const rome = { id: "geonames:3169070", lat: 41.9028, lon: 12.4964 };
   const airports: CatchmentAirport[] = [
-    { id: "ourairports:4372", lat: 41.804532, lon: 12.251998, zone: "Europe/Rome", scheduledService: true }, // FCO
-    { id: "ourairports:4370", lat: 41.798769, lon: 12.595331, zone: "Europe/Rome", scheduledService: true }, // CIA
+    {
+      id: "ourairports:4372",
+      lat: 41.804532,
+      lon: 12.251998,
+      zone: "Europe/Rome",
+      scheduledService: true,
+    }, // FCO
+    {
+      id: "ourairports:4370",
+      lat: 41.798769,
+      lon: 12.595331,
+      zone: "Europe/Rome",
+      scheduledService: true,
+    }, // CIA
     { id: "ourairports:9999", lat: 41.9, lon: 12.5, zone: "Etc/GMT+1", scheduledService: true }, // placeholder zone
     { id: "ourairports:8888", lat: 44.0, lon: 12.5, zone: "Europe/Rome", scheduledService: true }, // > 150 km away
-    { id: "ourairports:7777", lat: 41.91, lon: 12.51, zone: "Europe/Rome", scheduledService: false }, // no scheduled service
+    {
+      id: "ourairports:7777",
+      lat: 41.91,
+      lon: 12.51,
+      zone: "Europe/Rome",
+      scheduledService: false,
+    }, // no scheduled service
   ];
 
   it("prefers reviewed metro links and shares the catchment", () => {
     const reviewed = [
-      { airportId: "ourairports:4372", metroCatchmentId: "rome", transferMinutes: 45, transferMode: "public_transport" as const, eligibleDestination: true, evidenceRefs: ["reviewed:metro:rome"] },
-      { airportId: "ourairports:4370", metroCatchmentId: "rome", transferMinutes: 40, transferMode: "public_transport" as const, eligibleDestination: true, evidenceRefs: ["reviewed:metro:rome"] },
+      {
+        airportId: "ourairports:4372",
+        metroCatchmentId: "rome",
+        transferMinutes: 45,
+        transferMode: "public_transport" as const,
+        eligibleDestination: true,
+        evidenceRefs: ["reviewed:metro:rome"],
+      },
+      {
+        airportId: "ourairports:4370",
+        metroCatchmentId: "rome",
+        transferMinutes: 40,
+        transferMode: "public_transport" as const,
+        eligibleDestination: true,
+        evidenceRefs: ["reviewed:metro:rome"],
+      },
     ];
     const { links, limitation } = resolveCityAirports(rome, airports, reviewed);
     expect(limitation).toBeUndefined();
-    expect(links.map((link) => link.airportId).sort()).toEqual(["ourairports:4370", "ourairports:4372"]);
+    expect(links.map((link) => link.airportId).sort()).toEqual([
+      "ourairports:4370",
+      "ourairports:4372",
+    ]);
     expect(new Set(links.map((link) => link.metroCatchmentId))).toEqual(new Set(["rome"]));
     const catchment = resolveCatchment(["ourairports:4372", "ourairports:4370"], links);
     expect(catchment).toEqual({ metroCatchmentId: "rome", sameCatchment: true });
@@ -103,11 +146,37 @@ describe("T-UT-REF-04 destination airport resolution", () => {
 
   it("reports different catchments for different metros", () => {
     const links = [
-      { cityId: "geonames:1", airportId: "FCO", metroCatchmentId: "rome", transferMinutes: 45, transferMode: "public_transport" as const, eligibleDestination: true, reviewed: true, evidenceRefs: [], distanceKm: 20 },
-      { cityId: "geonames:2", airportId: "CDG", metroCatchmentId: "paris", transferMinutes: 55, transferMode: "public_transport" as const, eligibleDestination: true, reviewed: true, evidenceRefs: [], distanceKm: 25 },
+      {
+        cityId: "geonames:1",
+        airportId: "FCO",
+        metroCatchmentId: "rome",
+        transferMinutes: 45,
+        transferMode: "public_transport" as const,
+        eligibleDestination: true,
+        reviewed: true,
+        evidenceRefs: [],
+        distanceKm: 20,
+      },
+      {
+        cityId: "geonames:2",
+        airportId: "CDG",
+        metroCatchmentId: "paris",
+        transferMinutes: 55,
+        transferMode: "public_transport" as const,
+        eligibleDestination: true,
+        reviewed: true,
+        evidenceRefs: [],
+        distanceKm: 25,
+      },
     ];
-    expect(resolveCatchment(["FCO", "CDG"], links)).toEqual({ metroCatchmentId: null, sameCatchment: false });
-    expect(resolveCatchment(["FCO"], links)).toEqual({ metroCatchmentId: "rome", sameCatchment: false });
+    expect(resolveCatchment(["FCO", "CDG"], links)).toEqual({
+      metroCatchmentId: null,
+      sameCatchment: false,
+    });
+    expect(resolveCatchment(["FCO"], links)).toEqual({
+      metroCatchmentId: "rome",
+      sameCatchment: false,
+    });
     expect(resolveCatchment([], links)).toEqual({ metroCatchmentId: null, sameCatchment: false });
   });
 });

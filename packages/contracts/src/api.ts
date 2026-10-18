@@ -167,9 +167,7 @@ export const tripProjectionSchema = z
         flights: z
           .object({ offerId: nonEmptyStringSchema.nullable(), booked: z.boolean() })
           .strict(),
-        hotel: z
-          .object({ offerId: nonEmptyStringSchema.nullable(), booked: z.boolean() })
-          .strict(),
+        hotel: z.object({ offerId: nonEmptyStringSchema.nullable(), booked: z.boolean() }).strict(),
       })
       .strict(),
     hotel: z.array(publicHotelOfferSchema),

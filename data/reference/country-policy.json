@@ -3,10 +3,51 @@
   "reviewedOn": "2026-10-10",
   "description": "Admission manifest for European geographic reference data. Admission is explicit and manifest-driven; never inferred from a source continent field.",
   "admittedCountryKeys": [
-    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE",
-    "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
-    "GB", "CH", "NO", "IS", "LI", "AL", "BA", "ME", "MK", "RS", "MD", "UA", "BY",
-    "AD", "MC", "SM", "VA", "XK"
+    "AT",
+    "BE",
+    "BG",
+    "HR",
+    "CY",
+    "CZ",
+    "DK",
+    "EE",
+    "FI",
+    "FR",
+    "DE",
+    "GR",
+    "HU",
+    "IE",
+    "IT",
+    "LV",
+    "LT",
+    "LU",
+    "MT",
+    "NL",
+    "PL",
+    "PT",
+    "RO",
+    "SK",
+    "SI",
+    "ES",
+    "SE",
+    "GB",
+    "CH",
+    "NO",
+    "IS",
+    "LI",
+    "AL",
+    "BA",
+    "ME",
+    "MK",
+    "RS",
+    "MD",
+    "UA",
+    "BY",
+    "AD",
+    "MC",
+    "SM",
+    "VA",
+    "XK"
   ],
   "extensions": [
     {
@@ -29,9 +70,21 @@
     }
   ],
   "islandExceptions": [
-    { "name": "Azores", "countryKey": "PT", "note": "Admitted as a European-country island travel exception." },
-    { "name": "Madeira", "countryKey": "PT", "note": "Admitted as a European-country island travel exception." },
-    { "name": "Canary Islands", "countryKey": "ES", "note": "Admitted as a European-country island travel exception." }
+    {
+      "name": "Azores",
+      "countryKey": "PT",
+      "note": "Admitted as a European-country island travel exception."
+    },
+    {
+      "name": "Madeira",
+      "countryKey": "PT",
+      "note": "Admitted as a European-country island travel exception."
+    },
+    {
+      "name": "Canary Islands",
+      "countryKey": "ES",
+      "note": "Admitted as a European-country island travel exception."
+    }
   ],
   "excludedCountryKeys": ["GE", "AM", "AZ", "KZ"],
   "curatedCities": [

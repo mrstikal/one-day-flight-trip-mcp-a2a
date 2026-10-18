@@ -275,7 +275,10 @@ export function createAccommodationAltExecutor(
           startedAtMs: startedAt,
         });
         clock.assertNow({ mcpInvocation: true });
-        session.publishStatus(TaskState.TASK_STATE_WORKING, "MCP discovery: travel-data search_hotels");
+        session.publishStatus(
+          TaskState.TASK_STATE_WORKING,
+          "MCP discovery: travel-data search_hotels",
+        );
         await countedToolCall({
           mcp: runtime.mcp,
           pool: runtime.pool,
@@ -333,11 +336,7 @@ export function createAccommodationAltExecutor(
           luggageStorage: item.luggageStorage,
         }));
 
-        if (
-          data.searchObjective === "cheaper" &&
-          !answerOption &&
-          hotelTradeoffAmbiguous(facts)
-        ) {
+        if (data.searchObjective === "cheaper" && !answerOption && hotelTradeoffAmbiguous(facts)) {
           clock.assertNow({ input: true });
           const control = await getTaskControl(runtime.pool, {
             agentIdentity: ACCOMMODATION_ALT_AGENT_IDENTITY,
@@ -466,7 +465,10 @@ export function createAccommodationAltExecutor(
         const byId = new Map(facts.map((fact) => [fact.id, fact]));
         const rankedIds = ranking.rankedOfferIds.filter((id) => byId.has(id));
         if (rankedIds.length === 0) {
-          await session.publishFailure("INVALID_ARTIFACT", "the ranking contained no usable hotel offer");
+          await session.publishFailure(
+            "INVALID_ARTIFACT",
+            "the ranking contained no usable hotel offer",
+          );
           return;
         }
         if (await session.cancellationRequested()) {
@@ -515,7 +517,8 @@ export function createAccommodationAltExecutor(
         const artifactRecord: Artifact = {
           artifactId: randomUUID(),
           name: "accommodation-recommendations",
-          description: "Ranked hotel offers of the delegated frozen snapshot (alternative executor)",
+          description:
+            "Ranked hotel offers of the delegated frozen snapshot (alternative executor)",
           parts: [
             dataPart(artifact, "application/vnd.odft.accommodation-recommendations.v1+json"),
             {

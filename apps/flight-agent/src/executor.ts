@@ -68,7 +68,11 @@ interface FlightCandidateFact {
 }
 
 export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor {
-  const ranker = createDelegatedFlightRanker(runtime.pool, runtime.serverConfig, runtime.rankingDeps);
+  const ranker = createDelegatedFlightRanker(
+    runtime.pool,
+    runtime.serverConfig,
+    runtime.rankingDeps,
+  );
   const deterministicOrder = deterministicFlightOrder;
 
   return {
@@ -93,7 +97,11 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
         kind: "task",
         data: {
           ...task,
-          status: { state: TaskState.TASK_STATE_WORKING, message: undefined, timestamp: new Date().toISOString() },
+          status: {
+            state: TaskState.TASK_STATE_WORKING,
+            message: undefined,
+            timestamp: new Date().toISOString(),
+          },
         },
       });
 
@@ -106,7 +114,10 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
 
         const request = agentTaskRequestSchema.safeParse(dataPartOf(message));
         if (!request.success || request.data.skillId !== FLIGHT_SKILL_ID) {
-          await session.publishFailure("INVALID_ARTIFACT", "the task request is not a valid flight recommendation request");
+          await session.publishFailure(
+            "INVALID_ARTIFACT",
+            "the task request is not a valid flight recommendation request",
+          );
           return;
         }
         let authority = await loadDelegatedAuthority(runtime.pool, {
@@ -179,8 +190,16 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
             partyTotalMinor: number;
             perAdultMinor: number;
             supportedVariants: ("one_night" | "two_nights")[];
-            outbound: { departureInstant: string; arrivalInstant: string; durationMinutes: number }[];
-            inbound: { departureInstant: string; arrivalInstant: string; durationMinutes: number }[];
+            outbound: {
+              departureInstant: string;
+              arrivalInstant: string;
+              durationMinutes: number;
+            }[];
+            inbound: {
+              departureInstant: string;
+              arrivalInstant: string;
+              durationMinutes: number;
+            }[];
           }[];
           providerStatus?: string;
           reason?: string | null;
@@ -260,7 +279,10 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
           candidates.some((candidate) => candidate.id === id),
         );
         if (rankedIds.length === 0) {
-          await session.publishFailure("INVALID_ARTIFACT", "the ranking contained no usable combination");
+          await session.publishFailure(
+            "INVALID_ARTIFACT",
+            "the ranking contained no usable combination",
+          );
           return;
         }
         // Final local revocation check before the artifact is published.
@@ -326,11 +348,9 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
           taskId: task.id,
           state: "completed",
         });
-        session.publishStatus(
-          TaskState.TASK_STATE_COMPLETED,
-          "flight recommendations completed",
-          { mode: ranking.mode },
-        );
+        session.publishStatus(TaskState.TASK_STATE_COMPLETED, "flight recommendations completed", {
+          mode: ranking.mode,
+        });
         eventBus.finished();
       } catch (error) {
         await session.publishFailure(
@@ -365,7 +385,11 @@ export function createFlightExecutor(runtime: FlightAgentRuntime): AgentExecutor
         data: {
           taskId,
           contextId: control?.contextId ?? taskId,
-          status: { state: TaskState.TASK_STATE_CANCELED, message: undefined, timestamp: new Date().toISOString() },
+          status: {
+            state: TaskState.TASK_STATE_CANCELED,
+            message: undefined,
+            timestamp: new Date().toISOString(),
+          },
           metadata: undefined,
         },
       });

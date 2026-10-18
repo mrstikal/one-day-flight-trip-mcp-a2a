@@ -96,9 +96,7 @@ afterAll(async () => {
 describe("city guide agent", () => {
   it("returns exactly the requested domains with ranked existing ids", async () => {
     const delegationId = await createCityGuideDelegation(pool, seeded);
-    const task = await send(
-      cityGuideRequest(delegationId, ["breakfast", "attractions", "events"]),
-    );
+    const task = await send(cityGuideRequest(delegationId, ["breakfast", "attractions", "events"]));
     expect(task.status?.state).toBe(TaskState.TASK_STATE_COMPLETED);
     const artifact = artifactOf(task, "city-guide-recommendations") as {
       outcomes: { domain: string; status: string; rankedOfferIds: string[] }[];
@@ -134,12 +132,23 @@ describe("city guide agent", () => {
     const delegationId = await createCityGuideDelegation(pool, seeded);
     // Provider failure on the breakfast provider (attempt 1): that domain
     // becomes a labeled retryable error while its siblings stay available.
-    await upsertFault(pool, { tripId: seeded.tripId, domain: "breakfast", fault: "provider_failure" });
+    await upsertFault(pool, {
+      tripId: seeded.tripId,
+      domain: "breakfast",
+      fault: "provider_failure",
+    });
     try {
-      const task = await send(cityGuideRequest(delegationId, ["breakfast", "lunch", "attractions"]));
+      const task = await send(
+        cityGuideRequest(delegationId, ["breakfast", "lunch", "attractions"]),
+      );
       expect(task.status?.state).toBe(TaskState.TASK_STATE_COMPLETED);
       const artifact = artifactOf(task, "city-guide-recommendations") as {
-        outcomes: { domain: string; status: string; rankedOfferIds: string[]; simulatedFailure: boolean }[];
+        outcomes: {
+          domain: string;
+          status: string;
+          rankedOfferIds: string[];
+          simulatedFailure: boolean;
+        }[];
         findings: { code: string }[];
       };
       const byDomain = new Map(artifact.outcomes.map((outcome) => [outcome.domain, outcome]));
@@ -148,9 +157,13 @@ describe("city guide agent", () => {
       expect(byDomain.get("breakfast")?.status).toBe("retryable_error");
       expect(byDomain.get("breakfast")?.simulatedFailure).toBe(true);
       expect(byDomain.get("lunch")?.rankedOfferIds.length).toBeGreaterThan(0);
-      expect(artifact.findings.some((finding) => finding.code === "CITY_GUIDE_RETRYABLE_ERROR")).toBe(true);
+      expect(
+        artifact.findings.some((finding) => finding.code === "CITY_GUIDE_RETRYABLE_ERROR"),
+      ).toBe(true);
     } finally {
-      await pool.query(`DELETE FROM odft_app.simulation_faults WHERE trip_id = $1`, [seeded.tripId]);
+      await pool.query(`DELETE FROM odft_app.simulation_faults WHERE trip_id = $1`, [
+        seeded.tripId,
+      ]);
     }
   }, 90_000);
 
@@ -186,7 +199,9 @@ describe("city guide agent", () => {
     const agentPool = new Pool({ connectionString: cityGuideAgentDatabaseUrl(), max: 1 });
     try {
       await expect(
-        agentPool.query(`UPDATE odft_app.trips SET revision = revision + 1 WHERE id = $1`, [seeded.tripId]),
+        agentPool.query(`UPDATE odft_app.trips SET revision = revision + 1 WHERE id = $1`, [
+          seeded.tripId,
+        ]),
       ).rejects.toThrow(/permission denied/);
       await expect(
         agentPool.query(`UPDATE odft_app.agent_delegations SET status = 'revoked' WHERE id = $1`, [

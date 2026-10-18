@@ -74,16 +74,16 @@ tests/e2e/phase-08.spec.ts
 
 ## 7. Functions and Interfaces to Implement
 
-| Contract | Input -> Output | Required failure behavior |
-| --- | --- | --- |
-| `loadRoleProfiles(configPath, env)` | server config -> validated `RoleProfiles` | missing/invalid profile -> startup error; fixture mode needs none |
-| `refreshCapabilityManifest(cache)` / `assertModelCapable(profile)` | cached provider metadata -> typed result | unknown capability/pricing -> fail closed before any billable call |
-| `LLMAdapter.generateObject<T>(request: StructuredRequest<T>)` | bounded request -> strict validated `StructuredResponse<T>` | at most 2 total attempts; typed failure on exhaustion; no silent model change |
-| `reserveCall(tx, { operationId, role, effectScope, profile })` | call plan -> reservation row or refusal | over-limit/unknown price -> typed refusal, no transport |
-| `recordCallResult(tx, callId, usage)` / `reconcileUnknownBilling(tx, callId)` | usage/telemetry -> ledger update | unknown billing kept reserved until reconciliation |
-| `interpretIntent(ctx, messageRef)` | message + compact context -> persisted `IntentResult` | invalid/foreign refs rejected; no mutation before validation |
-| `validateIntentSemantics(result, authorizedContext)` | raw union -> accepted result or clarification conversion | duplicate/conflicting writes and `preserve` conflicts rejected |
-| `buildCompactContext(tripId)` | authoritative domain rows -> bounded role context | over cap -> reduced-scope failure, never silently dropped constraints |
+| Contract                                                                      | Input -> Output                                             | Required failure behavior                                                     |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `loadRoleProfiles(configPath, env)`                                           | server config -> validated `RoleProfiles`                   | missing/invalid profile -> startup error; fixture mode needs none             |
+| `refreshCapabilityManifest(cache)` / `assertModelCapable(profile)`            | cached provider metadata -> typed result                    | unknown capability/pricing -> fail closed before any billable call            |
+| `LLMAdapter.generateObject<T>(request: StructuredRequest<T>)`                 | bounded request -> strict validated `StructuredResponse<T>` | at most 2 total attempts; typed failure on exhaustion; no silent model change |
+| `reserveCall(tx, { operationId, role, effectScope, profile })`                | call plan -> reservation row or refusal                     | over-limit/unknown price -> typed refusal, no transport                       |
+| `recordCallResult(tx, callId, usage)` / `reconcileUnknownBilling(tx, callId)` | usage/telemetry -> ledger update                            | unknown billing kept reserved until reconciliation                            |
+| `interpretIntent(ctx, messageRef)`                                            | message + compact context -> persisted `IntentResult`       | invalid/foreign refs rejected; no mutation before validation                  |
+| `validateIntentSemantics(result, authorizedContext)`                          | raw union -> accepted result or clarification conversion    | duplicate/conflicting writes and `preserve` conflicts rejected                |
+| `buildCompactContext(tripId)`                                                 | authoritative domain rows -> bounded role context           | over cap -> reduced-scope failure, never silently dropped constraints         |
 
 ## 8. Outputs / Deliverables
 

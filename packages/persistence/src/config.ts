@@ -72,9 +72,7 @@ const rawSchema = z
   .object({
     DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
     PUBLIC_BASE_URL: z.string().min(1, "PUBLIC_BASE_URL is required"),
-    SESSION_HMAC_KEY: z
-      .string()
-      .min(32, "SESSION_HMAC_KEY must be at least 32 characters"),
+    SESSION_HMAC_KEY: z.string().min(32, "SESSION_HMAC_KEY must be at least 32 characters"),
     AI_MODE: z.enum(["fixture", "openrouter"]).default("fixture"),
     OPENROUTER_API_KEY: z.string().min(1).optional(),
     AI_CONFIG_PATH: z.string().min(1).optional(),

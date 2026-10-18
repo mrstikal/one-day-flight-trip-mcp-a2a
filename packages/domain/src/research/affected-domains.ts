@@ -1,8 +1,4 @@
-import {
-  RESEARCH_DOMAINS,
-  type ResearchDomain,
-  type ResearchDomainStatus,
-} from "@odft/contracts";
+import { RESEARCH_DOMAINS, type ResearchDomain, type ResearchDomainStatus } from "@odft/contracts";
 
 /**
  * Phase 09 affected-domain computation (03 section 4).

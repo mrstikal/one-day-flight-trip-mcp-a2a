@@ -124,9 +124,9 @@ describe("pace profiles (08-frontend-ux.md section 7)", () => {
       const output = fixturePlanner(pinned);
       const totals = plannerTotals(output.stops);
       expect(totals.activityCount).toBe(3);
-      expect(output.stops.filter((stop) => stop.kind === "activity").map((stop) => stop.refId)).toEqual(
-        expect.arrayContaining(["a-01", "a-03"]),
-      );
+      expect(
+        output.stops.filter((stop) => stop.kind === "activity").map((stop) => stop.refId),
+      ).toEqual(expect.arrayContaining(["a-01", "a-03"]));
       expect(totals.visitMinutes).toBeLessThanOrEqual(PACE_PROFILES[pace].visitCapMinutes);
     }
   });
@@ -235,9 +235,7 @@ describe("pace profiles (08-frontend-ux.md section 7)", () => {
     const sparse = context("relaxed");
     sparse.minimumActivityCounts = { museum: 9 };
     const output = fixturePlanner(sparse);
-    const museums = output.stops.filter(
-      (stop) => stop.kind === "activity",
-    );
+    const museums = output.stops.filter((stop) => stop.kind === "activity");
     // Only five museum candidates exist in this context; the planner includes
     // all of them and reports the shortfall as a compromise.
     expect(museums.length).toBeLessThanOrEqual(5);

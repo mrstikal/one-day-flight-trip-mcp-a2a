@@ -5,7 +5,9 @@ import type { ProposalStatus, ReservationStatus } from "@odft/contracts";
  * `proposed` is a `selection_proposals` state, not a reservation state.
  */
 
-export const RESERVATION_TRANSITIONS: Readonly<Record<ReservationStatus, readonly ReservationStatus[]>> = {
+export const RESERVATION_TRANSITIONS: Readonly<
+  Record<ReservationStatus, readonly ReservationStatus[]>
+> = {
   confirmed: ["superseded", "cancelled"],
   superseded: [],
   cancelled: [],

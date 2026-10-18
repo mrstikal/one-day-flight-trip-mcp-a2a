@@ -262,7 +262,10 @@ export async function loadTripProgress(pool: Pool, tripId: string): Promise<Trip
 }
 
 /** Latest persisted program activity preferences (may be empty). */
-export async function loadPreferredActivityIds(client: Queryable, tripId: string): Promise<string[]> {
+export async function loadPreferredActivityIds(
+  client: Queryable,
+  tripId: string,
+): Promise<string[]> {
   const result = await client.query<{ ranked_offers: unknown }>(
     `SELECT ranked_offers FROM odft_app.recommendation_artifacts
       WHERE trip_id = $1 AND service_key = 'activities' AND explanation LIKE 'User program%'

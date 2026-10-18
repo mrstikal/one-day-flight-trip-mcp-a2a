@@ -153,7 +153,12 @@ export async function bridgeObservationToEvent(
       `INSERT INTO odft_app.execution_events (trip_id, operation_id, type, payload)
      VALUES ($1, $2, $3, $4::jsonb)
      RETURNING id::text AS id`,
-      [input.tripId, input.operationId, input.type, JSON.stringify(projectSafeEvent(input.type, input.payload))],
+      [
+        input.tripId,
+        input.operationId,
+        input.type,
+        JSON.stringify(projectSafeEvent(input.type, input.payload)),
+      ],
     );
     const eventId = inserted.rows[0]?.id;
     if (!eventId) {

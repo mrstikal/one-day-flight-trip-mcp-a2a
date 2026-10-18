@@ -74,9 +74,13 @@ describe("reference migration and loader", () => {
   it("loads assets and is idempotent on a second run", async () => {
     expect(firstLoad.cities).toBeGreaterThan(0);
     expect(firstLoad.airports).toBeGreaterThan(0);
-    const before = await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM odft_app.reference_cities");
+    const before = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM odft_app.reference_cities",
+    );
     const secondLoad = await loadReferenceData(pool);
-    const after = await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM odft_app.reference_cities");
+    const after = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM odft_app.reference_cities",
+    );
     expect(secondLoad).toEqual(firstLoad);
     expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
   });
@@ -94,9 +98,13 @@ describe("read-only reference lookups", () => {
 
   it("searchCities returns coverage flags and a dataset limitation for absent towns", async () => {
     const rome = await searchCities(pool, { countryKey: "IT", q: "rome", limit: 10 });
-    expect(rome.items.some((city) => city.id === ROME && city.coverage === "curated_landmarks")).toBe(true);
+    expect(
+      rome.items.some((city) => city.id === ROME && city.coverage === "curated_landmarks"),
+    ).toBe(true);
     for (const city of rome.items) {
-      expect(["curated_landmarks", "generic_only", "insufficient_reference"]).toContain(city.coverage);
+      expect(["curated_landmarks", "generic_only", "insufficient_reference"]).toContain(
+        city.coverage,
+      );
     }
     const absent = await searchCities(pool, { countryKey: "IT", q: "zzzznotacity", limit: 10 });
     expect(absent.items).toEqual([]);
@@ -105,7 +113,9 @@ describe("read-only reference lookups", () => {
 
   it("searchAirports rejects ineligible codes and admits PRG", async () => {
     const prague = await searchAirports(pool, { q: "prague", limit: 10, scope: "origin" });
-    expect(prague.items.some((airport) => airport.iata === "PRG" && airport.eligibleOrigin)).toBe(true);
+    expect(prague.items.some((airport) => airport.iata === "PRG" && airport.eligibleOrigin)).toBe(
+      true,
+    );
     const unknown = await searchAirports(pool, { q: "zzz", limit: 10, scope: "origin" });
     expect(unknown.items).toEqual([]);
   });
@@ -121,8 +131,14 @@ describe("read-only reference lookups", () => {
     const parisIds = paris.links.map((link) => link.airportId);
     expect(parisIds).toEqual(expect.arrayContaining([CDG, "ourairports:4189"]));
 
-    expect(await resolveCatchment(pool, [FCO, CIA])).toEqual({ metroCatchmentId: "rome", sameCatchment: true });
-    expect(await resolveCatchment(pool, [FCO, CDG])).toEqual({ metroCatchmentId: null, sameCatchment: false });
+    expect(await resolveCatchment(pool, [FCO, CIA])).toEqual({
+      metroCatchmentId: "rome",
+      sameCatchment: true,
+    });
+    expect(await resolveCatchment(pool, [FCO, CDG])).toEqual({
+      metroCatchmentId: null,
+      sameCatchment: false,
+    });
   });
 
   it("returns the BCN->PMI island and PRG->Ceske Budejovice ground evidence", async () => {

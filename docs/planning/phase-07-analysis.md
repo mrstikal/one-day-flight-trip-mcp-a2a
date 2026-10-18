@@ -43,21 +43,21 @@ Each row lists step → (trigger) → next step, the persisted run data written 
 the same fenced transaction, and the wait reason when it parks. The cursor is
 `(step, waitReason, runData)`; `state_version` bumps on every write.
 
-| From | Trigger | To | Transaction payload / notes |
-| --- | --- | --- | --- |
-| — | operation claimed (creation) | `interpreting` | insert run row (revision bound) |
-| `interpreting` | intent parsed (reuse the graph-free intent path) | `validating_route` | — |
-| `validating_route` | Stage A feasible + snapshot materialized | `requesting_flights` | snapshot id + fingerprints into runData |
-| `validating_route` | INFEASIBLE / GROUND_TRAVEL_PREFERRED | `awaiting_user(route_change_confirmation\|clarification)` | decision row (engine-tagged) |
-| `requesting_flights` | flight delegation dispatched (outbound row persisted first) | `researching` | delegationIds += flight |
-| `researching` | flight task terminal + artifact accepted | `validating_logistics` | acceptedArtifacts.flights; Stage B; **hotel delegation + city research dispatched concurrently** |
-| `researching` | hotel/city task `input_required` observed | `awaiting_user(agent_input)` after **drain** | questionQueue (FIFO), drainPending |
-| `researching` | all necessary domains usable | `planning` | acceptedArtifacts for each domain |
-| `researching` | a necessary domain failed (retry classification) | `awaiting_user(clarification)` or retry within cap | partial-result policy |
-| `planning` | itinerary materialized | `awaiting_user(program_choices\|hotel_choice)` | decision row + waiting run/operation state atomically |
-| `awaiting_user(*)` | accepted decision (unchanged revision) | target step from the decision kind | decision response admitted with the SAME revision; delegation queue/cursor transferred where applicable |
-| any | unrecoverable failure | `failed` (+ operation failed) | failureCode; no retry loop |
-| any | cancellation accepted | `cancelled` | fenced |
+| From                 | Trigger                                                     | To                                                        | Transaction payload / notes                                                                             |
+| -------------------- | ----------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| —                    | operation claimed (creation)                                | `interpreting`                                            | insert run row (revision bound)                                                                         |
+| `interpreting`       | intent parsed (reuse the graph-free intent path)            | `validating_route`                                        | —                                                                                                       |
+| `validating_route`   | Stage A feasible + snapshot materialized                    | `requesting_flights`                                      | snapshot id + fingerprints into runData                                                                 |
+| `validating_route`   | INFEASIBLE / GROUND_TRAVEL_PREFERRED                        | `awaiting_user(route_change_confirmation\|clarification)` | decision row (engine-tagged)                                                                            |
+| `requesting_flights` | flight delegation dispatched (outbound row persisted first) | `researching`                                             | delegationIds += flight                                                                                 |
+| `researching`        | flight task terminal + artifact accepted                    | `validating_logistics`                                    | acceptedArtifacts.flights; Stage B; **hotel delegation + city research dispatched concurrently**        |
+| `researching`        | hotel/city task `input_required` observed                   | `awaiting_user(agent_input)` after **drain**              | questionQueue (FIFO), drainPending                                                                      |
+| `researching`        | all necessary domains usable                                | `planning`                                                | acceptedArtifacts for each domain                                                                       |
+| `researching`        | a necessary domain failed (retry classification)            | `awaiting_user(clarification)` or retry within cap        | partial-result policy                                                                                   |
+| `planning`           | itinerary materialized                                      | `awaiting_user(program_choices\|hotel_choice)`            | decision row + waiting run/operation state atomically                                                   |
+| `awaiting_user(*)`   | accepted decision (unchanged revision)                      | target step from the decision kind                        | decision response admitted with the SAME revision; delegation queue/cursor transferred where applicable |
+| any                  | unrecoverable failure                                       | `failed` (+ operation failed)                             | failureCode; no retry loop                                                                              |
+| any                  | cancellation accepted                                       | `cancelled`                                               | fenced                                                                                                  |
 
 Lock order stays §3.8: trip → operation → decision/delegation → counters;
 network calls are NEVER inside a transaction or effect.

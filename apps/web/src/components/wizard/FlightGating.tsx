@@ -23,8 +23,8 @@ export function RouteRejectionCard({
       </h2>
       <p className="text-sm text-ink-muted">
         The route policy rejected this combination. No flight offers are shown because none are
-        feasible. Ground travel may still be possible for this trip — this app only plans the
-        flight day, so it cannot book that alternative for you.
+        feasible. Ground travel may still be possible for this trip — this app only plans the flight
+        day, so it cannot book that alternative for you.
       </p>
       <ul className="flex flex-col gap-2">
         {reasons.map((reason) => (
@@ -226,7 +226,10 @@ export function SuccessPanel({
         Simulated booking confirmed
       </h2>
       <p className="text-sm">
-        Reference <span data-testid="demo-reference" className="font-mono font-semibold">{demoReference}</span>
+        Reference{" "}
+        <span data-testid="demo-reference" className="font-mono font-semibold">
+          {demoReference}
+        </span>
       </p>
       <p className="text-sm text-ink-muted">
         This is a simulated reservation. No payment was taken and it is not valid for travel.

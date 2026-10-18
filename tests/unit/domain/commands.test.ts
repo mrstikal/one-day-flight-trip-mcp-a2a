@@ -32,7 +32,9 @@ describe("validateCommandBatch", () => {
   });
 
   it("rejects a command that conflicts with a preserved scope", () => {
-    const commands: DomainCommand[] = [{ type: "set_service_override", service: "hotel", level: "budget" }];
+    const commands: DomainCommand[] = [
+      { type: "set_service_override", service: "hotel", level: "budget" },
+    ];
     expectDomainError(() => validateCommandBatch(commands, ["hotel"]), "CONFLICT");
   });
 
@@ -47,7 +49,9 @@ describe("validateCommandBatch", () => {
   });
 
   it("rejects more than four commands", () => {
-    const commands: DomainCommand[] = Array.from({ length: 5 }, () => ({ type: "build_itinerary" }));
+    const commands: DomainCommand[] = Array.from({ length: 5 }, () => ({
+      type: "build_itinerary",
+    }));
     expectDomainError(() => validateCommandBatch(commands), "VALIDATION_FAILED");
   });
 });

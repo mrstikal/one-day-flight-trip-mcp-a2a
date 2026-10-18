@@ -34,7 +34,9 @@ describe("T-UT-REF-05 reference manifests and licensing", () => {
     );
     expect(names.length).toBeGreaterThanOrEqual(5);
     for (const name of names) {
-      const manifest = manifestSchema.parse(JSON.parse(await readFile(`${manifestDir}/${name}`, "utf8")));
+      const manifest = manifestSchema.parse(
+        JSON.parse(await readFile(`${manifestDir}/${name}`, "utf8")),
+      );
       expect(manifest.sha256, name).toMatch(/^[a-f0-9]{64}$/);
       expect(manifest.sha256, name).not.toBe("0".repeat(64));
       expect(manifest.url.length, name).toBeGreaterThan(0);
@@ -44,14 +46,20 @@ describe("T-UT-REF-05 reference manifests and licensing", () => {
 
   it("recomputes the recorded SHA-256 for derived reference artifacts", async () => {
     async function sha256(path: string): Promise<string> {
-      return createHash("sha256").update(await readFile(path)).digest("hex");
+      return createHash("sha256")
+        .update(await readFile(path))
+        .digest("hex");
     }
     const manifest = async (name: string): Promise<{ sha256: string }> =>
       manifestSchema.parse(JSON.parse(await readFile(`${manifestDir}/${name}.json`, "utf8")));
 
     expect((await manifest("geo-tz")).sha256).toBe(await sha256(`${dataDir}/airports.ndjson`));
-    expect((await manifest("wikidata-landmarks")).sha256).toBe(await sha256(`${dataDir}/landmarks.ndjson`));
-    expect((await manifest("tz-boundary-odbl")).sha256).toBe(await sha256(`${licensesDir}/odbl-timezone.txt`));
+    expect((await manifest("wikidata-landmarks")).sha256).toBe(
+      await sha256(`${dataDir}/landmarks.ndjson`),
+    );
+    expect((await manifest("tz-boundary-odbl")).sha256).toBe(
+      await sha256(`${licensesDir}/odbl-timezone.txt`),
+    );
   });
 
   it("commits the required license texts", async () => {
@@ -64,18 +72,38 @@ describe("T-UT-REF-05 reference manifests and licensing", () => {
   });
 
   it("commits validated non-empty reference assets", async () => {
-    expect((await readNdjson(`${dataDir}/countries.ndjson`)).map((r) => countryRefSchema.parse(r))).not.toHaveLength(0);
-    expect((await readNdjson(`${dataDir}/cities.ndjson`)).map((r) => cityRefSchema.parse(r))).not.toHaveLength(0);
-    expect((await readNdjson(`${dataDir}/airports.ndjson`)).map((r) => airportRefSchema.parse(r))).not.toHaveLength(0);
-    expect((await readNdjson(`${dataDir}/city-airports.ndjson`)).map((r) => cityAirportLinkSchema.parse(r))).not.toHaveLength(0);
-    expect((await readNdjson(`${dataDir}/landmarks.ndjson`)).map((r) => landmarkSchema.parse(r))).not.toHaveLength(0);
-    expect((await readNdjson(`${dataDir}/route-evidence.ndjson`)).map((r) => routeEvidenceSchema.parse(r))).not.toHaveLength(0);
+    expect(
+      (await readNdjson(`${dataDir}/countries.ndjson`)).map((r) => countryRefSchema.parse(r)),
+    ).not.toHaveLength(0);
+    expect(
+      (await readNdjson(`${dataDir}/cities.ndjson`)).map((r) => cityRefSchema.parse(r)),
+    ).not.toHaveLength(0);
+    expect(
+      (await readNdjson(`${dataDir}/airports.ndjson`)).map((r) => airportRefSchema.parse(r)),
+    ).not.toHaveLength(0);
+    expect(
+      (await readNdjson(`${dataDir}/city-airports.ndjson`)).map((r) =>
+        cityAirportLinkSchema.parse(r),
+      ),
+    ).not.toHaveLength(0);
+    expect(
+      (await readNdjson(`${dataDir}/landmarks.ndjson`)).map((r) => landmarkSchema.parse(r)),
+    ).not.toHaveLength(0);
+    expect(
+      (await readNdjson(`${dataDir}/route-evidence.ndjson`)).map((r) =>
+        routeEvidenceSchema.parse(r),
+      ),
+    ).not.toHaveLength(0);
   });
 
   it("has at least eight verified landmarks per curated city", async () => {
     const policy = loadCountryPolicy();
-    const cities = (await readNdjson(`${dataDir}/cities.ndjson`)).map((row) => cityRefSchema.parse(row));
-    const landmarks = (await readNdjson(`${dataDir}/landmarks.ndjson`)).map((row) => landmarkSchema.parse(row));
+    const cities = (await readNdjson(`${dataDir}/cities.ndjson`)).map((row) =>
+      cityRefSchema.parse(row),
+    );
+    const landmarks = (await readNdjson(`${dataDir}/landmarks.ndjson`)).map((row) =>
+      landmarkSchema.parse(row),
+    );
     for (const curated of policy.curatedCities) {
       const city = cities.find(
         (candidate) =>
@@ -98,7 +126,11 @@ describe("T-UT-REF-05 reference manifests and licensing", () => {
           await walk(full);
         } else if (full.endsWith(".ts")) {
           const content = await readFile(full, "utf8");
-          if (/\bfetch\s*\(/.test(content) || content.includes("download.geonames") || content.includes("ourairports.com")) {
+          if (
+            /\bfetch\s*\(/.test(content) ||
+            content.includes("download.geonames") ||
+            content.includes("ourairports.com")
+          ) {
             violations.push(full);
           }
         }

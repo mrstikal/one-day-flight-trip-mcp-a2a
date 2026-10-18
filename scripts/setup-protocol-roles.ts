@@ -58,9 +58,7 @@ async function grantAgentRole(
   // The SDK's row scoping is not a security boundary by itself, and `ALL
   // TABLES` would let one specialist rewrite another specialist's tasks.
   for (const table of taskTables) {
-    await pool.query(
-      `GRANT SELECT, INSERT, UPDATE, DELETE ON odft_protocol.${table} TO ${role}`,
-    );
+    await pool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON odft_protocol.${table} TO ${role}`);
   }
   await pool.query(`GRANT USAGE ON SCHEMA odft_app TO ${role}`);
   await pool.query(
@@ -70,9 +68,7 @@ async function grantAgentRole(
   // INSERT ... RETURNING reads every returned column; grant SELECT only on the
   // returned columns instead of the whole observation table (cross-trip reads
   // stay restricted).
-  await pool.query(
-    `GRANT INSERT ON odft_app.protocol_observations TO ${role}`,
-  );
+  await pool.query(`GRANT INSERT ON odft_app.protocol_observations TO ${role}`);
   await pool.query(
     `GRANT SELECT (id, source, kind, trip_id, operation_id, delegation_id, task_id,
                    context_id, trace_id, payload, payload_hash, occurred_at,
@@ -88,7 +84,9 @@ async function grantAgentRole(
             odft_app.schedule_validations, odft_app.trips,
             odft_app.simulation_faults TO ${role}`,
   );
-  await pool.query(`GRANT EXECUTE ON FUNCTION odft_app.claim_delegated_task(text, uuid, text) TO ${role}`);
+  await pool.query(
+    `GRANT EXECUTE ON FUNCTION odft_app.claim_delegated_task(text, uuid, text) TO ${role}`,
+  );
   await pool.query(
     `GRANT EXECUTE ON FUNCTION odft_app.reserve_delegated_call(
         text, uuid, text, text, text, text, text, text, text, text, text,
@@ -110,7 +108,10 @@ async function main(): Promise<void> {
     throw new Error("DATABASE_URL is required");
   }
   const host = new URL(databaseUrl).hostname;
-  if (!["localhost", "127.0.0.1", "::1"].includes(host) && process.env.ODFT_ALLOW_REMOTE_ROLES !== "1") {
+  if (
+    !["localhost", "127.0.0.1", "::1"].includes(host) &&
+    process.env.ODFT_ALLOW_REMOTE_ROLES !== "1"
+  ) {
     throw new Error(`refusing to manage roles on non-local host ${host}`);
   }
   const protocolPassword = requirePassword("ODFT_PROTOCOL_ROLE_PASSWORD");
@@ -138,10 +139,16 @@ async function main(): Promise<void> {
          ).join("\n         ")}
        END $$`,
     );
-    await pool.query(`ALTER ROLE ${PROTOCOL_ROLE} WITH PASSWORD '${protocolPassword.replace(/'/g, "''")}'`);
-    await pool.query(`ALTER ROLE ${MCP_READONLY_ROLE} WITH PASSWORD '${mcpPassword.replace(/'/g, "''")}'`);
+    await pool.query(
+      `ALTER ROLE ${PROTOCOL_ROLE} WITH PASSWORD '${protocolPassword.replace(/'/g, "''")}'`,
+    );
+    await pool.query(
+      `ALTER ROLE ${MCP_READONLY_ROLE} WITH PASSWORD '${mcpPassword.replace(/'/g, "''")}'`,
+    );
     for (const entry of agentPasswords) {
-      await pool.query(`ALTER ROLE ${entry.role} WITH PASSWORD '${entry.password.replace(/'/g, "''")}'`);
+      await pool.query(
+        `ALTER ROLE ${entry.role} WITH PASSWORD '${entry.password.replace(/'/g, "''")}'`,
+      );
     }
 
     // Protocol service: read/write the protocol schema and the protocol tables.

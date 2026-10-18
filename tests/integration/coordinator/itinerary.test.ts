@@ -251,7 +251,8 @@ describe("coordinator itinerary flow", () => {
     const approvalPark = await driveUntilParked(harness.pools, tripId, 12);
     expect(approvalPark?.waitReason).toBe("itinerary_approval");
     const firstApproval = await pendingDecision(tripId);
-    const itineraryId = (firstApproval.optionPayload as { itineraryId?: string }).itineraryId as string;
+    const itineraryId = (firstApproval.optionPayload as { itineraryId?: string })
+      .itineraryId as string;
 
     const revision = await harness.pool.query<{ revision: number }>(
       `SELECT revision FROM odft_app.trips WHERE id = $1`,
@@ -364,10 +365,7 @@ describe("coordinator itinerary flow", () => {
     );
     const prefs = await harness.pool.query<{
       preferences: { minimumActivityCounts: Record<string, number> };
-    }>(
-      `SELECT preferences FROM odft_app.trips WHERE id = $1`,
-      [tripId],
-    );
+    }>(`SELECT preferences FROM odft_app.trips WHERE id = $1`, [tripId]);
     // No silent reduction of the stored requirement.
     expect(prefs.rows[0]?.preferences.minimumActivityCounts.museum).toBe(3);
   }, 420_000);

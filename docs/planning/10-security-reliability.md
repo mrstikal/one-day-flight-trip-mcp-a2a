@@ -125,20 +125,20 @@ Forbidden, without exception: prompt text, raw model output beyond validated str
 
 ## 9. Error Taxonomy and Client Semantics
 
-| Class                        | HTTP                        | Behavior                                                                               |
-| ---------------------------- | --------------------------- | -------------------------------------------------------------------------------------- |
-| Schema/validation            | 400                         | No state change; field-level message                                                   |
-| CSRF/origin failure          | 403                         | No state change                                                                        |
-| Body too large               | 413                         | No state change                                                                        |
-| Stale revision               | 409 `STALE_REVISION`        | UI refreshes; command is not replayed                                                  |
-| Operation in progress        | 409 `OPERATION_IN_PROGRESS` | UI waits for current operation                                                         |
+| Class                       | HTTP                        | Behavior                                                                               |
+| --------------------------- | --------------------------- | -------------------------------------------------------------------------------------- |
+| Schema/validation           | 400                         | No state change; field-level message                                                   |
+| CSRF/origin failure         | 403                         | No state change                                                                        |
+| Body too large              | 413                         | No state change                                                                        |
+| Stale revision              | 409 `STALE_REVISION`        | UI refreshes; command is not replayed                                                  |
+| Operation in progress       | 409 `OPERATION_IN_PROGRESS` | UI waits for current operation                                                         |
 | Unfinished failed operation | 409 `RECOVERY_REQUIRED`     | Retry the same operation through the technical control; preserve unsent ordinary input |
-| Stale/expired decision       | 409 `STALE_DECISION`        | Refresh projection; no resume executed                                                 |
-| Rate limit                   | 429                         | `Retry-After`, safe message                                                            |
-| Ownership                    | 404                         | Uniform body                                                                           |
-| Simulated provider fault     | 200 projection/event        | Labeled `Simulated failure`; not an incident                                           |
-| Dependency unavailable       | 502/503                     | Retryable envelope; operation remains durable                                          |
-| Internal                     | 500                         | Safe message; operation marked failed with recovery path                               |
+| Stale/expired decision      | 409 `STALE_DECISION`        | Refresh projection; no resume executed                                                 |
+| Rate limit                  | 429                         | `Retry-After`, safe message                                                            |
+| Ownership                   | 404                         | Uniform body                                                                           |
+| Simulated provider fault    | 200 projection/event        | Labeled `Simulated failure`; not an incident                                           |
+| Dependency unavailable      | 502/503                     | Retryable envelope; operation remains durable                                          |
+| Internal                    | 500                         | Safe message; operation marked failed with recovery path                               |
 
 Trip operations return `202` with operation ID/revision; session creation/renewal returns `200`, and identical request replay returns its stored outcome/status. No `202` is rendered as success. A booking transaction is atomic, but a fully committed booking may precede cursor/effect failure: display the saved booking and recovery-needed workflow honestly, never claim that the failed workflow had no domain effect.
 
@@ -154,14 +154,14 @@ Trip operations return `202` with operation ID/revision; session creation/renewa
 
 ### Degraded modes
 
-| Degraded dependency                         | Behavior                                                                                                                                |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| OpenRouter unavailable (openrouter mode)    | Affected operation fails with a safe retryable error after bounded attempts; deterministic wizard steps and fixture mode are unaffected |
-| Map tiles unavailable or blocked            | Offline schematic map per [08 Frontend UX](08-frontend-ux.md) section 9; planning is unaffected                                         |
-| SSE unavailable                             | Polling fallback via `GET /api/trips/:id`; operations are unaffected                                                                    |
-| PostgreSQL unavailable                      | Writes fail with a safe retryable error and no partial booking; the worker stops claiming while writes fail                             |
-| Worker stopped or crashed                   | Commands still queue (`202`) and display as `queued`; after restart, lease expiry recovers the same operations                          |
-| Coordinator migrations/cursor missing or incompatible | Readiness check fails; the worker does not claim; run `npm run db:migrate`                                       |
+| Degraded dependency                                   | Behavior                                                                                                                                |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenRouter unavailable (openrouter mode)              | Affected operation fails with a safe retryable error after bounded attempts; deterministic wizard steps and fixture mode are unaffected |
+| Map tiles unavailable or blocked                      | Offline schematic map per [08 Frontend UX](08-frontend-ux.md) section 9; planning is unaffected                                         |
+| SSE unavailable                                       | Polling fallback via `GET /api/trips/:id`; operations are unaffected                                                                    |
+| PostgreSQL unavailable                                | Writes fail with a safe retryable error and no partial booking; the worker stops claiming while writes fail                             |
+| Worker stopped or crashed                             | Commands still queue (`202`) and display as `queued`; after restart, lease expiry recovers the same operations                          |
+| Coordinator migrations/cursor missing or incompatible | Readiness check fails; the worker does not claim; run `npm run db:migrate`                                                              |
 
 ## 11. Privacy, Retention, and Data Hygiene
 

@@ -36,9 +36,7 @@ function isCalendarDate(value: string): boolean {
   }
   const date = new Date(Date.UTC(year, month - 1, day));
   return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
   );
 }
 
@@ -61,7 +59,10 @@ function isIanaZone(value: string): boolean {
   }
 }
 
-export const timeZoneSchema = z.string().min(1).refine(isIanaZone, "must be a known IANA time zone");
+export const timeZoneSchema = z
+  .string()
+  .min(1)
+  .refine(isIanaZone, "must be a known IANA time zone");
 
 /** Integer EUR minor units, nonnegative and bounded. */
 export const moneyMinorSchema = z.number().int().min(0).max(100_000_000);

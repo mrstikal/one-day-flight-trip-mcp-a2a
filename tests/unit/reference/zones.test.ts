@@ -36,7 +36,10 @@ describe("T-UT-REF-06 zone resolution", () => {
   });
 
   it("lets a reviewed override win with a recorded reason", () => {
-    const zone = resolveZone(["Etc/GMT+2"], 1, 1, undefined, { zone: "Europe/Lisbon", reason: "reviewed regional override" });
+    const zone = resolveZone(["Etc/GMT+2"], 1, 1, undefined, {
+      zone: "Europe/Lisbon",
+      reason: "reviewed regional override",
+    });
     expect(zone.zoneSource).toBe("override");
     expect(zone.zoneOverrideReason).toBe("reviewed regional override");
     expect(zone.eligibleOrigin).toBe(true);

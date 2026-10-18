@@ -16,17 +16,17 @@ and explained.
 
 ## 1. Environment and isolation
 
-| Item | Value |
-| --- | --- |
-| Node | v22.22.2 (`engines` requests >=24; recorded as measured) |
-| PostgreSQL | 17 container on `127.0.0.1:5442` |
-| Application database | **not touched** (fingerprint verified unchanged, section 6) |
-| Isolated target | `odft_phase01_test` (disposable, created for this baseline, `*_test` guarded) |
-| Integration database | `odft_test` (`TEST_DATABASE_URL` from `.env`) |
-| AI mode | `fixture` (no paid calls, no egress to model providers) |
-| Wikidata discovery | forced `false` in the E2E worker and the benchmark worker (offline determinism) |
-| Web server | production build (`next start`), one worker (`WORKER_CONCURRENCY=1`), port 3100 |
-| Origin | `http://localhost:3100/` — derived from `PUBLIC_BASE_URL` everywhere (exact-Origin check preserved) |
+| Item                 | Value                                                                                               |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
+| Node                 | v22.22.2 (`engines` requests >=24; recorded as measured)                                            |
+| PostgreSQL           | 17 container on `127.0.0.1:5442`                                                                    |
+| Application database | **not touched** (fingerprint verified unchanged, section 6)                                         |
+| Isolated target      | `odft_phase01_test` (disposable, created for this baseline, `*_test` guarded)                       |
+| Integration database | `odft_test` (`TEST_DATABASE_URL` from `.env`)                                                       |
+| AI mode              | `fixture` (no paid calls, no egress to model providers)                                             |
+| Wikidata discovery   | forced `false` in the E2E worker and the benchmark worker (offline determinism)                     |
+| Web server           | production build (`next start`), one worker (`WORKER_CONCURRENCY=1`), port 3100                     |
+| Origin               | `http://localhost:3100/` — derived from `PUBLIC_BASE_URL` everywhere (exact-Origin check preserved) |
 
 Isolated database setup (idempotent, no application database involved):
 
@@ -44,16 +44,16 @@ application stopped.
 
 ## 2. Harness changes (Phase 01 scope)
 
-| File | Change | Why |
-| --- | --- | --- |
-| `playwright.config.ts` | Browser/API origin and server port derived from `PUBLIC_BASE_URL`; `reuseExistingServer: false`; `PORT` passed to the web server | The BFF validates the exact Origin; a hardcoded `127.0.0.1:3000` mismatch existed. A live/dev server must never be silently reused for an isolated fixture run. |
-| `apps/web/package.json` | `start` script: `next start` (was `next start -p 3000`) | Next.js honors `PORT`; the test server can bind the configured port. Default behavior (no `PORT`) is unchanged. |
-| `tests/e2e/_worker.ts` | Requires `DATABASE_URL` (fails loudly otherwise), logs the target database name, passes it explicitly; forces `WIKIDATA_DISCOVERY=false` | Spawned fixture workers must share the explicitly selected isolated database; network landmark curation must never run in tests (it stalled operations and made specs time out). |
-| `tests/e2e/voice-control.spec.ts` | `openRail` waits for the trip's operations to settle and the operation preloader to clear before any typing | The app intentionally blocks interaction with an inert full-screen preloader while the initial work runs; `fill` during that window silently loses the draft (root-caused with a temporary probe, section 5). Test-only timing fix. |
-| `package.json` | Added `benchmark:baseline` script | Reproducible entry point. |
-| `tests/benchmarks/baseline-cases.ts` (new) | Fixed cases/inputs, decision policy, `_test` guard, latency math | Declarative benchmark definition and pure, unit-tested helpers. |
-| `tests/benchmarks/travel-baseline.ts` (new) | Public-API driver + isolated stack management + metrics | The Phase 01 benchmark. |
-| `tests/unit/benchmark-harness.test.ts` (new) | 12 focused tests (guard + result calculation + case definitions) | The only new executable harness logic. |
+| File                                         | Change                                                                                                                                   | Why                                                                                                                                                                                                                                 |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `playwright.config.ts`                       | Browser/API origin and server port derived from `PUBLIC_BASE_URL`; `reuseExistingServer: false`; `PORT` passed to the web server         | The BFF validates the exact Origin; a hardcoded `127.0.0.1:3000` mismatch existed. A live/dev server must never be silently reused for an isolated fixture run.                                                                     |
+| `apps/web/package.json`                      | `start` script: `next start` (was `next start -p 3000`)                                                                                  | Next.js honors `PORT`; the test server can bind the configured port. Default behavior (no `PORT`) is unchanged.                                                                                                                     |
+| `tests/e2e/_worker.ts`                       | Requires `DATABASE_URL` (fails loudly otherwise), logs the target database name, passes it explicitly; forces `WIKIDATA_DISCOVERY=false` | Spawned fixture workers must share the explicitly selected isolated database; network landmark curation must never run in tests (it stalled operations and made specs time out).                                                    |
+| `tests/e2e/voice-control.spec.ts`            | `openRail` waits for the trip's operations to settle and the operation preloader to clear before any typing                              | The app intentionally blocks interaction with an inert full-screen preloader while the initial work runs; `fill` during that window silently loses the draft (root-caused with a temporary probe, section 5). Test-only timing fix. |
+| `package.json`                               | Added `benchmark:baseline` script                                                                                                        | Reproducible entry point.                                                                                                                                                                                                           |
+| `tests/benchmarks/baseline-cases.ts` (new)   | Fixed cases/inputs, decision policy, `_test` guard, latency math                                                                         | Declarative benchmark definition and pure, unit-tested helpers.                                                                                                                                                                     |
+| `tests/benchmarks/travel-baseline.ts` (new)  | Public-API driver + isolated stack management + metrics                                                                                  | The Phase 01 benchmark.                                                                                                                                                                                                             |
+| `tests/unit/benchmark-harness.test.ts` (new) | 12 focused tests (guard + result calculation + case definitions)                                                                         | The only new executable harness logic.                                                                                                                                                                                              |
 
 ## 3. Required checks (all run, all results recorded)
 
@@ -76,15 +76,15 @@ DATABASE_URL="$PHASE01_URL" PUBLIC_BASE_URL="http://localhost:3100/" \
   npm run benchmark:baseline -- --output .cache/benchmarks/langgraph-baseline.json
 ```
 
-| Check | Result |
-| --- | --- |
-| `typecheck` | clean |
-| `lint` | clean |
-| `test:unit` | 60 files, **554/554 pass** (includes the 12 new harness tests) |
-| `test:integration` | 47 files, **197/197 pass**, 577.8 s (expected fault-injection warnings only) |
+| Check                    | Result                                                                                                                                    |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `typecheck`              | clean                                                                                                                                     |
+| `lint`                   | clean                                                                                                                                     |
+| `test:unit`              | 60 files, **554/554 pass** (includes the 12 new harness tests)                                                                            |
+| `test:integration`       | 47 files, **197/197 pass**, 577.8 s (expected fault-injection warnings only)                                                              |
 | `build` + `verify:build` | pass; 5 pre-existing Turbopack "dynamic filesystem access" warnings (`.next` had to be cleaned once after a stale `ENOTEMPTY` rmdir race) |
-| Playwright discovery | **92 tests in 12 spec files** (`npx playwright test --list`) |
-| Playwright execution | **85 passed, 6 failed, 1 skipped, 0 flaky**, 973 s |
+| Playwright discovery     | **92 tests in 12 spec files** (`npx playwright test --list`)                                                                              |
+| Playwright execution     | **85 passed, 6 failed, 1 skipped, 0 flaky**, 973 s                                                                                        |
 
 ### E2E failures (all preserved in the raw report)
 
@@ -94,11 +94,11 @@ the 2026-10-14 opt-in visits change; 6/8 tests fail deterministically). They
 reproduce deterministically in isolated single-spec runs and are assertion
 drift against intentionally changed behavior, not application regressions:
 
-| Test (desktop + mobile) | Failing expectation | Current behavior |
-| --- | --- | --- |
-| `renders the validated day, costs, the map fallback, and approves a draft` | expects `[data-event-kind="activity"]` | visits are opt-in (Phase 12); no pins → meals only |
-| `scenario E: the injected overlap is labeled and repaired` | expects `simulated-failure-note` to contain "repaired within the bounded loop" | note text changed with the Phase 10 bounded loop |
-| `scenario G: the relaxed six-museums request preserves the typed number` | expects the "Save program" button without a clarification | a museum-3 request legitimately ends in a clarification |
+| Test (desktop + mobile)                                                    | Failing expectation                                                            | Current behavior                                        |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| `renders the validated day, costs, the map fallback, and approves a draft` | expects `[data-event-kind="activity"]`                                         | visits are opt-in (Phase 12); no pins → meals only      |
+| `scenario E: the injected overlap is labeled and repaired`                 | expects `simulated-failure-note` to contain "repaired within the bounded loop" | note text changed with the Phase 10 bounded loop        |
+| `scenario G: the relaxed six-museums request preserves the typed number`   | expects the "Save program" button without a clarification                      | a museum-3 request legitimately ends in a clarification |
 
 They were left untouched: the plan forbids rewriting existing suites, and the
 behavior change was deliberate (Phase 12). They are reported here as
@@ -145,15 +145,15 @@ state) is truncated on the disposable database.
 
 ## 5. Benchmark results (30/30 trials accounted for)
 
-| Case | Completed | Total p50 / p95 |
-| --- | --- | --- |
-| `prg-rome-one-night` | 5/5 | 5286 ms / 5961 ms |
-| `prg-rome-two-nights` | 5/5 | 5221 ms / 5728 ms |
-| `prg-paris-one-night` | **0/5** | — |
-| `prg-paris-two-nights` | **0/5** | — |
-| `prg-barcelona-one-night` | 5/5 | 5107 ms / 5832 ms |
-| `prg-barcelona-two-nights` | 5/5 | 5133 ms / 5777 ms |
-| **Overall** | **20/30 (66.7 %)** | **5215 ms / 5832 ms** |
+| Case                       | Completed          | Total p50 / p95       |
+| -------------------------- | ------------------ | --------------------- |
+| `prg-rome-one-night`       | 5/5                | 5286 ms / 5961 ms     |
+| `prg-rome-two-nights`      | 5/5                | 5221 ms / 5728 ms     |
+| `prg-paris-one-night`      | **0/5**            | —                     |
+| `prg-paris-two-nights`     | **0/5**            | —                     |
+| `prg-barcelona-one-night`  | 5/5                | 5107 ms / 5832 ms     |
+| `prg-barcelona-two-nights` | 5/5                | 5133 ms / 5777 ms     |
+| **Overall**                | **20/30 (66.7 %)** | **5215 ms / 5832 ms** |
 
 Per-step latencies (submission → next decision visible, nearest-rank p50/p95)
 are in the artifact; the steady state is ~500–900 ms per step plus ~670 ms
@@ -263,14 +263,14 @@ package (worker ports became compatibility adapters; the persistence research
 path gained an explicit-snapshot read-only query). The full check set was re-run
 against the same isolated stack:
 
-| Check | Baseline (Phase 01) | After Phase 02 |
-| --- | --- | --- |
-| Unit | 60 files / 554 tests | 61 files / 559 tests (new boundary test) |
-| Integration | 47 files / 197 tests, 577.8 s | 47 files / 197 tests, 564.2 s |
-| E2E (isolated) | 85 passed / 6 stale / 1 skipped, 973 s | 85 passed / 6 stale / 1 skipped, 969 s |
-| Benchmark | 20/30, p50 5215 ms | 20/30, p50 5228 ms |
-| Negative route case | PASS | PASS |
-| Graph version | travel-graph-v7, 29 nodes | unchanged |
+| Check               | Baseline (Phase 01)                    | After Phase 02                           |
+| ------------------- | -------------------------------------- | ---------------------------------------- |
+| Unit                | 60 files / 554 tests                   | 61 files / 559 tests (new boundary test) |
+| Integration         | 47 files / 197 tests, 577.8 s          | 47 files / 197 tests, 564.2 s            |
+| E2E (isolated)      | 85 passed / 6 stale / 1 skipped, 973 s | 85 passed / 6 stale / 1 skipped, 969 s   |
+| Benchmark           | 20/30, p50 5215 ms                     | 20/30, p50 5228 ms                       |
+| Negative route case | PASS                                   | PASS                                     |
+| Graph version       | travel-graph-v7, 29 nodes              | unchanged                                |
 
 Raw artifact of the post-extraction benchmark:
 `.cache/benchmarks/langgraph-phase02.json` (baseline:
@@ -295,14 +295,14 @@ three primary A2A agents) on one disposable `*_test` database. The full results,
 gate counts, runtime defects and the 25-condition checklist are in
 [migration-results.md](migration-results.md).
 
-| Check | Phase 01 graph | Phase 12 coordinator |
-| --- | --- | --- |
-| Benchmark | 20/30, p50 5215 ms / p95 5832 ms | **25/30, p50 4817 ms / p95 5059 ms** |
-| `prg-paris-one-night` | 0/5 | 0/5 (same fixed-input infeasibility; explicit bounded clarification/recovery) |
-| `prg-paris-two-nights` | 0/5 | **5/5** |
-| Negative route case | PASS | PASS |
-| Fixture AI | 0 paid calls; 1 planner + 1 reviewer | unchanged |
-| Engine | travel-graph-v7 | `coordinator-v1` (LangGraph removed) |
+| Check                  | Phase 01 graph                       | Phase 12 coordinator                                                          |
+| ---------------------- | ------------------------------------ | ----------------------------------------------------------------------------- |
+| Benchmark              | 20/30, p50 5215 ms / p95 5832 ms     | **25/30, p50 4817 ms / p95 5059 ms**                                          |
+| `prg-paris-one-night`  | 0/5                                  | 0/5 (same fixed-input infeasibility; explicit bounded clarification/recovery) |
+| `prg-paris-two-nights` | 0/5                                  | **5/5**                                                                       |
+| Negative route case    | PASS                                 | PASS                                                                          |
+| Fixture AI             | 0 paid calls; 1 planner + 1 reviewer | unchanged                                                                     |
+| Engine                 | travel-graph-v7                      | `coordinator-v1` (LangGraph removed)                                          |
 
 The completed-trial decision sequence is unchanged
 (`flight_choice → booking_confirmation → hotel_choice → booking_confirmation →

@@ -63,7 +63,9 @@ async function readManifests(): Promise<ReferenceManifest[]> {
   );
   const manifests: ReferenceManifest[] = [];
   for (const name of [...names].sort()) {
-    manifests.push(manifestSchema.parse(JSON.parse(await readFile(join(MANIFEST_DIR, name), "utf8"))));
+    manifests.push(
+      manifestSchema.parse(JSON.parse(await readFile(join(MANIFEST_DIR, name), "utf8"))),
+    );
   }
   return manifests;
 }
@@ -86,7 +88,9 @@ export async function loadReferenceData(pool: Pool): Promise<LoadResult> {
   const countries = await readNdjson(join(DATA_DIR, "countries.ndjson"), (row) =>
     countryRefSchema.parse(row),
   );
-  const cities = await readNdjson(join(DATA_DIR, "cities.ndjson"), (row) => cityRefSchema.parse(row));
+  const cities = await readNdjson(join(DATA_DIR, "cities.ndjson"), (row) =>
+    cityRefSchema.parse(row),
+  );
   const airports = await readNdjson(join(DATA_DIR, "airports.ndjson"), (row) =>
     airportRefSchema.parse(row),
   );
@@ -112,7 +116,13 @@ export async function loadReferenceData(pool: Pool): Promise<LoadResult> {
          ON CONFLICT (country_key) DO UPDATE SET
            name = EXCLUDED.name, admitted = EXCLUDED.admitted,
            extension = EXCLUDED.extension, policy_note = EXCLUDED.policy_note`,
-        [country.countryKey, country.name, country.admitted, country.extension, country.policyNote ?? null],
+        [
+          country.countryKey,
+          country.name,
+          country.admitted,
+          country.extension,
+          country.policyNote ?? null,
+        ],
       );
     }
 
@@ -126,7 +136,18 @@ export async function loadReferenceData(pool: Pool): Promise<LoadResult> {
            lat = EXCLUDED.lat, lon = EXCLUDED.lon, zone = EXCLUDED.zone,
            coverage_flag = EXCLUDED.coverage_flag, population = EXCLUDED.population,
            search_key = EXCLUDED.search_key, updated_at = now()`,
-        [city.id, city.countryKey, city.name, city.asciiName, city.lat, city.lon, city.zone, city.coverage, city.population, city.searchKey],
+        [
+          city.id,
+          city.countryKey,
+          city.name,
+          city.asciiName,
+          city.lat,
+          city.lon,
+          city.zone,
+          city.coverage,
+          city.population,
+          city.searchKey,
+        ],
       );
     }
 
@@ -144,7 +165,24 @@ export async function loadReferenceData(pool: Pool): Promise<LoadResult> {
            zone_override_reason = EXCLUDED.zone_override_reason, eligible_origin = EXCLUDED.eligible_origin,
            airport_type = EXCLUDED.airport_type, scheduled_service = EXCLUDED.scheduled_service,
            search_key = EXCLUDED.search_key, updated_at = now()`,
-        [airport.id, airport.iata, airport.icao ?? null, airport.name, airport.countryKey, airport.municipality ?? null, airport.lat, airport.lon, airport.zone, airport.zoneSource, airport.zoneEvidence, airport.zoneOverrideReason ?? null, airport.eligibleOrigin, airport.airportType, airport.scheduledService, airport.searchKey],
+        [
+          airport.id,
+          airport.iata,
+          airport.icao ?? null,
+          airport.name,
+          airport.countryKey,
+          airport.municipality ?? null,
+          airport.lat,
+          airport.lon,
+          airport.zone,
+          airport.zoneSource,
+          airport.zoneEvidence,
+          airport.zoneOverrideReason ?? null,
+          airport.eligibleOrigin,
+          airport.airportType,
+          airport.scheduledService,
+          airport.searchKey,
+        ],
       );
     }
 
@@ -157,7 +195,16 @@ export async function loadReferenceData(pool: Pool): Promise<LoadResult> {
            metro_catchment_id = EXCLUDED.metro_catchment_id, transfer_minutes = EXCLUDED.transfer_minutes,
            transfer_mode = EXCLUDED.transfer_mode, eligible_destination = EXCLUDED.eligible_destination,
            reviewed = EXCLUDED.reviewed, evidence_refs = EXCLUDED.evidence_refs`,
-        [link.cityId, link.airportId, link.metroCatchmentId, link.transferMinutes, link.transferMode, link.eligibleDestination, link.reviewed, JSON.stringify(link.evidenceRefs)],
+        [
+          link.cityId,
+          link.airportId,
+          link.metroCatchmentId,
+          link.transferMinutes,
+          link.transferMode,
+          link.eligibleDestination,
+          link.reviewed,
+          JSON.stringify(link.evidenceRefs),
+        ],
       );
     }
 
@@ -170,7 +217,17 @@ export async function loadReferenceData(pool: Pool): Promise<LoadResult> {
            city_id = EXCLUDED.city_id, name = EXCLUDED.name, lat = EXCLUDED.lat, lon = EXCLUDED.lon,
            source = EXCLUDED.source, source_id = EXCLUDED.source_id, source_url = EXCLUDED.source_url,
            verified = EXCLUDED.verified, updated_at = now()`,
-        [landmark.id, landmark.cityId, landmark.name, landmark.lat, landmark.lon, landmark.source, landmark.sourceId, landmark.sourceUrl, landmark.verified],
+        [
+          landmark.id,
+          landmark.cityId,
+          landmark.name,
+          landmark.lat,
+          landmark.lon,
+          landmark.source,
+          landmark.sourceId,
+          landmark.sourceUrl,
+          landmark.verified,
+        ],
       );
     }
 
@@ -182,7 +239,15 @@ export async function loadReferenceData(pool: Pool): Promise<LoadResult> {
          ON CONFLICT (id) DO UPDATE SET
            kind = EXCLUDED.kind, origin_ref = EXCLUDED.origin_ref, destination_ref = EXCLUDED.destination_ref,
            minutes = EXCLUDED.minutes, details = EXCLUDED.details, evidence_refs = EXCLUDED.evidence_refs`,
-        [evidence.id, evidence.kind, evidence.originRef, evidence.destinationRef, evidence.minutes ?? null, evidence.details ?? null, JSON.stringify(evidence.evidenceRefs)],
+        [
+          evidence.id,
+          evidence.kind,
+          evidence.originRef,
+          evidence.destinationRef,
+          evidence.minutes ?? null,
+          evidence.details ?? null,
+          JSON.stringify(evidence.evidenceRefs),
+        ],
       );
     }
 
@@ -198,7 +263,20 @@ export async function loadReferenceData(pool: Pool): Promise<LoadResult> {
            transform_version = EXCLUDED.transform_version, record_count = EXCLUDED.record_count,
            rejected_count = EXCLUDED.rejected_count, rejected_report = EXCLUDED.rejected_report,
            attribution = EXCLUDED.attribution, loaded_at = now()`,
-        [manifest.source, manifest.url, manifest.retrievedAt, manifest.revision ?? null, manifest.sha256, manifest.license, manifest.licenseUrl ?? null, manifest.transformVersion, manifest.recordCount, manifest.rejectedCount, JSON.stringify(manifest.rejectedReport), manifest.attribution ?? null],
+        [
+          manifest.source,
+          manifest.url,
+          manifest.retrievedAt,
+          manifest.revision ?? null,
+          manifest.sha256,
+          manifest.license,
+          manifest.licenseUrl ?? null,
+          manifest.transformVersion,
+          manifest.recordCount,
+          manifest.rejectedCount,
+          JSON.stringify(manifest.rejectedReport),
+          manifest.attribution ?? null,
+        ],
       );
     }
 
@@ -471,14 +549,24 @@ export async function listReferenceManifests(pool: Pool): Promise<ReferenceManif
 }
 
 export interface ReferenceCoverageSummary {
-  readonly cities: { readonly total: number; readonly curated: number; readonly genericOnly: number; readonly insufficient: number };
+  readonly cities: {
+    readonly total: number;
+    readonly curated: number;
+    readonly genericOnly: number;
+    readonly insufficient: number;
+  };
   readonly countries: number;
   readonly airports: number;
 }
 
 /** Read-only admitted/reviewed/generic coverage counts (geography resource). */
 export async function countReferenceCoverage(pool: Pool): Promise<ReferenceCoverageSummary> {
-  const cities = await pool.query<{ total: string; curated: string; generic_only: string; insufficient: string }>(
+  const cities = await pool.query<{
+    total: string;
+    curated: string;
+    generic_only: string;
+    insufficient: string;
+  }>(
     `SELECT count(*) AS total,
             count(*) FILTER (WHERE coverage_flag = 'curated') AS curated,
             count(*) FILTER (WHERE coverage_flag = 'generic_only') AS generic_only,
@@ -505,9 +593,10 @@ export async function countReferenceCoverage(pool: Pool): Promise<ReferenceCover
 }
 
 export async function getCityAirports(pool: Pool, cityId: string): Promise<CityAirportsResult> {
-  const cityResult = await pool.query<CityRow>(`SELECT * FROM odft_app.reference_cities WHERE id = $1`, [
-    cityId,
-  ]);
+  const cityResult = await pool.query<CityRow>(
+    `SELECT * FROM odft_app.reference_cities WHERE id = $1`,
+    [cityId],
+  );
   const cityRow = cityResult.rows[0];
   if (!cityRow) {
     return { links: [], limitation: `UNKNOWN_CITY: no reference city ${cityId}.` };
@@ -534,7 +623,12 @@ export async function getCityAirports(pool: Pool, cityId: string): Promise<CityA
       WHERE lat BETWEEN $1 AND $2 AND lon BETWEEN $3 AND $4
         AND scheduled_service = true
         AND zone NOT LIKE 'Etc/%' AND length(zone) > 0`,
-    [cityRow.lat - latDelta, cityRow.lat + latDelta, cityRow.lon - lonDelta, cityRow.lon + lonDelta],
+    [
+      cityRow.lat - latDelta,
+      cityRow.lat + latDelta,
+      cityRow.lon - lonDelta,
+      cityRow.lon + lonDelta,
+    ],
   );
   const candidates: CatchmentAirport[] = airportResult.rows.map((row) => ({
     id: row.id,
@@ -570,7 +664,11 @@ export async function resolveCatchment(
   if (airportIds.length === 0) {
     return { metroCatchmentId: null, sameCatchment: false };
   }
-  const result = await pool.query<{ airport_id: string; city_id: string; metro_catchment_id: string }>(
+  const result = await pool.query<{
+    airport_id: string;
+    city_id: string;
+    metro_catchment_id: string;
+  }>(
     `SELECT airport_id, city_id, metro_catchment_id FROM odft_app.reference_city_airports
       WHERE airport_id = ANY($1::text[]) ORDER BY airport_id, city_id`,
     [airportIds],
@@ -720,9 +818,10 @@ export async function getCuratedLandmarks(
     source: "wikidata";
     source_id: string;
     source_url: string;
-  }>(`SELECT id, city_id, name, lat, lon, source, source_id, source_url FROM odft_app.reference_landmarks WHERE city_id = $1 ORDER BY name ASC`, [
-    cityId,
-  ]);
+  }>(
+    `SELECT id, city_id, name, lat, lon, source, source_id, source_url FROM odft_app.reference_landmarks WHERE city_id = $1 ORDER BY name ASC`,
+    [cityId],
+  );
   const landmarks: Landmark[] = result.rows.map((row) => ({
     id: row.id,
     cityId: row.city_id,

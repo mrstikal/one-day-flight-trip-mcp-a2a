@@ -17,7 +17,14 @@ import {
   rankTripRecommendations,
   researchTripDomain,
 } from "@odft/persistence";
-import { SCENARIO_DOMAIN_FOR_RESEARCH, type FeasibleRouteApproval, type Meal, type ScenarioManifest, type ServiceLevel, type TripRecord } from "@odft/contracts";
+import {
+  SCENARIO_DOMAIN_FOR_RESEARCH,
+  type FeasibleRouteApproval,
+  type Meal,
+  type ScenarioManifest,
+  type ServiceLevel,
+  type TripRecord,
+} from "@odft/contracts";
 import type { OperationAuthority } from "../ai/authority.js";
 import { fencingContextFor } from "../ai/authority.js";
 import type {
@@ -85,7 +92,11 @@ export function createTravelResearchService(
     },
 
     async researchDomain(input) {
-      return researchTripDomain(pool, input, fencingContextFor(authority, input.operationId, input.tripId));
+      return researchTripDomain(
+        pool,
+        input,
+        fencingContextFor(authority, input.operationId, input.tripId),
+      );
     },
 
     async rankRecommendations(input) {
@@ -245,9 +256,15 @@ export interface PageRequest {
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
 
-function paginate<T>(items: readonly T[], request: PageRequest): { items: readonly T[]; page: number; pageSize: number; hasMore: boolean; total: number } {
+function paginate<T>(
+  items: readonly T[],
+  request: PageRequest,
+): { items: readonly T[]; page: number; pageSize: number; hasMore: boolean; total: number } {
   const page = Math.max(1, Math.floor(request.page ?? 1));
-  const pageSize = Math.max(1, Math.min(MAX_PAGE_SIZE, Math.floor(request.pageSize ?? DEFAULT_PAGE_SIZE)));
+  const pageSize = Math.max(
+    1,
+    Math.min(MAX_PAGE_SIZE, Math.floor(request.pageSize ?? DEFAULT_PAGE_SIZE)),
+  );
   const start = (page - 1) * pageSize;
   return {
     items: items.slice(start, start + pageSize),
@@ -289,15 +306,24 @@ export interface TravelSnapshotReadService {
    * are returned (the approval alone is not a schedule guarantee).
    */
   searchFlights(
-    input: SnapshotReadScope & PageRequest & {
-      readonly approval: FeasibleRouteApproval;
-      readonly validCombinationIds: readonly string[];
-    },
+    input: SnapshotReadScope &
+      PageRequest & {
+        readonly approval: FeasibleRouteApproval;
+        readonly validCombinationIds: readonly string[];
+      },
   ): Promise<SnapshotCandidatePage<FlightCandidateFact>>;
-  searchHotels(input: SnapshotReadScope & PageRequest): Promise<SnapshotCandidatePage<HotelCandidateFact>>;
-  searchRestaurants(input: SnapshotReadScope & PageRequest & { readonly meal: Meal }): Promise<SnapshotCandidatePage<RestaurantCandidateFact>>;
-  searchAttractions(input: SnapshotReadScope & PageRequest): Promise<SnapshotCandidatePage<ActivityCandidateFact>>;
-  searchEvents(input: SnapshotReadScope & PageRequest): Promise<SnapshotCandidatePage<EventCandidateFact>>;
+  searchHotels(
+    input: SnapshotReadScope & PageRequest,
+  ): Promise<SnapshotCandidatePage<HotelCandidateFact>>;
+  searchRestaurants(
+    input: SnapshotReadScope & PageRequest & { readonly meal: Meal },
+  ): Promise<SnapshotCandidatePage<RestaurantCandidateFact>>;
+  searchAttractions(
+    input: SnapshotReadScope & PageRequest,
+  ): Promise<SnapshotCandidatePage<ActivityCandidateFact>>;
+  searchEvents(
+    input: SnapshotReadScope & PageRequest,
+  ): Promise<SnapshotCandidatePage<EventCandidateFact>>;
 }
 
 export function createTravelSnapshotReadService(
@@ -317,7 +343,9 @@ export function createTravelSnapshotReadService(
   }
 
   function domainHashOf(manifest: ScenarioManifest, domain: ResearchDomain | "flights"): string {
-    return manifest.domainContentHashes[domain === "flights" ? "flights" : SCENARIO_DOMAIN_FOR_RESEARCH[domain]];
+    return manifest.domainContentHashes[
+      domain === "flights" ? "flights" : SCENARIO_DOMAIN_FOR_RESEARCH[domain]
+    ];
   }
 
   function pageOf<T>(

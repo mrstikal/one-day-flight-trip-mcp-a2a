@@ -1,4 +1,8 @@
-import { McpServer, type McpRequestContext, type McpServerFactory } from "@modelcontextprotocol/server";
+import {
+  McpServer,
+  type McpRequestContext,
+  type McpServerFactory,
+} from "@modelcontextprotocol/server";
 import { ENDPOINT_ALLOWED_AGENTS } from "../config.js";
 import type { McpHostContext } from "../app.js";
 import { registerGeographyTools } from "../tools/geography.js";

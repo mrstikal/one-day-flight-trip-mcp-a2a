@@ -130,8 +130,12 @@ export async function loadItineraryPlanningData(
         WHERE trip_id = $1 AND service_key IN ('flights','hotel')`,
       [tripId],
     );
-    const confirmedByService = new Map(reservations.rows.map((row) => [row.service_key, row.offer_id]));
-    const selectedByService = new Map(selections.rows.map((row) => [row.service_key, row.offer_id]));
+    const confirmedByService = new Map(
+      reservations.rows.map((row) => [row.service_key, row.offer_id]),
+    );
+    const selectedByService = new Map(
+      selections.rows.map((row) => [row.service_key, row.offer_id]),
+    );
     const confirmedMeals: ItineraryMealSelections = {
       breakfast: confirmedByService.get("breakfast") ?? null,
       lunch: confirmedByService.get("lunch") ?? null,
@@ -246,7 +250,11 @@ export async function persistItineraryDraft(
     await assertOperationFence(client, fence);
     const ref = await withEffect(
       client,
-      { operationId: input.operationId, nodeName: "plan_itinerary", effectScope: `plan:${input.attempt}` },
+      {
+        operationId: input.operationId,
+        nodeName: "plan_itinerary",
+        effectScope: `plan:${input.attempt}`,
+      },
       async () => {
         const maxVersion = await client.query<{ max: number | null }>(
           `SELECT max(version) AS max FROM odft_app.itineraries WHERE trip_id = $1`,

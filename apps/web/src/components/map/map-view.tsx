@@ -100,9 +100,7 @@ export default function MapView({
       consecutiveFailures += 1;
       if (consecutiveFailures >= CONSECUTIVE_TILE_FAILURES_BEFORE_FALLBACK) {
         failed = true;
-        failureRef.current(
-          "Map tiles keep failing; showing the approximate schematic instead.",
-        );
+        failureRef.current("Map tiles keep failing; showing the approximate schematic instead.");
       }
     });
     layer.addTo(map);

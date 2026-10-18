@@ -165,18 +165,14 @@ function returnDepartureInstant(data: ItineraryPlanningData): string | null {
 }
 
 /** Explicitly selected activities with their display names (bounded to two). */
-function preferredActivityNames(
-  data: ItineraryPlanningData,
-): { id: string; name: string }[] {
+function preferredActivityNames(data: ItineraryPlanningData): { id: string; name: string }[] {
   if (data.selfArrangedActivities) {
     return [];
   }
-  return data.preferredActivityIds
-    .slice(0, 2)
-    .map((id) => ({
-      id,
-      name: data.content.activities.find((activity) => activity.id === id)?.name ?? id,
-    }));
+  return data.preferredActivityIds.slice(0, 2).map((id) => ({
+    id,
+    name: data.content.activities.find((activity) => activity.id === id)?.name ?? id,
+  }));
 }
 
 /**
@@ -249,7 +245,10 @@ function buildPlannerContext(
               // the departure itself.
               kind: "airport" as const,
               refId: "return_flight",
-              startMinute: Math.max(0, Math.min(1439, departureMinuteRaw - airportLeadMinutes(data))),
+              startMinute: Math.max(
+                0,
+                Math.min(1439, departureMinuteRaw - airportLeadMinutes(data)),
+              ),
               endMinute: Math.min(1439, departureMinuteRaw),
             },
           ]
@@ -465,7 +464,9 @@ function normalizePlannerSchedule(
 function injectFirstAttemptOverlap(output: PlannerOutput): PlannerOutput {
   const content = output.stops
     .map((stop, index) => ({ stop, index }))
-    .filter(({ stop }) => stop.kind === "meal" || stop.kind === "activity" || stop.kind === "free_time");
+    .filter(
+      ({ stop }) => stop.kind === "meal" || stop.kind === "activity" || stop.kind === "free_time",
+    );
   if (content.length < 2) {
     return output;
   }
@@ -855,8 +856,7 @@ export function createTravelItineraryService(
       preferredActivityIds: data.preferredActivityIds,
       budgetMinor: data.trip.preferences.maxBudgetMinor ?? null,
       dinnerExcludedReason: data.dinnerExcludedReason,
-      dinnerSelected:
-        (data.confirmedMeals.dinner ?? data.selectedMeals.dinner) !== null,
+      dinnerSelected: (data.confirmedMeals.dinner ?? data.selectedMeals.dinner) !== null,
       simulatedFailure,
       source,
       preferredActivities: preferredActivityNames(data),
@@ -988,7 +988,10 @@ export function createTravelItineraryService(
       const data = await loadItineraryPlanningData(pool, input.tripId);
       const record = await loadLatestItinerary(pool, input.tripId);
       if (!record) {
-        throw new ItineraryPersistenceError("CONFLICT", "no itinerary draft is available to review");
+        throw new ItineraryPersistenceError(
+          "CONFLICT",
+          "no itinerary draft is available to review",
+        );
       }
       const context = buildReviewerContext(data, record);
       await writeEvent({
@@ -1134,7 +1137,11 @@ export interface ItineraryToolContextInput {
   readonly flightOfferId: string;
   readonly hotelOfferId: string | null;
   readonly destinationAirportId: string | null;
-  readonly mealSelections: { readonly breakfast: string | null; readonly lunch: string | null; readonly dinner: string | null };
+  readonly mealSelections: {
+    readonly breakfast: string | null;
+    readonly lunch: string | null;
+    readonly dinner: string | null;
+  };
   readonly confirmedMealIds: readonly string[];
   readonly selfArrangedMeals: readonly Meal[];
   readonly selfArrangedActivities: boolean;
@@ -1211,7 +1218,10 @@ export class ItineraryToolError extends Error {
   }
 }
 
-function anchorOf(content: SnapshotContent, refId: string): { lat: number; lon: number } | undefined {
+function anchorOf(
+  content: SnapshotContent,
+  refId: string,
+): { lat: number; lon: number } | undefined {
   return (
     content.hotels.find((offer) => offer.id === refId)?.anchor ??
     content.restaurants.find((offer) => offer.id === refId)?.anchor ??
@@ -1225,7 +1235,9 @@ export function createTravelItineraryToolsService(deps: {
 }): TravelItineraryToolsService {
   const source = new PostgresSnapshotSource(deps.pool);
 
-  async function loadScope(scope: ItineraryToolsScope): Promise<{ content: SnapshotContent; manifest: ScenarioManifest }> {
+  async function loadScope(
+    scope: ItineraryToolsScope,
+  ): Promise<{ content: SnapshotContent; manifest: ScenarioManifest }> {
     const manifest = await loadSnapshotManifest(deps.pool, scope.snapshotId);
     const content = await source.getContent(scope.snapshotId);
     if (!content) {
@@ -1239,7 +1251,11 @@ export function createTravelItineraryToolsService(deps: {
    * cross-check the caller-supplied context against the snapshot's own
    * context: cost/validation math must describe THIS snapshot.
    */
-  function assertMembership(content: SnapshotContent, context: ItineraryToolContextInput, stops: readonly ItineraryProposalStopInput[]): void {
+  function assertMembership(
+    content: SnapshotContent,
+    context: ItineraryToolContextInput,
+    stops: readonly ItineraryProposalStopInput[],
+  ): void {
     if (
       context.adults !== content.context.adults ||
       context.sightseeingDate !== content.context.sightseeingDate ||
@@ -1252,10 +1268,19 @@ export function createTravelItineraryToolsService(deps: {
     }
     const flight = content.flights.find((combination) => combination.id === context.flightOfferId);
     if (!flight) {
-      throw new ItineraryToolError("INVALID_ARGUMENT", `unknown flight offer ${context.flightOfferId}`);
+      throw new ItineraryToolError(
+        "INVALID_ARGUMENT",
+        `unknown flight offer ${context.flightOfferId}`,
+      );
     }
-    if (context.hotelOfferId && !content.hotels.some((offer) => offer.id === context.hotelOfferId)) {
-      throw new ItineraryToolError("INVALID_ARGUMENT", `unknown hotel offer ${context.hotelOfferId}`);
+    if (
+      context.hotelOfferId &&
+      !content.hotels.some((offer) => offer.id === context.hotelOfferId)
+    ) {
+      throw new ItineraryToolError(
+        "INVALID_ARGUMENT",
+        `unknown hotel offer ${context.hotelOfferId}`,
+      );
     }
     for (const [meal, offerId] of Object.entries(context.mealSelections)) {
       if (offerId === null) {
@@ -1348,12 +1373,19 @@ export function createTravelItineraryToolsService(deps: {
     context: ItineraryToolContextInput,
     destinationAirportAnchor: { lat: number; lon: number } | null,
     stops: readonly ItineraryProposalStopInput[],
-  ): { validation: ReturnType<typeof validateItinerary>; costs: ItineraryCosts; walkingKm: number } {
+  ): {
+    validation: ReturnType<typeof validateItinerary>;
+    costs: ItineraryCosts;
+    walkingKm: number;
+  } {
     const data = planningDataOf(snapshotId, content, context, destinationAirportAnchor);
     const flight = content.flights.find((combination) => combination.id === context.flightOfferId);
     const departureInstant = flight?.inbound.segments[0]?.departureInstant;
     if (!departureInstant) {
-      throw new ItineraryToolError("INVALID_ARGUMENT", "the selected flight has no return departure");
+      throw new ItineraryToolError(
+        "INVALID_ARGUMENT",
+        "the selected flight has no return departure",
+      );
     }
     const proposal: PlannerOutput = {
       stops: stops.map((stop) => ({
@@ -1394,9 +1426,10 @@ export function createTravelItineraryToolsService(deps: {
   return {
     async estimateTravelTime(input) {
       const { content } = await loadScope({ snapshotId: input.snapshotId });
-      const resolve = async (
-        ref: { refId?: string; airportId?: string },
-      ): Promise<{ anchor: { lat: number; lon: number }; label: string }> => {
+      const resolve = async (ref: {
+        refId?: string;
+        airportId?: string;
+      }): Promise<{ anchor: { lat: number; lon: number }; label: string }> => {
         if (ref.airportId) {
           const airport = await getReferenceAirport(deps.pool, ref.airportId);
           if (!airport) {
@@ -1443,7 +1476,10 @@ export function createTravelItineraryToolsService(deps: {
       assertMembership(content, input.context, input.stops);
       const airportAnchor = input.context.destinationAirportId
         ? await (async () => {
-            const airport = await getReferenceAirport(deps.pool, input.context.destinationAirportId as string);
+            const airport = await getReferenceAirport(
+              deps.pool,
+              input.context.destinationAirportId as string,
+            );
             return airport ? { lat: airport.lat, lon: airport.lon } : null;
           })()
         : null;
@@ -1479,7 +1515,10 @@ export function createTravelItineraryToolsService(deps: {
       assertMembership(content, input.context, []);
       const airportAnchor = input.context.destinationAirportId
         ? await (async () => {
-            const airport = await getReferenceAirport(deps.pool, input.context.destinationAirportId as string);
+            const airport = await getReferenceAirport(
+              deps.pool,
+              input.context.destinationAirportId as string,
+            );
             return airport ? { lat: airport.lat, lon: airport.lon } : null;
           })()
         : null;

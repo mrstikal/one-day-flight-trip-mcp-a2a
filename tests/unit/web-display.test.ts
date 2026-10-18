@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { CONFIRMATION_DISCLAIMER, DEMO_DISCLAIMER } from "../../apps/web/src/lib/disclaimers.js";
-import { formatDuration, formatLocalDate, formatStops, formatTime } from "../../apps/web/src/lib/format/datetime.js";
+import {
+  formatDuration,
+  formatLocalDate,
+  formatStops,
+  formatTime,
+} from "../../apps/web/src/lib/format/datetime.js";
 import { formatEuroMinor } from "../../apps/web/src/lib/format/money.js";
 import { routeReasonText, scheduleReasonText } from "../../apps/web/src/lib/reasons.js";
 

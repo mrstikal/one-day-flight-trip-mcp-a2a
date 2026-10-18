@@ -126,7 +126,11 @@ function membershipIssue(
     for (const meal of ["breakfast", "lunch", "dinner"] as const) {
       const offerId = command.mealOfferIds[meal];
       // `null` is the explicit "meal not included" choice, not a reference.
-      if (offerId !== undefined && offerId !== null && !context.knownRestaurantIds.includes(offerId)) {
+      if (
+        offerId !== undefined &&
+        offerId !== null &&
+        !context.knownRestaurantIds.includes(offerId)
+      ) {
         return `meal offer ${offerId} is not an admitted restaurant for this trip`;
       }
     }
@@ -141,7 +145,11 @@ function membershipIssue(
 
 type Conflict =
   | { readonly kind: "duplicate"; readonly group: readonly DomainCommand[] }
-  | { readonly kind: "preserve"; readonly keys: readonly PreservableKey[]; readonly command: DomainCommand };
+  | {
+      readonly kind: "preserve";
+      readonly keys: readonly PreservableKey[];
+      readonly command: DomainCommand;
+    };
 
 /** Duplicate writes to the same field, or a write to a `preserve`d service. */
 function detectConflict(
@@ -208,7 +216,11 @@ function conflictToClarification(
     requestedCommands: commands,
     preserve,
     options: [
-      { id: "keep_preserved", label: `Keep ${conflict.keys.join(" and ")} unchanged`, commands: kept },
+      {
+        id: "keep_preserved",
+        label: `Keep ${conflict.keys.join(" and ")} unchanged`,
+        commands: kept,
+      },
       {
         id: "apply_change",
         label: searchable ? "Review supported alternatives" : "Use the graphical controls instead",
@@ -254,7 +266,11 @@ export function validateIntentSemantics(
         command.type === "propose_selection" && command.service !== "flights"
           ? [
               ...kept,
-              { type: "find_alternatives", target: command.service, objective: "match_preferences" },
+              {
+                type: "find_alternatives",
+                target: command.service,
+                objective: "match_preferences",
+              },
             ]
           : kept;
       return intentResultSchema.parse({

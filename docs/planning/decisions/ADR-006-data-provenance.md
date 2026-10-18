@@ -18,13 +18,13 @@ Fault modes use persisted behavior overlays/counters, not inventory regeneration
 
 ## Alternatives
 
-| Alternative | Reason not chosen |
-| --- | --- |
-| Three hardcoded cities only | Fails European search/country-city requirement |
-| Faker geography/addresses | Invents facts and can place services outside cities/on water |
-| Live geocoding/routing/travel APIs | Network/cost dependence and out-of-scope integrations |
+| Alternative                                          | Reason not chosen                                             |
+| ---------------------------------------------------- | ------------------------------------------------------------- |
+| Three hardcoded cities only                          | Fails European search/country-city requirement                |
+| Faker geography/addresses                            | Invents facts and can place services outside cities/on water  |
+| Live geocoding/routing/travel APIs                   | Network/cost dependence and out-of-scope integrations         |
 | Seed-only reconstruction without persisted snapshots | Package/order changes and crash timing can change IDs/content |
-| Treat timezone package MIT as data license | Boundary-derived mapping carries separate ODbL obligations |
+| Treat timezone package MIT as data license           | Boundary-derived mapping carries separate ODbL obligations    |
 
 ## Consequences
 

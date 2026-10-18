@@ -26,11 +26,7 @@ import { getTrip } from "../trips.js";
 import { recordRecommendationArtifact } from "../recommendations.js";
 import type { OperationFencingContext } from "../operations/fencing.js";
 import { loadOverlay, loadOverlaySummaries, recordFaultOutcome } from "./faults.js";
-import {
-  loadSnapshotContent,
-  loadSnapshotManifest,
-  PostgresSnapshotSource,
-} from "./snapshots.js";
+import { loadSnapshotContent, loadSnapshotManifest, PostgresSnapshotSource } from "./snapshots.js";
 import { dinnerSlotAvailable } from "./trip-services.js";
 
 /**
@@ -122,7 +118,10 @@ function contentFingerprint(value: unknown): string {
 }
 
 /** Effective service level for a domain (Phase 04 read surface reuses it). */
-export function effectiveLevel(preferences: TripPreferences, service: Meal | "hotel"): ServiceLevel {
+export function effectiveLevel(
+  preferences: TripPreferences,
+  service: Meal | "hotel",
+): ServiceLevel {
   return preferences.serviceOverrides[service] ?? preferences.defaultServiceLevel;
 }
 
@@ -228,8 +227,12 @@ function pickDefault<T extends { id: string; partyTotalMinor: number }>(
 }
 
 /** Deterministic candidate order: ascending party total, then id. */
-function byPartyTotal<T extends { id: string; partyTotalMinor: number }>(offers: readonly T[]): T[] {
-  return [...offers].sort((a, b) => a.partyTotalMinor - b.partyTotalMinor || a.id.localeCompare(b.id));
+function byPartyTotal<T extends { id: string; partyTotalMinor: number }>(
+  offers: readonly T[],
+): T[] {
+  return [...offers].sort(
+    (a, b) => a.partyTotalMinor - b.partyTotalMinor || a.id.localeCompare(b.id),
+  );
 }
 
 async function loadBoundOfferReference(
@@ -325,12 +328,12 @@ async function researchInputsForSnapshot(
     }
   }
   const levelFor = (domain: "hotel" | Meal): ServiceLevel =>
-    override && override.domain === domain ? override.level : effectiveLevel(trip.preferences, domain);
+    override && override.domain === domain
+      ? override.level
+      : effectiveLevel(trip.preferences, domain);
   const hashes = manifest.domainContentHashes;
   const preferences = trip.preferences;
-  const interests = Object.entries(preferences.interests).sort((a, b) =>
-    a[0].localeCompare(b[0]),
-  );
+  const interests = Object.entries(preferences.interests).sort((a, b) => a[0].localeCompare(b[0]));
   const preferredTags = [...preferences.preferredActivityTags].sort();
   const minimumCounts = Object.entries(preferences.minimumActivityCounts)
     .filter((entry): entry is [string, number] => typeof entry[1] === "number")
@@ -524,7 +527,12 @@ export async function queryDomainCandidates(input: {
       if (result.status !== "ok") {
         return result;
       }
-      return { status: "ok", offerIds: [...result.value].sort((a, b) => a.id.localeCompare(b.id)).map((event) => event.id) };
+      return {
+        status: "ok",
+        offerIds: [...result.value]
+          .sort((a, b) => a.id.localeCompare(b.id))
+          .map((event) => event.id),
+      };
     }
   }
 }
@@ -712,7 +720,10 @@ export async function rankTripRecommendations(
       if (level) {
         override = { domain: overrideDomain, level };
       }
-      if (overrideDomain !== "attractions" && input.searchIntent.objective !== "match_preferences") {
+      if (
+        overrideDomain !== "attractions" &&
+        input.searchIntent.objective !== "match_preferences"
+      ) {
         bound = await loadBoundOfferReference(client, input.tripId, overrideDomain, content);
       }
     }
@@ -768,9 +779,11 @@ export async function rankTripRecommendations(
         content.context.adults === trip.adults,
     );
     eligibleMeals[meal] = offers;
-    mealOfferIds[meal] = orderSearchCandidates(offers, objectiveFor(meal), await boundFor(meal)).map(
-      (offer) => offer.id,
-    );
+    mealOfferIds[meal] = orderSearchCandidates(
+      offers,
+      objectiveFor(meal),
+      await boundFor(meal),
+    ).map((offer) => offer.id);
   }
 
   const activityIds = candidateIds("attractions");
@@ -793,9 +806,7 @@ export async function rankTripRecommendations(
         ? hotelOfferIds
         : domain.domain === "attractions"
           ? activityOrder
-          : domain.domain === "breakfast" ||
-              domain.domain === "lunch" ||
-              domain.domain === "dinner"
+          : domain.domain === "breakfast" || domain.domain === "lunch" || domain.domain === "dinner"
             ? mealOfferIds[domain.domain]
             : [];
     // A targeted assistant search records its objective: the UI can then show

@@ -10,11 +10,7 @@ import type {
 } from "@odft/contracts";
 import { fingerprint } from "../fingerprints.js";
 import { computeItineraryMetrics, paceGuidelineMessage } from "./metrics.js";
-import {
-  MIN_CONTENT_SPAN_MINUTES,
-  PACE_PROFILES,
-  type PaceProfile,
-} from "./taxonomy.js";
+import { MIN_CONTENT_SPAN_MINUTES, PACE_PROFILES, type PaceProfile } from "./taxonomy.js";
 
 /**
  * Deterministic itinerary validator (04-domain-model.md section 8, Phase 10
@@ -184,7 +180,10 @@ export function validateItinerary(input: ValidateItineraryInput): ItineraryValid
       severity: "error",
       code: "missing_break",
       message: "The day has activities but no break block; nothing was compressed to make room.",
-      eventIds: input.events.filter((event) => event.kind === "activity").map((event) => event.id).slice(0, 8),
+      eventIds: input.events
+        .filter((event) => event.kind === "activity")
+        .map((event) => event.id)
+        .slice(0, 8),
       simulatedFailure,
     });
   }
@@ -226,7 +225,10 @@ export function validateItinerary(input: ValidateItineraryInput): ItineraryValid
       severity: "error",
       code: "excessive_walking",
       message: `About ${metrics.walkingKm} km of walking exceeds the ${profile.walkCapKm} km ${input.pace}-pace cap (simulated estimates).`,
-      eventIds: input.events.filter((event) => event.kind === "transfer").map((event) => event.id).slice(0, 8),
+      eventIds: input.events
+        .filter((event) => event.kind === "transfer")
+        .map((event) => event.id)
+        .slice(0, 8),
       simulatedFailure,
     });
   }
@@ -236,7 +238,10 @@ export function validateItinerary(input: ValidateItineraryInput): ItineraryValid
       severity: "error",
       code: "preference_conflict",
       message: `The plan needs ${metrics.visitMinutes} minutes of visits, above the ${profile.visitCapMinutes}-minute ${input.pace}-pace cap; nothing was silently reduced.`,
-      eventIds: input.events.filter((event) => event.kind === "activity").map((event) => event.id).slice(0, 8),
+      eventIds: input.events
+        .filter((event) => event.kind === "activity")
+        .map((event) => event.id)
+        .slice(0, 8),
       simulatedFailure,
     });
   }
@@ -265,7 +270,10 @@ export function validateItinerary(input: ValidateItineraryInput): ItineraryValid
         severity: "error",
         code: "unmet_minimum_activity_count",
         message: `The plan includes ${actual} ${tag} visit${actual === 1 ? "" : "s"} but at least ${minimum} were requested; the requirement was not silently dropped.`,
-        eventIds: input.events.filter((event) => event.kind === "activity").map((event) => event.id).slice(0, 8),
+        eventIds: input.events
+          .filter((event) => event.kind === "activity")
+          .map((event) => event.id)
+          .slice(0, 8),
         simulatedFailure,
       });
     }
@@ -301,7 +309,9 @@ export function validateItinerary(input: ValidateItineraryInput): ItineraryValid
 
   // Explicitly selected activities are honored independently of candidate order;
   // one that did not fit is surfaced instead of silently dropped.
-  for (const preferred of input.source.selfArrangedActivities ? [] : (input.preferredActivities ?? [])) {
+  for (const preferred of input.source.selfArrangedActivities
+    ? []
+    : (input.preferredActivities ?? [])) {
     const included = input.events.some(
       (event) => event.kind === "activity" && event.refId === preferred.id,
     );

@@ -120,7 +120,9 @@ export const manifestSchema = z
     recordCount: z.number().int().nonnegative(),
     rejectedCount: z.number().int().nonnegative(),
     rejectedReport: z
-      .array(z.object({ reason: z.string().min(1), count: z.number().int().nonnegative() }).strict())
+      .array(
+        z.object({ reason: z.string().min(1), count: z.number().int().nonnegative() }).strict(),
+      )
       .default([]),
     attribution: z.string().min(1).optional(),
   })

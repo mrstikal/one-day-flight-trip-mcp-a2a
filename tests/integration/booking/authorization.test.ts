@@ -27,7 +27,11 @@ afterAll(async () => {
   await pool.end();
 });
 
-async function proposalFor(service: BookingService, fixture: BookingFixture, offerId = FIXTURE_HOTEL_OFFER) {
+async function proposalFor(
+  service: BookingService,
+  fixture: BookingFixture,
+  offerId = FIXTURE_HOTEL_OFFER,
+) {
   return service.propose({
     tripId: fixture.tripId,
     sessionId: fixture.sessionId,
@@ -72,7 +76,10 @@ describe("confirmation authorization", () => {
       revision: fixture.revision,
     });
     await expect(
-      service.confirm({ ...(await confirmArgs(fixture, proposal.proposalId, decisionId)), sessionId: randomUUID() }),
+      service.confirm({
+        ...(await confirmArgs(fixture, proposal.proposalId, decisionId)),
+        sessionId: randomUUID(),
+      }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(await reservationCount(fixture.tripId)).toBe(0);
   });
@@ -151,7 +158,10 @@ describe("confirmation authorization", () => {
       revision: fixture.revision,
     });
     await expect(
-      service.confirm({ ...(await confirmArgs(fixture, proposal.proposalId, decisionId)), acceptedRevision: 99 }),
+      service.confirm({
+        ...(await confirmArgs(fixture, proposal.proposalId, decisionId)),
+        acceptedRevision: 99,
+      }),
     ).rejects.toMatchObject({ code: "STALE_REVISION" });
     expect(await reservationCount(fixture.tripId)).toBe(0);
   });
@@ -241,7 +251,8 @@ describe("confirmation authorization", () => {
       for (const entry of await readdir(dir, { withFileTypes: true })) {
         const full = `${dir}/${entry.name}`;
         if (entry.isDirectory()) {
-          if (entry.name === "node_modules" || entry.name === "dist" || entry.name === ".next") continue;
+          if (entry.name === "node_modules" || entry.name === "dist" || entry.name === ".next")
+            continue;
           await walk(full);
         } else if (full.endsWith(".ts")) {
           const content = await readFile(full, "utf8");

@@ -18,13 +18,13 @@ Stage B independently validates generated UTC/local schedules, duration/connecti
 
 ## Alternatives
 
-| Alternative | Reason not chosen |
-| --- | --- |
-| Only airport existence/`scheduled_service` | PRG -> Ceske Budejovice could incorrectly pass |
-| Universal minimum-distance rejection | Would reject sensible island air links such as BCN -> PMI |
-| LLM feasibility judgment | Cannot be a deterministic business gate |
+| Alternative                                   | Reason not chosen                                               |
+| --------------------------------------------- | --------------------------------------------------------------- |
+| Only airport existence/`scheduled_service`    | PRG -> Ceske Budejovice could incorrectly pass                  |
+| Universal minimum-distance rejection          | Would reject sensible island air links such as BCN -> PMI       |
+| LLM feasibility judgment                      | Cannot be a deterministic business gate                         |
 | Validate only after flight generation/booking | Violates the mandatory sequencing and permits misleading offers |
-| Reuse checkpoint `FEASIBLE` after edits | Stale destination/date/origin approval bypass |
+| Reuse checkpoint `FEASIBLE` after edits       | Stale destination/date/origin approval bypass                   |
 
 ## Consequences
 

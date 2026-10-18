@@ -27,7 +27,10 @@ describe("resolveEffectiveLevel", () => {
   });
 
   it("a global change touches only services that inherit it", () => {
-    const before = prefs({ defaultServiceLevel: "standard", serviceOverrides: { dinner: "luxury" } });
+    const before = prefs({
+      defaultServiceLevel: "standard",
+      serviceOverrides: { dinner: "luxury" },
+    });
     const after = { ...before, defaultServiceLevel: "budget" as const };
     expect(resolveEffectiveLevel(after, "hotel")).toBe("budget"); // inherited changed
     expect(resolveEffectiveLevel(after, "dinner")).toBe("luxury"); // override unchanged

@@ -88,8 +88,7 @@ export function MapFallback({
           "The interactive map is unavailable; the schematic shows approximate simulated connections, not real geography."}
       </p>
       <p className="text-xs text-ink-muted">
-        No map tiles were loaded. Geographic data: GeoNames (CC BY 4.0); timezone boundaries:
-        ODbL.
+        No map tiles were loaded. Geographic data: GeoNames (CC BY 4.0); timezone boundaries: ODbL.
       </p>
     </div>
   );

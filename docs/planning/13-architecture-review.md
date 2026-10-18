@@ -16,12 +16,12 @@ The accepted architecture has no deliberately deferred major design choice. It i
 
 ## 2. Independent Findings and Corrections
 
-| Finding | Failure before correction | Final decision and evidence obligation |
-| --- | --- | --- |
-| R1 Ground-first ordering | Missing/ineligible destination airports could yield UNDETERMINED before PRG/Budejovice's required GROUND_TRAVEL_PREFERRED result | Ordered StageA rule, independently computable245-minute optimistic air-process lower bound versus180-minute reviewed ground; test with all eligible destination candidates removed |
-| R2 Realized travel duration | StageA600-minute estimate did not constrain the actual generated combination | StageB independently computes door-to-door with actual first-to-last elapsed, each connection once; <=600 each way or typed DOOR_TO_DOOR_TOO_LONG; T-REG-FEAS-06a |
-| R3 Effective AI pricing | Base token rates omitted per-request fees and published peak/time/context tariff overrides | requestPriceUsd, worst normalized rates across all tariffs/matched endpoints, known additive charges, per-operation refresh, hard prompt/completion/request routing caps, refuse ambiguity; T-IT-COST-04 |
-| R4 Typed outcomes | Some route table rows said only block/reject/limit without mapping the declared reason union to status | Every RouteReason maps to FEASIBLE/INFEASIBLE/UNDETERMINED; explicit pair aggregation and rule priority in data specification |
+| Finding                     | Failure before correction                                                                                                        | Final decision and evidence obligation                                                                                                                                                                   |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1 Ground-first ordering    | Missing/ineligible destination airports could yield UNDETERMINED before PRG/Budejovice's required GROUND_TRAVEL_PREFERRED result | Ordered StageA rule, independently computable245-minute optimistic air-process lower bound versus180-minute reviewed ground; test with all eligible destination candidates removed                       |
+| R2 Realized travel duration | StageA600-minute estimate did not constrain the actual generated combination                                                     | StageB independently computes door-to-door with actual first-to-last elapsed, each connection once; <=600 each way or typed DOOR_TO_DOOR_TOO_LONG; T-REG-FEAS-06a                                        |
+| R3 Effective AI pricing     | Base token rates omitted per-request fees and published peak/time/context tariff overrides                                       | requestPriceUsd, worst normalized rates across all tariffs/matched endpoints, known additive charges, per-operation refresh, hard prompt/completion/request routing caps, refuse ambiguity; T-IT-COST-04 |
+| R4 Typed outcomes           | Some route table rows said only block/reject/limit without mapping the declared reason union to status                           | Every RouteReason maps to FEASIBLE/INFEASIBLE/UNDETERMINED; explicit pair aggregation and rule priority in data specification                                                                            |
 
 Authoritative changes:[route rules](05-synthetic-data-design.md#5-stage-a-deterministic-route-feasibility), [schedule validation](05-synthetic-data-design.md#6-stage-b-flight-generation-and-schedule-validation), [reason schemas](04-domain-model.md#4-two-stage-flight-validation), [pricing governance](06-ai-agent-design.md#8-durable-call-budgets-and-observability), and [tests](11-testing-strategy.md).
 
@@ -40,17 +40,17 @@ No unsupported claim about a particular airport's current operating schedule/typ
 
 ## 4. Weaknesses and Tradeoffs
 
-| Tradeoff | Cost or limitation | Why retained |
-| --- | --- | --- |
-| Separate worker | Second application process and health/lease/shutdown code | Request lifetime cannot guarantee required restart/interrupt durability |
-| Fenced saver wrapper | Extra short DB transaction/gate and lock/pool tests | Domain fencing alone cannot stop stale official-saver writes after lock loss |
-| Domain/checkpoint dual authority | Explicit reconciliation/refs and effect ledger | Domain constraints/read ownership and checkpoint execution position are different concerns |
-| SQL job table | Small claim/retry/control logic maintained locally | Avoids Redis infrastructure while preserving durable graph invocation |
-| Rich strict contracts | Up-front schema/semantic validation work | Prevents malformed/model-invented operations and makes the smaller implementation model's task determinate |
-| Conservative missing-data policy | Some real cities/air routes remain unsupported | Prefer a visible limitation over fabricated practical flight claims |
-| Reference import/licenses | Offline assets, timezone derivation/ODbL compliance, curated review | Broad consistent European search without commercial APIs |
-| Fixture-first testing | Does not prove genuine model quality/latency | Deterministic orchestration evidence is reproducible; live smoke is a separate requirement |
-| Low AI budgets | Expensive configurations or peak rates may be rejected | Intentional fail-closed bounded demo cost rather than hidden overruns |
+| Tradeoff                         | Cost or limitation                                                  | Why retained                                                                                               |
+| -------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Separate worker                  | Second application process and health/lease/shutdown code           | Request lifetime cannot guarantee required restart/interrupt durability                                    |
+| Fenced saver wrapper             | Extra short DB transaction/gate and lock/pool tests                 | Domain fencing alone cannot stop stale official-saver writes after lock loss                               |
+| Domain/checkpoint dual authority | Explicit reconciliation/refs and effect ledger                      | Domain constraints/read ownership and checkpoint execution position are different concerns                 |
+| SQL job table                    | Small claim/retry/control logic maintained locally                  | Avoids Redis infrastructure while preserving durable graph invocation                                      |
+| Rich strict contracts            | Up-front schema/semantic validation work                            | Prevents malformed/model-invented operations and makes the smaller implementation model's task determinate |
+| Conservative missing-data policy | Some real cities/air routes remain unsupported                      | Prefer a visible limitation over fabricated practical flight claims                                        |
+| Reference import/licenses        | Offline assets, timezone derivation/ODbL compliance, curated review | Broad consistent European search without commercial APIs                                                   |
+| Fixture-first testing            | Does not prove genuine model quality/latency                        | Deterministic orchestration evidence is reproducible; live smoke is a separate requirement                 |
+| Low AI budgets                   | Expensive configurations or peak rates may be rejected              | Intentional fail-closed bounded demo cost rather than hidden overruns                                      |
 
 ## 5. Complexity Assessment and Simplifications
 

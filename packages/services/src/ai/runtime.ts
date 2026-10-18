@@ -190,7 +190,8 @@ async function loadIntentSource(
       )
     : undefined;
   const validIds = (() => {
-    const result = validCombinations?.rows[0]?.result as { validCombinationIds?: unknown } | undefined;
+    const result = validCombinations?.rows[0]?.result as
+      { validCombinationIds?: unknown } | undefined;
     return Array.isArray(result?.validCombinationIds)
       ? result.validCombinationIds.filter((value): value is string => typeof value === "string")
       : [];
@@ -244,7 +245,9 @@ async function loadIntentSource(
         service: row.service_key as CompactContextSource["selectedServices"][number]["service"],
         offerId: row.offer_id,
         confirmed: row.confirmed,
-        ...(offerPrices.has(row.offer_id) ? { partyTotalMinor: offerPrices.get(row.offer_id) } : {}),
+        ...(offerPrices.has(row.offer_id)
+          ? { partyTotalMinor: offerPrices.get(row.offer_id) }
+          : {}),
         ...(offerLevels.has(row.offer_id) ? { level: offerLevels.get(row.offer_id) } : {}),
       })),
     currentActivityCounts: await loadActivityCounts(pool, trip.id),
@@ -373,7 +376,10 @@ async function loadActivityCounts(
   return counts as CompactContextSource["currentActivityCounts"];
 }
 
-async function loadAuthorizedContext(pool: Pool, trip: TripRecord): Promise<AuthorizedIntentContext> {
+async function loadAuthorizedContext(
+  pool: Pool,
+  trip: TripRecord,
+): Promise<AuthorizedIntentContext> {
   const source = await loadIntentSource(pool, trip, "");
   return {
     knownCityIds: source.knownCityIds,
@@ -488,9 +494,9 @@ export function createAiService(deps: InterpretDeps): AiService {
       !Number.isFinite(manifestAgeMs) ||
       manifestAgeMs >= CAPABILITY_CACHE_TTL_MS
         ? await loadCapabilityManifest({
-          cachePath: capabilityCachePath(config),
-          models: configuredModels,
-        })
+            cachePath: capabilityCachePath(config),
+            models: configuredModels,
+          })
         : manifest;
     manifest = activeManifest;
     const profile = loaded.profiles[role];
@@ -836,7 +842,11 @@ export async function planDelegatedItinerary(
   }
   const profile = deps.paidPlannerProfile;
   if (!profile) {
-    throw new AdapterError("AI_NOT_CONFIGURED", "no delegated planner profile is configured", false);
+    throw new AdapterError(
+      "AI_NOT_CONFIGURED",
+      "no delegated planner profile is configured",
+      false,
+    );
   }
   const worst = worstCaseCostUsd(profile, {
     inputTokens: profile.maxInputTokens,
@@ -945,7 +955,10 @@ export function deterministicFlightOrder(
 }
 
 /** Manual permutation/subset validation: non-empty, no duplicates, all known ids. */
-function validPermutation(output: { rankedOfferIds: string[] }, allowed: readonly string[]): boolean {
+function validPermutation(
+  output: { rankedOfferIds: string[] },
+  allowed: readonly string[],
+): boolean {
   const allowedSet = new Set(allowed);
   const seen = new Set<string>();
   for (const id of output.rankedOfferIds) {

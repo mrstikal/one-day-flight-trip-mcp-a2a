@@ -443,8 +443,8 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
             levelState={serviceLevels.hotel}
             customObjective={projection.searchObjectives.hotel}
             onChanged={refresh}
-          disabled={readOnly}
-        />
+            disabled={readOnly}
+          />
         ) : null}
         {changeControls}
         <p role="note" className="text-sm text-ink-muted">
@@ -507,8 +507,8 @@ export function HotelView({ tripId }: { readonly tripId: string }): React.JSX.El
             levelState={serviceLevels.hotel}
             customObjective={projection.searchObjectives.hotel}
             onChanged={refresh}
-          disabled={readOnly}
-        />
+            disabled={readOnly}
+          />
         ) : null}
         {changeControls}
         <p className="text-sm">

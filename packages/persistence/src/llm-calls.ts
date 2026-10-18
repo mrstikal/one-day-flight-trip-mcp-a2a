@@ -203,8 +203,7 @@ export async function reserveCall(
       `SELECT recovery_rounds FROM odft_app.workflow_operations WHERE id = $1`,
       [input.operationId],
     );
-    const attemptLimit =
-      input.maxAttemptsPerScope * ((recovery.rows[0]?.recovery_rounds ?? 0) + 1);
+    const attemptLimit = input.maxAttemptsPerScope * ((recovery.rows[0]?.recovery_rounds ?? 0) + 1);
     const scopeAttempts = await client.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM odft_app.llm_calls
         WHERE operation_id = $1 AND effect_scope = $2`,
@@ -347,7 +346,10 @@ export async function reconcileUnknownBilling(
   );
 }
 
-export async function getLlmCall(client: Pool | PoolClient, callId: string): Promise<LlmCallRecord | undefined> {
+export async function getLlmCall(
+  client: Pool | PoolClient,
+  callId: string,
+): Promise<LlmCallRecord | undefined> {
   const result = await client.query<LlmCallRow>(
     `SELECT ${CALL_COLUMNS} FROM odft_app.llm_calls WHERE id = $1`,
     [callId],
@@ -410,7 +412,9 @@ export async function reserveDelegatedCall(
   pool: Pool,
   input: ReserveDelegatedCallInput,
 ): Promise<ReserveDelegatedCallOutcome> {
-  const result = await pool.query<{ outcome: { ok: boolean; callId?: string; code?: string; message?: string } }>(
+  const result = await pool.query<{
+    outcome: { ok: boolean; callId?: string; code?: string; message?: string };
+  }>(
     `SELECT odft_app.reserve_delegated_call(
         $1::text, $2::uuid, $3::text, $4::text, $5::text, $6::text, $7::text, $8::text, $9::text,
         $10::text, $11::text, $12::int, $13::numeric, $14::numeric, $15::int, $16::numeric,
@@ -438,7 +442,11 @@ export async function reserveDelegatedCall(
   );
   const outcome = result.rows[0]?.outcome;
   if (!outcome) {
-    return { ok: false, code: "INTERNAL_ERROR", message: "delegated reservation returned no outcome" };
+    return {
+      ok: false,
+      code: "INTERNAL_ERROR",
+      message: "delegated reservation returned no outcome",
+    };
   }
   if (outcome.ok && outcome.callId) {
     return { ok: true, callId: outcome.callId };

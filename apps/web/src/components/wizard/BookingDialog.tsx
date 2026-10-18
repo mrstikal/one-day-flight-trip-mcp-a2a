@@ -166,9 +166,7 @@ function DialogBody({
         ) : (
           <p className="text-sm">
             Total price{" "}
-            <span className="font-semibold">
-              {formatEuroMinor(proposal?.partyTotalMinor ?? 0)}
-            </span>{" "}
+            <span className="font-semibold">{formatEuroMinor(proposal?.partyTotalMinor ?? 0)}</span>{" "}
             for the party.
           </p>
         )}

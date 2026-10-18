@@ -112,11 +112,9 @@ describe("AI result schemas (T-UT-AI-01)", () => {
     const result = (root.properties as Record<string, unknown>).result as Record<string, unknown>;
     // A discriminated union maps to anyOf (strict-mode friendly); every object
     // branch must be strict AND list every property in `required`.
-    const branches = (Array.isArray(result.anyOf)
-      ? result.anyOf
-      : Array.isArray(result.oneOf)
-        ? result.oneOf
-        : []) as Record<string, unknown>[];
+    const branches = (
+      Array.isArray(result.anyOf) ? result.anyOf : Array.isArray(result.oneOf) ? result.oneOf : []
+    ) as Record<string, unknown>[];
     expect(branches.length).toBeGreaterThanOrEqual(3);
     for (const branch of branches) {
       expect(branch.additionalProperties).toBe(false);
@@ -150,15 +148,26 @@ describe("AI result schemas (T-UT-AI-01)", () => {
       interpretation: "test",
     };
     const stripped = stripOptionalTransportNulls(payload, optionalFields) as typeof payload;
-    expect(stripped.commands[0]).toEqual({ type: "set_route", destinationCityId: "geonames:3169070" });
+    expect(stripped.commands[0]).toEqual({
+      type: "set_route",
+      destinationCityId: "geonames:3169070",
+    });
     // Genuinely nullable contract fields keep their null.
-    expect(stripped.commands[1]).toEqual({ type: "set_service_override", service: "dinner", level: null });
+    expect(stripped.commands[1]).toEqual({
+      type: "set_service_override",
+      service: "dinner",
+      level: null,
+    });
     expect(stripped.commands[2]).toEqual({
       type: "set_activity_requirement",
       tag: "museum",
       minimumCount: null,
     });
-    expect(stripped.commands[3]).toEqual({ type: "find_alternatives", target: "hotel", objective: "cheaper" });
+    expect(stripped.commands[3]).toEqual({
+      type: "find_alternatives",
+      target: "hotel",
+      objective: "cheaper",
+    });
     expect(modelFacingIntentResultSchema.safeParse(stripped).success).toBe(true);
   });
 

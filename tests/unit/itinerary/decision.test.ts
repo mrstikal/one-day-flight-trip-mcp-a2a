@@ -25,7 +25,13 @@ function metrics(overrides: Partial<ItineraryMetrics> = {}): ItineraryMetrics {
 }
 
 function error(code: string): ItineraryIssue {
-  return { severity: "error", code: code as ItineraryIssue["code"], message: code, eventIds: [], simulatedFailure: false };
+  return {
+    severity: "error",
+    code: code as ItineraryIssue["code"],
+    message: code,
+    eventIds: [],
+    simulatedFailure: false,
+  };
 }
 
 describe("itinerary conflict decision (Phase 10)", () => {

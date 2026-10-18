@@ -12,15 +12,15 @@ No commercial travel APIs, live geocoding, routing API, or real-provider integra
 
 Sources and licenses were checked on 2026-10-10. Import phases record actual retrieval dates and hashes; this plan does not invent un-downloaded snapshot checksums.
 
-| Source | Selection | License/obligation | Limitation |
-| --- | --- | --- | --- |
-| [GeoNames export](https://download.geonames.org/export/dump/) | `cities15000.zip`, `countryInfo.txt`, relevant alternative names | CC BY 4.0; retain attribution, license link, and transformation notice | Cities above 15,000 people plus capitals; smaller places can be absent |
-| [OurAirports data](https://ourairports.com/data/) | `airports.csv`, `countries.csv`, `regions.csv` | Public domain; credit retained voluntarily | No time zones; `continent`, airport type, and `scheduled_service` are not sufficient route evidence |
-| [Wikidata licensing](https://www.wikidata.org/wiki/Wikidata:Licensing) | Reviewed landmark entity labels and P625 coordinates | Structured data CC0 1.0; retain source IDs/URLs | Incorrect entities, multiple coordinates, and poor precision require review |
-| [Wikidata licensing](https://www.wikidata.org/wiki/Wikidata:Licensing) | On-demand landmark discovery (`WIKIDATA_DISCOVERY`, see section 9): notable attractions of a `generic_only` city, selected by instance-of class + sitelink count and envelope-checked | Structured data CC0 1.0; rows keep the `wikidata:Q…` id and source URL | Machine-selected, not human-reviewed: use only attraction classes close to the curated intent (tourist attraction, museum, park, monument, castle, church, cathedral, botanical garden, zoo, amusement park, observation tower) and prefer names present in the requested language |
-| [geo-tz](https://github.com/evansiroky/node-geo-tz) | Version 8.1.9, comprehensive `geo-tz/all`, import-time only | Code MIT; underlying boundary data from the next row has separate obligations | Large data files; ambiguous border results must be reviewed; never bundle into browser |
-| [timezone-boundary-builder](https://github.com/evansiroky/timezone-boundary-builder) | Version paired with the chosen geo-tz data | Boundary data ODbL; attribute OpenStreetMap contributors and boundary source; preserve license/share-alike notices | Data is not proof of local operational timekeeping in disputed/border cases |
-| [IANA time-zone database](https://www.iana.org/time-zones) | Node.js ICU/time-zone rules used by Temporal | Time-zone data public domain; record runtime/tz version | Political rule changes require runtime updates and regression tests |
+| Source                                                                               | Selection                                                                                                                                                                             | License/obligation                                                                                                 | Limitation                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [GeoNames export](https://download.geonames.org/export/dump/)                        | `cities15000.zip`, `countryInfo.txt`, relevant alternative names                                                                                                                      | CC BY 4.0; retain attribution, license link, and transformation notice                                             | Cities above 15,000 people plus capitals; smaller places can be absent                                                                                                                                                                                                             |
+| [OurAirports data](https://ourairports.com/data/)                                    | `airports.csv`, `countries.csv`, `regions.csv`                                                                                                                                        | Public domain; credit retained voluntarily                                                                         | No time zones; `continent`, airport type, and `scheduled_service` are not sufficient route evidence                                                                                                                                                                                |
+| [Wikidata licensing](https://www.wikidata.org/wiki/Wikidata:Licensing)               | Reviewed landmark entity labels and P625 coordinates                                                                                                                                  | Structured data CC0 1.0; retain source IDs/URLs                                                                    | Incorrect entities, multiple coordinates, and poor precision require review                                                                                                                                                                                                        |
+| [Wikidata licensing](https://www.wikidata.org/wiki/Wikidata:Licensing)               | On-demand landmark discovery (`WIKIDATA_DISCOVERY`, see section 9): notable attractions of a `generic_only` city, selected by instance-of class + sitelink count and envelope-checked | Structured data CC0 1.0; rows keep the `wikidata:Q…` id and source URL                                             | Machine-selected, not human-reviewed: use only attraction classes close to the curated intent (tourist attraction, museum, park, monument, castle, church, cathedral, botanical garden, zoo, amusement park, observation tower) and prefer names present in the requested language |
+| [geo-tz](https://github.com/evansiroky/node-geo-tz)                                  | Version 8.1.9, comprehensive `geo-tz/all`, import-time only                                                                                                                           | Code MIT; underlying boundary data from the next row has separate obligations                                      | Large data files; ambiguous border results must be reviewed; never bundle into browser                                                                                                                                                                                             |
+| [timezone-boundary-builder](https://github.com/evansiroky/timezone-boundary-builder) | Version paired with the chosen geo-tz data                                                                                                                                            | Boundary data ODbL; attribute OpenStreetMap contributors and boundary source; preserve license/share-alike notices | Data is not proof of local operational timekeeping in disputed/border cases                                                                                                                                                                                                        |
+| [IANA time-zone database](https://www.iana.org/time-zones)                           | Node.js ICU/time-zone rules used by Temporal                                                                                                                                          | Time-zone data public domain; record runtime/tz version                                                            | Political rule changes require runtime updates and regression tests                                                                                                                                                                                                                |
 
 Do not add Natural Earth as a runtime dependency. Its public-domain generalized geometry is a possible later import aid, but it cannot establish actual road, rail, bridge, or ferry connectivity. The initial proof of concept uses explicit reviewed island/fixed-link/catchment records.
 
@@ -69,21 +69,21 @@ Policy version: `route-policy-v1`. Run after resolving the city and before the f
 
 Evaluate these priorities. The conclusive reviewed-ground check is independent of finding a destination airport. For multiple pairs, approve only passing pairs; if none passes, missing evidence yields UNDETERMINED and completely evaluated failures yield INFEASIBLE. No guessed pair can pass.
 
-| Priority | Condition | Typed outcome |
-| --- | --- | --- |
-| 1 | Unknown origin-airport reference | `UNDETERMINED: NO_REFERENCE_AIRPORT` |
-| 1 | Missing city coordinates, country identity, or fundamental evidence | `UNDETERMINED: MISSING_GEOGRAPHIC_EVIDENCE` |
-| 2 | Exact known same airport / reviewed primary metro catchment | `INFEASIBLE: SAME_AIRPORT` / `SAME_CATCHMENT` |
-| 3 | Reviewed connected-ground corridor <=300 minutes and minimum air process >=ground+45 | `INFEASIBLE: GROUND_TRAVEL_PREFERRED` before destination-airport resolution |
-| 4 | No defensible destination-airport reference within150 km after the ground check | `UNDETERMINED: NO_REFERENCE_AIRPORT` |
-| 5 | Candidate airport/city IANA zone unresolved | `UNDETERMINED: UNKNOWN_TIMEZONE` |
-| 6 | All otherwise supported airport transfers exceed120 minutes | `INFEASIBLE: TRANSFER_TOO_LONG` |
-| 7 | Resolved best estimated air process >=reviewed ground+45; ground<=300 | `INFEASIBLE: GROUND_TRAVEL_PREFERRED` |
-| 8 | Distance<350 km without reviewed practical comparison/geographic short-link exception | `UNDETERMINED: SHORT_ROUTE_UNJUSTIFIED` |
-| 9 | Passenger/connectivity/geographic evidence incomplete | `UNDETERMINED: MISSING_GEOGRAPHIC_EVIDENCE` |
-| 10 | Complete evidence but no allowed direct/one-stop route under synthetic rules | `INFEASIBLE: NO_PLAUSIBLE_ROUTE` |
-| 11 | Every permitted route exceeds estimated600-minute door-to-door in either direction | `INFEASIBLE: DOOR_TO_DOOR_TOO_LONG` |
-| 12 | At least one supported pair passes all rules | `FEASIBLE` with exactly those approved pairs/evidence |
+| Priority | Condition                                                                             | Typed outcome                                                               |
+| -------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1        | Unknown origin-airport reference                                                      | `UNDETERMINED: NO_REFERENCE_AIRPORT`                                        |
+| 1        | Missing city coordinates, country identity, or fundamental evidence                   | `UNDETERMINED: MISSING_GEOGRAPHIC_EVIDENCE`                                 |
+| 2        | Exact known same airport / reviewed primary metro catchment                           | `INFEASIBLE: SAME_AIRPORT` / `SAME_CATCHMENT`                               |
+| 3        | Reviewed connected-ground corridor <=300 minutes and minimum air process >=ground+45  | `INFEASIBLE: GROUND_TRAVEL_PREFERRED` before destination-airport resolution |
+| 4        | No defensible destination-airport reference within150 km after the ground check       | `UNDETERMINED: NO_REFERENCE_AIRPORT`                                        |
+| 5        | Candidate airport/city IANA zone unresolved                                           | `UNDETERMINED: UNKNOWN_TIMEZONE`                                            |
+| 6        | All otherwise supported airport transfers exceed120 minutes                           | `INFEASIBLE: TRANSFER_TOO_LONG`                                             |
+| 7        | Resolved best estimated air process >=reviewed ground+45; ground<=300                 | `INFEASIBLE: GROUND_TRAVEL_PREFERRED`                                       |
+| 8        | Distance<350 km without reviewed practical comparison/geographic short-link exception | `UNDETERMINED: SHORT_ROUTE_UNJUSTIFIED`                                     |
+| 9        | Passenger/connectivity/geographic evidence incomplete                                 | `UNDETERMINED: MISSING_GEOGRAPHIC_EVIDENCE`                                 |
+| 10       | Complete evidence but no allowed direct/one-stop route under synthetic rules          | `INFEASIBLE: NO_PLAUSIBLE_ROUTE`                                            |
+| 11       | Every permitted route exceeds estimated600-minute door-to-door in either direction    | `INFEASIBLE: DOOR_TO_DOOR_TOO_LONG`                                         |
+| 12       | At least one supported pair passes all rules                                          | `FEASIBLE` with exactly those approved pairs/evidence                       |
 
 Every RouteReason has a status; block/reject/limit are not additional outcomes. Standard direct rules require reviewed eligible large passenger airports and350..3500 km unless a catalog exception applies. Connections allow one reviewed hub, approved legs, and75..240-minute layovers.
 
@@ -103,22 +103,22 @@ Persist the typed result, reason codes, evidence refs, alternatives, input finge
 
 Flight durations use great-circle distance and explicit overhead, not a random Faker number: `ceil(25 + distanceKm / 700 * 60)` minutes per direct leg, with small seeded variation within +/- 8 minutes and a minimum 35 minutes. Persist all UTC instants and local IANA display zones. Generate outbound/return directions separately; duration is elapsed time, not subtraction of local clocks.
 
-| Constraint | Initial schedule rule |
-| --- | --- |
-| Outbound arrival | Destination-local date `D-1` |
-| Hotel arrival feasibility | Arrival + 45-minute clearance + conservative transfer + 20-minute check-in <= `D-1 22:00` |
-| One-night hotel | Check-in `D-1`, checkout `D`; luggage storage required for selected hotel |
-| Two-night hotel | Check-in `D-1`, checkout `D+1` |
-| Core sightseeing | Destination-local `D 09:00` through at least `D 18:00`, breakfast normally from 08:00 |
-| One-night return | Destination-local `D`; late departure after required city activities, transfer, and 120-minute departure buffer |
-| Two-night return | Destination-local `D+1`; feasible checkout/transfer window |
-| Connections | 75..240 minutes elapsed, no teleporting airports between legs, at most one stop per direction |
-| Airport transfers | Actual airport/city refs, conservative simulated transfer and luggage/clearance buffers |
-| Chronology | Every leg arrival > departure; UTC order and local date transitions both validated |
-| Duration plausibility | Actual leg elapsed within `max(15 minutes, expectedFormula * 0.25)` of the distance formula, and >= 35 minutes |
-| Realized door-to-door | Each direction:origin access+120 buffer+actual first-departure-to-last-arrival elapsed (connections once)+45 clearance+destination transfer <=600 minutes; otherwise DOOR_TO_DOOR_TOO_LONG |
-| Local DST gap/fold | Reject nonexistent local times; ambiguous time needs explicit validated offset |
-| Party/price | Offer capacity sufficient; party total equals per-adult total times adults |
+| Constraint                | Initial schedule rule                                                                                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Outbound arrival          | Destination-local date `D-1`                                                                                                                                                               |
+| Hotel arrival feasibility | Arrival + 45-minute clearance + conservative transfer + 20-minute check-in <= `D-1 22:00`                                                                                                  |
+| One-night hotel           | Check-in `D-1`, checkout `D`; luggage storage required for selected hotel                                                                                                                  |
+| Two-night hotel           | Check-in `D-1`, checkout `D+1`                                                                                                                                                             |
+| Core sightseeing          | Destination-local `D 09:00` through at least `D 18:00`, breakfast normally from 08:00                                                                                                      |
+| One-night return          | Destination-local `D`; late departure after required city activities, transfer, and 120-minute departure buffer                                                                            |
+| Two-night return          | Destination-local `D+1`; feasible checkout/transfer window                                                                                                                                 |
+| Connections               | 75..240 minutes elapsed, no teleporting airports between legs, at most one stop per direction                                                                                              |
+| Airport transfers         | Actual airport/city refs, conservative simulated transfer and luggage/clearance buffers                                                                                                    |
+| Chronology                | Every leg arrival > departure; UTC order and local date transitions both validated                                                                                                         |
+| Duration plausibility     | Actual leg elapsed within `max(15 minutes, expectedFormula * 0.25)` of the distance formula, and >= 35 minutes                                                                             |
+| Realized door-to-door     | Each direction:origin access+120 buffer+actual first-departure-to-last-arrival elapsed (connections once)+45 clearance+destination transfer <=600 minutes; otherwise DOOR_TO_DOOR_TOO_LONG |
+| Local DST gap/fold        | Reject nonexistent local times; ambiguous time needs explicit validated offset                                                                                                             |
+| Party/price               | Offer capacity sufficient; party total equals per-adult total times adults                                                                                                                 |
 
 Use `@js-temporal/polyfill` 0.5.1 for calendar dates, zoned conversion, elapsed duration, and strict ambiguity handling. Do not use server-local `Date` arithmetic for nights. Record Node/ICU/tz-rule version; the polyfill relies on runtime Intl time-zone rules, not its own newly downloaded tzdata.
 
@@ -180,11 +180,11 @@ Initial per-adult one-way base: EUR `25 + 0.085 * distanceKm`, times season/tier
 
 ### Hotels
 
-| Level | Base room/night EUR | Demo rating out of 5 |
-| --- | --- | --- |
-| Budget | 60..95 | 3.2..4.2 |
-| Standard | 110..180 | 3.8..4.7 |
-| Luxury | 250..420 | 4.5..4.9 |
+| Level    | Base room/night EUR | Demo rating out of 5 |
+| -------- | ------------------- | -------------------- |
+| Budget   | 60..95              | 3.2..4.2             |
+| Standard | 110..180            | 3.8..4.7             |
+| Luxury   | 250..420            | 4.5..4.9             |
 
 Total = seeded base * city factor * season factor * weekend factor * nights * rooms, where rooms = `ceil(adults / 2)` and rooms/capacity are explicit. Default city factors: Rome 1.00, Paris 1.30, Barcelona 1.10, reviewed reference class 0.85/1.00/1.20 for other cities. Unknown class uses a labeled 1.00 demo assumption, not a claim about local market prices.
 
@@ -192,11 +192,11 @@ Season factor: June-August 1.20, September-October 1.10, other months 1.00. Each
 
 ### Restaurants
 
-| Meal | Budget EUR/adult | Standard EUR/adult | Luxury EUR/adult |
-| --- | --- | --- | --- |
-| Breakfast | 6..10 | 12..18 | 25..40 |
-| Lunch | 12..18 | 22..35 | 45..75 |
-| Dinner | 16..24 | 30..48 | 70..120 |
+| Meal      | Budget EUR/adult | Standard EUR/adult | Luxury EUR/adult |
+| --------- | ---------------- | ------------------ | ---------------- |
+| Breakfast | 6..10            | 12..18             | 25..40           |
+| Lunch     | 12..18           | 22..35             | 45..75           |
+| Dinner    | 16..24           | 30..48             | 70..120          |
 
 Apply city factor and a documented cuisine factor 0.90..1.15; no random unconstrained cross-category prices. Defaults for duration are [pace-specific](08-frontend-ux.md); luxury meals may need longer templates. Menu/cuisine names are fictional and clearly labeled. Multiply per-adult costs by party size; a reservation fee is zero in the demo, not an invented payment.
 
@@ -218,17 +218,17 @@ Reject generated positions outside the reviewed city-area envelope, off the know
 
 The initial verified landmark seeds below have source identity and coordinates checked; additional curated coverage is a Phase 02 deliverable and, beyond the seed set, is curated on demand from Wikidata (section 9, on-demand curation).
 
-| City | Verified seed reference | Wikidata ID | Coordinates |
-| --- | --- | --- | --- |
-| Rome | Colosseum | Q10285 | 41.890278, 12.492222 |
-| Rome | Trevi Fountain | Q185382 | 41.900932, 12.483313 |
-| Rome | Pantheon | Q99309 | 41.898611, 12.476944 |
-| Paris | Eiffel Tower | Q243 | 48.858296, 2.294479 |
-| Paris | Louvre Museum | Q19675 | 48.861111, 2.335833 |
-| Paris | Notre-Dame de Paris | Q2981 | 48.853000, 2.349800 |
-| Barcelona | Sagrada Familia | Q48435 | 41.403690, 2.174330 |
-| Barcelona | Park Guell | Q212867 | 41.413611, 2.152778 |
-| Barcelona | Casa Batllo | Q461371 | 41.391580, 2.164920 |
+| City      | Verified seed reference | Wikidata ID | Coordinates          |
+| --------- | ----------------------- | ----------- | -------------------- |
+| Rome      | Colosseum               | Q10285      | 41.890278, 12.492222 |
+| Rome      | Trevi Fountain          | Q185382     | 41.900932, 12.483313 |
+| Rome      | Pantheon                | Q99309      | 41.898611, 12.476944 |
+| Paris     | Eiffel Tower            | Q243        | 48.858296, 2.294479  |
+| Paris     | Louvre Museum           | Q19675      | 48.861111, 2.335833  |
+| Paris     | Notre-Dame de Paris     | Q2981       | 48.853000, 2.349800  |
+| Barcelona | Sagrada Familia         | Q48435      | 41.403690, 2.174330  |
+| Barcelona | Park Guell              | Q212867     | 41.413611, 2.152778  |
+| Barcelona | Casa Batllo             | Q461371     | 41.391580, 2.164920  |
 
 Complete each city with at least eight reviewed real references. Required additional names: Rome - Roman Forum, Borghese Gallery, Capitoline Museums, Villa Borghese park, Piazza Navona; Paris - Musee d'Orsay, Musee de l'Orangerie, Luxembourg Gardens, Tuileries Garden, a reviewed Seine riverbank segment; Barcelona - Picasso Museum, National Art Museum of Catalonia, Barceloneta beach, Ciutadella Park, Gothic Quarter. Resolve and verify their source IDs rather than guessing QIDs.
 
@@ -242,11 +242,11 @@ On-demand curation (2026-10-13): when `WIKIDATA_DISCOVERY` is enabled, the worke
 
 `RoutingProvider.estimate` returns start/end refs, mode, adults, great-circle distance, assumed path factor, estimated elapsed minutes, uncertainty/buffer, party-total simulated EUR cost, and `simulated: true`. It never returns a purported navigable road polyline.
 
-| Mode | Initial deterministic assumptions |
-| --- | --- |
-| Walking | Great-circle * 1.25, 4.5 km/h, 5-minute crossing/wayfinding allowance |
-| Public transport | Great-circle * 1.35, 18 km/h, 12-minute access/wait + 5-minute uncertainty allowance |
-| Taxi/car | Great-circle * 1.35, 25 km/h urban, 8-minute access + 5-minute uncertainty allowance |
+| Mode             | Initial deterministic assumptions                                                                                                               |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Walking          | Great-circle * 1.25, 4.5 km/h, 5-minute crossing/wayfinding allowance                                                                           |
+| Public transport | Great-circle * 1.35, 18 km/h, 12-minute access/wait + 5-minute uncertainty allowance                                                            |
+| Taxi/car         | Great-circle * 1.35, 25 km/h urban, 8-minute access + 5-minute uncertainty allowance                                                            |
 | Airport transfer | Reviewed template where available; otherwise conservative road estimate with 45 km/h and 20-minute access/uncertainty, within eligibility bound |
 
 Use haversine calculations in deterministic TypeScript; no geography package is required for this formula. Choose modes according to pace/walking thresholds and available templates. Always label time/distance as approximate simulated estimates. Offline map fallback renders markers and schematic connections, not a real road route.
@@ -255,35 +255,35 @@ Use haversine calculations in deterministic TypeScript; no geography package is 
 
 Interfaces depend on domain contracts, not Faker or a specific database/AI library. Methods accept validated refs and return bounded tagged results (`ok`, `unavailable`, `retryable_error`, `unsupported`).
 
-| Interface | Required input | Output |
-| --- | --- | --- |
-| `FlightSearchProvider` | Current approved route, date/variant/party, snapshot/extension context | Candidate combinations from stable snapshot |
+| Interface                     | Required input                                                          | Output                                                |
+| ----------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------- |
+| `FlightSearchProvider`        | Current approved route, date/variant/party, snapshot/extension context  | Candidate combinations from stable snapshot           |
 | `AccommodationSearchProvider` | Snapshot, dates, rooms/adults, effective level, optional price baseline | Existing hotel offer IDs and quality/location metrics |
-| `RestaurantSearchProvider` | Snapshot, meal, effective level, adults, location/time constraints | Existing meal offer IDs |
-| `AttractionsProvider` | City reference/snapshot, categories/tags, coverage flags | Verified reference or labeled generic activity IDs |
-| `EventsProvider` | Snapshot/date/category/time window | Existing demo event IDs |
-| `RoutingProvider` | Known anchor refs, mode, rule version | Simulated route estimate, never real navigation |
+| `RestaurantSearchProvider`    | Snapshot, meal, effective level, adults, location/time constraints      | Existing meal offer IDs                               |
+| `AttractionsProvider`         | City reference/snapshot, categories/tags, coverage flags                | Verified reference or labeled generic activity IDs    |
+| `EventsProvider`              | Snapshot/date/category/time window                                      | Existing demo event IDs                               |
+| `RoutingProvider`             | Known anchor refs, mode, rule version                                   | Simulated route estimate, never real navigation       |
 
 `Synthetic*Provider` implementations read/extend persisted inventories. No real-provider implementations are included. A future provider can implement these interfaces without changing graph routing, but that possibility must not introduce speculative booking compatibility layers.
 
 ## 12. Scenario Controls A-N
 
-| Brief scenario | Deterministic implementation/assertion |
-| --- | --- |
-| A Normal trip | Curated seed/date, both variants, compatible selections, complete valid plan |
-| B No suitable flights | Stage A passes; availability/schedule overlay leaves Stage B with no valid IDs; downstream work absent |
-| C Hotels unavailable | Hotel provider overlay returns empty compatible set; flights remain confirmed |
-| D Provider failure | First hotel call for the operation emits one persisted transient failure; sibling domains succeed; second call succeeds |
-| E Invalid itinerary | Persisted first-attempt proposal overlay introduces one overlap after fixture/live schema parsing; validator catches it and replanning repairs it or stops at the bound; explicitly label the injected corruption |
-| F Budget conflict | Explicit budget overlay below final feasible cost; no falsified prices; propose alternatives/raise-budget decision |
-| G Conflicting preferences | Scripted request for six major museums at relaxed pace yields clarification, not silent preference loss |
-| H Selective hotel change | Scripted same-level cheaper-hotel request; flights/meals/activity hashes and booking IDs unchanged |
-| I Service override | Luxury global, budget breakfast; other meals/hotel retain inherited luxury |
-| J Pace change | Intensive -> relaxed; fewer/less demanding activities, flight/hotel/confirmed meal IDs unchanged |
-| K Interruption | Browser closed at pending decision; exact descriptor reloads |
-| L Restart | Stop/restart worker at interrupt and mid-operation; same checkpoint thread/reservations recovered |
-| M Duplicate booking | Submit same confirmation concurrently/twice; one stored reservation/result |
-| N Concurrent modifications | Two requests with same revision; one accepted, other conflict; no mixed state |
+| Brief scenario             | Deterministic implementation/assertion                                                                                                                                                                            |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A Normal trip              | Curated seed/date, both variants, compatible selections, complete valid plan                                                                                                                                      |
+| B No suitable flights      | Stage A passes; availability/schedule overlay leaves Stage B with no valid IDs; downstream work absent                                                                                                            |
+| C Hotels unavailable       | Hotel provider overlay returns empty compatible set; flights remain confirmed                                                                                                                                     |
+| D Provider failure         | First hotel call for the operation emits one persisted transient failure; sibling domains succeed; second call succeeds                                                                                           |
+| E Invalid itinerary        | Persisted first-attempt proposal overlay introduces one overlap after fixture/live schema parsing; validator catches it and replanning repairs it or stops at the bound; explicitly label the injected corruption |
+| F Budget conflict          | Explicit budget overlay below final feasible cost; no falsified prices; propose alternatives/raise-budget decision                                                                                                |
+| G Conflicting preferences  | Scripted request for six major museums at relaxed pace yields clarification, not silent preference loss                                                                                                           |
+| H Selective hotel change   | Scripted same-level cheaper-hotel request; flights/meals/activity hashes and booking IDs unchanged                                                                                                                |
+| I Service override         | Luxury global, budget breakfast; other meals/hotel retain inherited luxury                                                                                                                                        |
+| J Pace change              | Intensive -> relaxed; fewer/less demanding activities, flight/hotel/confirmed meal IDs unchanged                                                                                                                  |
+| K Interruption             | Browser closed at pending decision; exact descriptor reloads                                                                                                                                                      |
+| L Restart                  | Stop/restart worker at interrupt and mid-operation; same checkpoint thread/reservations recovered                                                                                                                 |
+| M Duplicate booking        | Submit same confirmation concurrently/twice; one stored reservation/result                                                                                                                                        |
+| N Concurrent modifications | Two requests with same revision; one accepted, other conflict; no mixed state                                                                                                                                     |
 
 A-G are persisted behavior modes; H-N are inspector-guided action recipes/tests, not new random datasets. Inspector changes use protected typed commands and show `Simulated failure`. Restart/browser recipes provide instructions and observed evidence; the browser is never allowed to execute server shell commands.
 

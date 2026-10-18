@@ -26,9 +26,9 @@ export function CommunicationMap({
     <section aria-label="Communication map">
       <h2 className="text-base font-semibold">Communication map</h2>
       <p className="mt-1 text-xs text-ink-muted" data-testid="communication-legend">
-        Every row is a persisted agent communication (A2A edge). MCP tool and resource
-        calls live in the MCP section below; coordinator decisions live in the
-        application timeline. No prompts, payloads, tokens, or endpoints are shown.
+        Every row is a persisted agent communication (A2A edge). MCP tool and resource calls live in
+        the MCP section below; coordinator decisions live in the application timeline. No prompts,
+        payloads, tokens, or endpoints are shown.
       </p>
       {communications.length === 0 ? (
         <p className="mt-1 text-sm text-ink-muted" data-testid="no-communications">
@@ -65,10 +65,14 @@ export function CommunicationMap({
                 <td className="py-1 pr-3">{row.taskState ?? "—"}</td>
                 <td className="py-1 pr-3">{row.delegationStatus ?? "—"}</td>
                 <td className="py-1 pr-3">{row.failureCategory ?? "—"}</td>
-                <td className="py-1 pr-3">{row.durationMs !== null ? `${row.durationMs} ms` : "—"}</td>
+                <td className="py-1 pr-3">
+                  {row.durationMs !== null ? `${row.durationMs} ms` : "—"}
+                </td>
                 <td className="py-1 pr-3">{row.attempt ?? "—"}</td>
                 <td className="py-1 pr-3">
-                  {row.cancellationState ? (CANCEL_LABELS[row.cancellationState] ?? row.cancellationState) : "—"}
+                  {row.cancellationState
+                    ? (CANCEL_LABELS[row.cancellationState] ?? row.cancellationState)
+                    : "—"}
                 </td>
                 <td className="py-1">{row.updatedAt.replace("T", " ").replace("Z", "Z")}</td>
               </tr>

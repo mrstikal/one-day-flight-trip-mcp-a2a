@@ -39,9 +39,7 @@ export function CancelOperationButton({
       onCancelled();
     } catch (caught) {
       setError(
-        caught instanceof ApiError
-          ? caught.message
-          : "The operation could not be cancelled.",
+        caught instanceof ApiError ? caught.message : "The operation could not be cancelled.",
       );
       setBusy(false);
     }

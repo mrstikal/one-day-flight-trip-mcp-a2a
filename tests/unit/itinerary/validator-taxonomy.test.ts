@@ -65,15 +65,53 @@ function costs(totalMinor: number): ItineraryCosts {
 /** A complete, valid relaxed day: breakfast, two visits, lunch, breaks, dinner. */
 function validDay(): ItineraryEvent[] {
   return [
-    event({ kind: "meal", refId: "m-b", title: "Breakfast", startMinute: 8 * 60, durationMinutes: 60 }),
-    event({ kind: "activity", refId: "a-1", title: "Museum", activityTags: ["museum"], startMinute: 9 * 60 + 30, durationMinutes: 90 }),
+    event({
+      kind: "meal",
+      refId: "m-b",
+      title: "Breakfast",
+      startMinute: 8 * 60,
+      durationMinutes: 60,
+    }),
+    event({
+      kind: "activity",
+      refId: "a-1",
+      title: "Museum",
+      activityTags: ["museum"],
+      startMinute: 9 * 60 + 30,
+      durationMinutes: 90,
+    }),
     event({ kind: "break", title: "Break", startMinute: 11 * 60, durationMinutes: 20 }),
     event({ kind: "transfer", title: "Transfer", startMinute: 11 * 60 + 20, durationMinutes: 10 }),
-    event({ kind: "meal", refId: "m-l", title: "Lunch", startMinute: 12 * 60 + 30, durationMinutes: 90 }),
-    event({ kind: "activity", refId: "a-2", title: "Park", activityTags: ["park"], startMinute: 14 * 60 + 30, durationMinutes: 60 }),
+    event({
+      kind: "meal",
+      refId: "m-l",
+      title: "Lunch",
+      startMinute: 12 * 60 + 30,
+      durationMinutes: 90,
+    }),
+    event({
+      kind: "activity",
+      refId: "a-2",
+      title: "Park",
+      activityTags: ["park"],
+      startMinute: 14 * 60 + 30,
+      durationMinutes: 60,
+    }),
     event({ kind: "break", title: "Long break", startMinute: 15 * 60 + 40, durationMinutes: 60 }),
-    event({ kind: "meal", refId: "m-d", title: "Dinner", startMinute: 19 * 60, durationMinutes: 120 }),
-    event({ kind: "airport_buffer", title: "Airport buffer", startMinute: 21 * 60, durationMinutes: 120, locked: true }),
+    event({
+      kind: "meal",
+      refId: "m-d",
+      title: "Dinner",
+      startMinute: 19 * 60,
+      durationMinutes: 120,
+    }),
+    event({
+      kind: "airport_buffer",
+      title: "Airport buffer",
+      startMinute: 21 * 60,
+      durationMinutes: 120,
+      locked: true,
+    }),
   ];
 }
 
@@ -118,7 +156,13 @@ function codes(input: ValidateItineraryInput): string[] {
 }
 
 function issue(code: string, eventIds: string[] = []): ItineraryIssue {
-  return { severity: "error", code: code as ItineraryIssue["code"], message: `${code}`, eventIds, simulatedFailure: false };
+  return {
+    severity: "error",
+    code: code as ItineraryIssue["code"],
+    message: `${code}`,
+    eventIds,
+    simulatedFailure: false,
+  };
 }
 
 describe("itinerary validator taxonomy (Phase 10 section 4)", () => {
@@ -143,18 +187,48 @@ describe("itinerary validator taxonomy (Phase 10 section 4)", () => {
   });
 
   it("blocks transfer gaps, opening hours, airport buffer, and incompatible reservations", () => {
-    for (const code of ["transfer_gap", "opening_hours_mismatch", "airport_buffer", "incompatible_reservation"]) {
+    for (const code of [
+      "transfer_gap",
+      "opening_hours_mismatch",
+      "airport_buffer",
+      "incompatible_reservation",
+    ]) {
       expect(codes(baseInput({ assemblyIssues: [issue(code)] }))).toContain(code);
     }
   });
 
   it("warns, never blocks, when meal/visit content spans less than seven hours", () => {
     const events = [
-      event({ kind: "meal", refId: "m-b", title: "Breakfast", startMinute: 8 * 60, durationMinutes: 60 }),
-      event({ kind: "activity", refId: "a-1", title: "Museum", activityTags: ["museum"], startMinute: 9 * 60, durationMinutes: 60 }),
+      event({
+        kind: "meal",
+        refId: "m-b",
+        title: "Breakfast",
+        startMinute: 8 * 60,
+        durationMinutes: 60,
+      }),
+      event({
+        kind: "activity",
+        refId: "a-1",
+        title: "Museum",
+        activityTags: ["museum"],
+        startMinute: 9 * 60,
+        durationMinutes: 60,
+      }),
       event({ kind: "break", title: "Break", startMinute: 10 * 60, durationMinutes: 20 }),
-      event({ kind: "meal", refId: "m-l", title: "Lunch", startMinute: 11 * 60, durationMinutes: 60 }),
-      event({ kind: "meal", refId: "m-d", title: "Dinner", startMinute: 18 * 60, durationMinutes: 60 }),
+      event({
+        kind: "meal",
+        refId: "m-l",
+        title: "Lunch",
+        startMinute: 11 * 60,
+        durationMinutes: 60,
+      }),
+      event({
+        kind: "meal",
+        refId: "m-d",
+        title: "Dinner",
+        startMinute: 18 * 60,
+        durationMinutes: 60,
+      }),
     ];
     // 08:00-12:00 content only; dinner at 18:00 pushes the span over seven
     // hours, so remove dinner to prove the threshold. The span is a GUIDELINE
@@ -286,12 +360,14 @@ describe("itinerary validator taxonomy (Phase 10 section 4)", () => {
     );
     const errorCodes = result.errors.map((error) => error.code);
     expect(errorCodes).toContain("unmet_minimum_activity_count");
-    expect(result.errors.find((error) => error.code === "unmet_minimum_activity_count")?.message).toContain(
-      "at least 6 were requested",
-    );
+    expect(
+      result.errors.find((error) => error.code === "unmet_minimum_activity_count")?.message,
+    ).toContain("at least 6 were requested");
 
     const tooLong = validDay().map((entry) =>
-      entry.kind === "activity" ? { ...entry, durationMinutes: 200, endMinute: entry.startMinute + 200 } : entry,
+      entry.kind === "activity"
+        ? { ...entry, durationMinutes: 200, endMinute: entry.startMinute + 200 }
+        : entry,
     );
     expect(codes(baseInput({ events: tooLong }))).toContain("preference_conflict");
   });
@@ -314,11 +390,36 @@ describe("itinerary validator taxonomy (Phase 10 section 4)", () => {
 
   it("emits pace guideline and review suggestions as visible warnings", () => {
     const single = [
-      event({ kind: "meal", refId: "m-b", title: "Breakfast", startMinute: 8 * 60, durationMinutes: 60 }),
-      event({ kind: "activity", refId: "a-1", title: "Museum", activityTags: ["museum"], startMinute: 9 * 60, durationMinutes: 90 }),
+      event({
+        kind: "meal",
+        refId: "m-b",
+        title: "Breakfast",
+        startMinute: 8 * 60,
+        durationMinutes: 60,
+      }),
+      event({
+        kind: "activity",
+        refId: "a-1",
+        title: "Museum",
+        activityTags: ["museum"],
+        startMinute: 9 * 60,
+        durationMinutes: 90,
+      }),
       event({ kind: "break", title: "Break", startMinute: 10 * 60 + 30, durationMinutes: 20 }),
-      event({ kind: "meal", refId: "m-l", title: "Lunch", startMinute: 12 * 60, durationMinutes: 90 }),
-      event({ kind: "meal", refId: "m-d", title: "Dinner", startMinute: 18 * 60, durationMinutes: 60 }),
+      event({
+        kind: "meal",
+        refId: "m-l",
+        title: "Lunch",
+        startMinute: 12 * 60,
+        durationMinutes: 90,
+      }),
+      event({
+        kind: "meal",
+        refId: "m-d",
+        title: "Dinner",
+        startMinute: 18 * 60,
+        durationMinutes: 60,
+      }),
     ];
     const review: ItineraryReview = {
       verdict: "revise",
@@ -357,7 +458,9 @@ describe("itinerary validator taxonomy (Phase 10 section 4)", () => {
   });
 
   it("warns when no long break block fits the paced day", () => {
-    const withoutLongBreak = validDay().filter((entry) => entry.durationMinutes !== 60 || entry.kind !== "break");
+    const withoutLongBreak = validDay().filter(
+      (entry) => entry.durationMinutes !== 60 || entry.kind !== "break",
+    );
     const result = validateItinerary(baseInput({ events: withoutLongBreak }));
     expect(result.status).toBe("valid");
     expect(

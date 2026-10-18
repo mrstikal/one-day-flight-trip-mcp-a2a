@@ -369,32 +369,32 @@ A planner-provided trailing filler block (a break or free-time block after the l
 
 ## 9. SQL Inventory and Constraints
 
-| Table                                 | Authoritative data and required constraints                                                                                              |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `anonymous_sessions`                  | UUID, token hash unique, CSRF hash, created/expiry; no raw cookie token                                                                  |
+| Table                                 | Authoritative data and required constraints                                                                                                           |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `anonymous_sessions`                  | UUID, token hash unique, CSRF hash, created/expiry; no raw cookie token                                                                               |
 | `trips`                               | Session FK, strict preferences, revision >= 0, current refs, engine/coordinator version; unique session/creation-request ID and creation payload hash |
-| `reference_countries/cities/airports` | Source IDs, admitted scope, coordinates, zones, search indexes                                                                           |
-| `reference_manifests`                 | Source URL, retrieval/version, SHA-256, license, transform version                                                                       |
-| `route_validations`                   | Trip FK, fingerprint, policy version, typed outcome/evidence, immutable                                                                  |
-| `schedule_validations`                | Route-validation FK, snapshot FK, typed rejection/valid IDs, immutable                                                                   |
-| `scenario_snapshots`                  | Manifest and bounded inventory JSONB, content hashes, immutable; unique scenario/version                                                 |
-| `recommendation_artifacts`            | Service/domain, input fingerprint, snapshot refs, ranked valid IDs, explanation                                                          |
-| `trip_selections`                     | Unique trip/service, offer and snapshot refs, selected-by, active proposal/reservation refs                                              |
-| `selection_proposals`                 | Before/after refs, dates, price, impact preview, payload hash, state/expiry                                                              |
-| `reservations`                        | Trip/service, status, snapshot FK + validated offer ID, terms, reference unique, confirmation key                                        |
-| `itineraries`                         | Trip/version unique, bounded event JSONB, validator/reviewer refs, status                                                                |
-| `conversation_messages`               | Trip, sequence unique, role enum, content, interpretation/result refs                                                                    |
-| `conversation_summaries`              | Versioned compact structured summary; no authoritative preferences                                                                       |
-| `pending_decisions`                   | One pending decision per trip; kind, safe payload, coordinator-run binding, source fingerprint; legacy graph rows keep inert ids          |
-| `workflow_operations`                 | Trip/request unique, payload hash, accepted revision, status, lease/fencing/attempts                                                     |
-| `workflow_control_requests`           | Trip/control-request unique, payload hash, original operation FK, stored technical-retry result; no new business revision                |
-| `workflow_effects`                    | Unique operation/node/scope; result and transaction-linked domain effect                                                                 |
-| `execution_events`                    | Monotonic ID, trip/operation, strict public event payload, time; replay index                                                            |
-| `llm_calls`                           | Role/model/prompt version, token/cost reservation/actual, attempts, safe status                                                          |
-| `simulation_faults`                   | Trip/operation/domain/fault unique, persisted injection state/counters                                                                   |
-| `rate_limit_buckets`                  | HMAC session/IP scope, endpoint bucket, expiry and atomic count                                                                          |
-| `worker_heartbeats`                   | Worker/process identity, startup and last-seen times, version; readiness only, never a workflow cursor                                   |
-| Legacy graph tables (historical)      | Inert PostgresSaver schema; never hand-patch serialized checkpoints; no active runtime reads them                                         |
+| `reference_countries/cities/airports` | Source IDs, admitted scope, coordinates, zones, search indexes                                                                                        |
+| `reference_manifests`                 | Source URL, retrieval/version, SHA-256, license, transform version                                                                                    |
+| `route_validations`                   | Trip FK, fingerprint, policy version, typed outcome/evidence, immutable                                                                               |
+| `schedule_validations`                | Route-validation FK, snapshot FK, typed rejection/valid IDs, immutable                                                                                |
+| `scenario_snapshots`                  | Manifest and bounded inventory JSONB, content hashes, immutable; unique scenario/version                                                              |
+| `recommendation_artifacts`            | Service/domain, input fingerprint, snapshot refs, ranked valid IDs, explanation                                                                       |
+| `trip_selections`                     | Unique trip/service, offer and snapshot refs, selected-by, active proposal/reservation refs                                                           |
+| `selection_proposals`                 | Before/after refs, dates, price, impact preview, payload hash, state/expiry                                                                           |
+| `reservations`                        | Trip/service, status, snapshot FK + validated offer ID, terms, reference unique, confirmation key                                                     |
+| `itineraries`                         | Trip/version unique, bounded event JSONB, validator/reviewer refs, status                                                                             |
+| `conversation_messages`               | Trip, sequence unique, role enum, content, interpretation/result refs                                                                                 |
+| `conversation_summaries`              | Versioned compact structured summary; no authoritative preferences                                                                                    |
+| `pending_decisions`                   | One pending decision per trip; kind, safe payload, coordinator-run binding, source fingerprint; legacy graph rows keep inert ids                      |
+| `workflow_operations`                 | Trip/request unique, payload hash, accepted revision, status, lease/fencing/attempts                                                                  |
+| `workflow_control_requests`           | Trip/control-request unique, payload hash, original operation FK, stored technical-retry result; no new business revision                             |
+| `workflow_effects`                    | Unique operation/node/scope; result and transaction-linked domain effect                                                                              |
+| `execution_events`                    | Monotonic ID, trip/operation, strict public event payload, time; replay index                                                                         |
+| `llm_calls`                           | Role/model/prompt version, token/cost reservation/actual, attempts, safe status                                                                       |
+| `simulation_faults`                   | Trip/operation/domain/fault unique, persisted injection state/counters                                                                                |
+| `rate_limit_buckets`                  | HMAC session/IP scope, endpoint bucket, expiry and atomic count                                                                                       |
+| `worker_heartbeats`                   | Worker/process identity, startup and last-seen times, version; readiness only, never a workflow cursor                                                |
+| Legacy graph tables (historical)      | Inert PostgresSaver schema; never hand-patch serialized checkpoints; no active runtime reads them                                                     |
 
 Use SQL migrations with `pg`, foreign keys, check constraints, indexes on ownership/read paths, and transactional repository methods. Validate JSONB with Zod on both persistence boundaries; SQL constraints cover identities, uniqueness, state enums, and numeric invariants.
 

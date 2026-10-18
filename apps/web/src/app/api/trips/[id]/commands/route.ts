@@ -45,7 +45,11 @@ export async function POST(
   }
   const parsed = commandApiRequestSchema.safeParse(body.value);
   if (!parsed.success) {
-    return envelopeResponse({ code: "VALIDATION_FAILED", message: "invalid command request", retryable: false });
+    return envelopeResponse({
+      code: "VALIDATION_FAILED",
+      message: "invalid command request",
+      retryable: false,
+    });
   }
   const command = "command" in parsed.data ? parsed.data.command : undefined;
   const chat = "chat" in parsed.data ? parsed.data.chat : undefined;

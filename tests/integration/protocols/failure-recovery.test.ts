@@ -122,7 +122,12 @@ async function waitForExit(child: ChildProcess, timeoutMs = 20_000): Promise<voi
   });
 }
 
-async function sendAccommodationTask(delegationId: string, tripId: string, operationId: string, snapshotId: string): Promise<Task> {
+async function sendAccommodationTask(
+  delegationId: string,
+  tripId: string,
+  operationId: string,
+  snapshotId: string,
+): Promise<Task> {
   const client = new A2AClient({ config: accommodationAgentClientConfig() });
   const result = await client.sendMessage("accommodation-agent", {
     message: dataMessage(
@@ -217,7 +222,11 @@ describe("failure recovery and scoped retry", () => {
     await waitForAgentReady(restarted, "city-guide-agent");
     const cityTask = await waitFor(
       async () => {
-        const result = await harness.pool.query<{ id: string; task_id: string | null; status: string }>(
+        const result = await harness.pool.query<{
+          id: string;
+          task_id: string | null;
+          status: string;
+        }>(
           `SELECT id, task_id, status FROM odft_app.agent_delegations
             WHERE trip_id = $1 AND skill_id = 'city-guide.research.v1'
             ORDER BY created_at DESC LIMIT 1`,
@@ -316,9 +325,7 @@ describe("failure recovery and scoped retry", () => {
     );
     expect(outage.status?.state).toBe(TaskState.TASK_STATE_FAILED);
     const failureText = outage.status?.message?.parts?.[0]?.content;
-    expect(failureText?.$case === "text" ? failureText.value : "").toMatch(
-      /^MCP_UNAVAILABLE:/,
-    );
+    expect(failureText?.$case === "text" ? failureText.value : "").toMatch(/^MCP_UNAVAILABLE:/);
 
     const restartedHost = startMcpHost();
     await waitForHostReady(restartedHost);

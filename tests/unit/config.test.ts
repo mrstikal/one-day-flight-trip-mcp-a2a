@@ -35,7 +35,9 @@ describe("parseServerConfig", () => {
   });
 
   it("rejects a malformed database URL", () => {
-    expect(() => parseServerConfig({ ...BASE_ENV, DATABASE_URL: "mysql://x" })).toThrow(ConfigError);
+    expect(() => parseServerConfig({ ...BASE_ENV, DATABASE_URL: "mysql://x" })).toThrow(
+      ConfigError,
+    );
   });
 
   it("requires an OpenRouter key in openrouter mode", () => {

@@ -28,7 +28,9 @@ export function MapPanel({
 }): React.JSX.Element {
   const [mode, setMode] = useState<"map" | "fallback">(tileUrl ? "map" : "fallback");
   const [fallbackReason, setFallbackReason] = useState<string | null>(
-    tileUrl ? null : "No map tiles are configured for this demo; the schematic shows approximate simulated connections.",
+    tileUrl
+      ? null
+      : "No map tiles are configured for this demo; the schematic shows approximate simulated connections.",
   );
   const onReady = useCallback(() => {
     setMode("map");
@@ -48,7 +50,12 @@ export function MapPanel({
         <MapFallback markers={markers} reason={fallbackReason} />
       ) : (
         <div className="flex flex-col gap-2">
-          <MapCanvas markers={markers} tileUrl={tileUrl ?? ""} onReady={onReady} onFailure={onFailure} />
+          <MapCanvas
+            markers={markers}
+            tileUrl={tileUrl ?? ""}
+            onReady={onReady}
+            onFailure={onFailure}
+          />
           <p className="text-xs text-ink-muted">
             Tiles © OpenStreetMap contributors. Geographic data: GeoNames (CC BY 4.0); timezone
             boundaries: ODbL. Connections are approximate simulated links.

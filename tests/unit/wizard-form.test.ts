@@ -9,7 +9,9 @@ import {
 
 describe("wizard form helpers (no server calls)", () => {
   it("requires a name, origin, and date before advancing", () => {
-    expect(validateWelcomeDraft({ userName: "", originAirportId: "", sightseeingDate: "" })).toEqual({
+    expect(
+      validateWelcomeDraft({ userName: "", originAirportId: "", sightseeingDate: "" }),
+    ).toEqual({
       userName: "Enter your name.",
       origin: "Choose an origin airport.",
       sightseeingDate: "Choose a sightseeing date.",

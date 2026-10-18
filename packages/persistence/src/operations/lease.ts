@@ -67,10 +67,7 @@ export async function completeOperation(
  * when the worker cannot start work, e.g. the trip row vanished). The next
  * claim rotates the token.
  */
-export async function releaseClaim(
-  pool: Pool,
-  claim: ClaimedOperation,
-): Promise<boolean> {
+export async function releaseClaim(pool: Pool, claim: ClaimedOperation): Promise<boolean> {
   const result = await pool.query(
     `UPDATE odft_app.workflow_operations
         SET status = 'queued', lease_expires_at = NULL, claimed_by = NULL, updated_at = now()

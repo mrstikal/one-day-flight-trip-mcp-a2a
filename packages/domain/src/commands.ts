@@ -34,9 +34,15 @@ function effectOf(command: DomainCommand): CommandEffect {
       return { fieldKeys: fields, preserveScope: ["flights"] };
     }
     case "set_default_service_level":
-      return { fieldKeys: ["defaultServiceLevel"], preserveScope: ["hotel", "breakfast", "lunch", "dinner"] };
+      return {
+        fieldKeys: ["defaultServiceLevel"],
+        preserveScope: ["hotel", "breakfast", "lunch", "dinner"],
+      };
     case "set_service_override":
-      return { fieldKeys: [`serviceOverride.${command.service}`], preserveScope: [command.service] };
+      return {
+        fieldKeys: [`serviceOverride.${command.service}`],
+        preserveScope: [command.service],
+      };
     case "set_activity_pace":
       return { fieldKeys: ["activityPace"], preserveScope: ["activities"] };
     case "set_interests":
@@ -50,7 +56,10 @@ function effectOf(command: DomainCommand): CommandEffect {
     case "propose_selection":
       return { fieldKeys: [`selection.${command.service}`], preserveScope: [command.service] };
     case "set_program":
-      return { fieldKeys: ["program"], preserveScope: ["breakfast", "lunch", "dinner", "activities"] };
+      return {
+        fieldKeys: ["program"],
+        preserveScope: ["breakfast", "lunch", "dinner", "activities"],
+      };
     case "build_itinerary":
       return { fieldKeys: ["itinerary"], preserveScope: [] };
     case "retry_failed_domains":

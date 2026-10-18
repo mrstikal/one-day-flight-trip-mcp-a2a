@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { resumeApiRequestSchema } from "@odft/contracts";
 import { admitResume } from "@odft/persistence";
-import { envelopeResponse, errorResponse, jsonResponse, readJsonResult, scopeErrorResponse } from "@/lib/http";
+import {
+  envelopeResponse,
+  errorResponse,
+  jsonResponse,
+  readJsonResult,
+  scopeErrorResponse,
+} from "@/lib/http";
 import { denyArchivedTripWrite, guardMutation } from "@/lib/guard";
 
 /**
@@ -37,7 +43,11 @@ export async function POST(
   }
   const parsed = resumeApiRequestSchema.safeParse(body.value);
   if (!parsed.success) {
-    return envelopeResponse({ code: "VALIDATION_FAILED", message: "invalid resume request", retryable: false });
+    return envelopeResponse({
+      code: "VALIDATION_FAILED",
+      message: "invalid resume request",
+      retryable: false,
+    });
   }
 
   const { id } = await context.params;

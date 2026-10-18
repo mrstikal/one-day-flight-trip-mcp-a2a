@@ -58,7 +58,10 @@ export async function GET(
   }
 
   const limit = await consumeRateLimit(deps.pool, {
-    scopeHash: scopeHash(deps.config, `${session.sessionId}:${id}:${clientIp(request, deps.config.trustProxy)}`),
+    scopeHash: scopeHash(
+      deps.config,
+      `${session.sessionId}:${id}:${clientIp(request, deps.config.trustProxy)}`,
+    ),
     endpoint: "sse:connect",
     limit: 30,
     windowMs: 60_000,
@@ -68,7 +71,8 @@ export async function GET(
   }
 
   const url = new URL(request.url);
-  const requestedCursor = request.headers.get("last-event-id") ?? url.searchParams.get("after") ?? "0";
+  const requestedCursor =
+    request.headers.get("last-event-id") ?? url.searchParams.get("after") ?? "0";
   // Decimal-string cursors only: a malformed value replays from the beginning
   // (deduped client-side by event id) instead of being interpreted loosely.
   let cursor = /^\d+$/.test(requestedCursor) ? requestedCursor : "0";
@@ -101,7 +105,9 @@ export async function GET(
               payload: projectSafeEvent(event.type, event.payload),
               at: event.createdAt,
             });
-            controller.enqueue(encoder.encode(`id: ${event.id}\nevent: ${event.type}\ndata: ${data}\n\n`));
+            controller.enqueue(
+              encoder.encode(`id: ${event.id}\nevent: ${event.type}\ndata: ${data}\n\n`),
+            );
             cursor = event.id;
           }
         } catch {

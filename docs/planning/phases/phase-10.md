@@ -72,14 +72,14 @@ tests/e2e/phase-10.spec.ts
 
 ## 7. Functions and Interfaces to Implement
 
-| Contract | Input -> Output | Required failure behavior |
-| --- | --- | --- |
-| `planItinerary(ctx)` | bounded candidates + fixed constraints + feedback -> persisted proposal | schema-invalid/invented IDs rejected before validation; one attempt increment |
-| `assembleItinerary(proposal, locks)` | proposal + fixed meal/airport windows -> resolved events + metrics + costs | conflicts recorded, never silent compression or moved bookings |
-| `validateItinerary(ctx)` | assembled draft + fingerprints -> `{ status, errors, warnings, metrics, fingerprint }` | errors block approval; invalid is normal routing |
-| `reviewItinerary(ctx)` | deterministically valid draft -> typed findings/safe revision hints | never changes an invalid status; not called for rejected drafts |
-| `approveItinerary(ctx, decision)` | trusted envelope + current fingerprints -> approved immutable version | stale fingerprint/error state -> typed conflict; no mutation of approved versions |
-| `MapView` / `MapFallback` | event/marker projection -> interactive map or SVG schematic | 5 s/failure/no URL -> fallback; tiles never block planning |
+| Contract                             | Input -> Output                                                                        | Required failure behavior                                                         |
+| ------------------------------------ | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `planItinerary(ctx)`                 | bounded candidates + fixed constraints + feedback -> persisted proposal                | schema-invalid/invented IDs rejected before validation; one attempt increment     |
+| `assembleItinerary(proposal, locks)` | proposal + fixed meal/airport windows -> resolved events + metrics + costs             | conflicts recorded, never silent compression or moved bookings                    |
+| `validateItinerary(ctx)`             | assembled draft + fingerprints -> `{ status, errors, warnings, metrics, fingerprint }` | errors block approval; invalid is normal routing                                  |
+| `reviewItinerary(ctx)`               | deterministically valid draft -> typed findings/safe revision hints                    | never changes an invalid status; not called for rejected drafts                   |
+| `approveItinerary(ctx, decision)`    | trusted envelope + current fingerprints -> approved immutable version                  | stale fingerprint/error state -> typed conflict; no mutation of approved versions |
+| `MapView` / `MapFallback`            | event/marker projection -> interactive map or SVG schematic                            | 5 s/failure/no URL -> fallback; tiles never block planning                        |
 
 ## 8. Outputs / Deliverables
 

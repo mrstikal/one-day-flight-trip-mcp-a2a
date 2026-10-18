@@ -41,9 +41,7 @@ const config: ProtocolConfig = {
   }),
   mcpRegistry: {
     schemaVersion: 1,
-    services: [
-      { serviceName: "mcp-echo", endpointUrl, credentialRef: "ODFT_MCP_ECHO_TOKEN" },
-    ],
+    services: [{ serviceName: "mcp-echo", endpointUrl, credentialRef: "ODFT_MCP_ECHO_TOKEN" }],
   },
   timeouts: DEFAULT_PROTOCOL_TIMEOUTS,
   resolveCredential: (ref) => (ref === "ODFT_MCP_ECHO_TOKEN" ? token : process.env[ref]),

@@ -56,11 +56,7 @@ export interface InvalidationResolution {
   readonly routeChange: boolean;
   /** The decision the refreshed work presents, when it presents one. */
   readonly nextDecisionKind:
-    | "hotel_choice"
-    | "program_choices"
-    | "flight_choice"
-    | "route_change_confirmation"
-    | null;
+    "hotel_choice" | "program_choices" | "flight_choice" | "route_change_confirmation" | null;
   /**
    * True when the refreshed work re-opens the progress-derived decision step
    * (the existing hotel/program re-derivation), instead of a decision this

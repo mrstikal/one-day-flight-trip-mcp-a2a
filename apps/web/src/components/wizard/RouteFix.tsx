@@ -3,7 +3,12 @@
 import { useState } from "react";
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
 import { ApiError } from "@/lib/api-client";
-import { searchAirports, searchCities, searchCountries, type CityOption } from "@/lib/reference-client";
+import {
+  searchAirports,
+  searchCities,
+  searchCountries,
+  type CityOption,
+} from "@/lib/reference-client";
 import { submitCommand } from "@/lib/decision-client";
 
 /**
@@ -33,11 +38,15 @@ export function RouteFix({
   const [error, setError] = useState<string | undefined>();
 
   async function onAirportQuery(query: string): Promise<void> {
-    setAirportOptions((await searchAirports(query)).map((a) => ({ id: a.id, label: `${a.iata} — ${a.name}` })));
+    setAirportOptions(
+      (await searchAirports(query)).map((a) => ({ id: a.id, label: `${a.iata} — ${a.name}` })),
+    );
   }
 
   async function onCountryQuery(query: string): Promise<void> {
-    setCountryOptions((await searchCountries(query)).map((c) => ({ id: c.countryKey, label: c.name })));
+    setCountryOptions(
+      (await searchCountries(query)).map((c) => ({ id: c.countryKey, label: c.name })),
+    );
   }
 
   async function onCityQuery(query: string): Promise<void> {

@@ -38,10 +38,7 @@ export class A2AClientError extends Error {
 }
 
 /** fetch wrapper: hard deadline + no redirects (fail closed). */
-export function deadlineFetch(
-  fetchImpl: typeof fetch,
-  timeoutMs: number,
-): typeof fetch {
+export function deadlineFetch(fetchImpl: typeof fetch, timeoutMs: number): typeof fetch {
   return async (input, init) => {
     return fetchImpl(input, {
       ...init,
@@ -139,9 +136,7 @@ export class A2AClient {
     // Every advertised interface must stay on the trusted origin: a card that
     // points at another origin is rejected before any business call.
     const interfaces = card.supportedInterfaces ?? [];
-    const foreign = interfaces.find(
-      (entry) => new URL(entry.url).origin !== endpointOrigin,
-    );
+    const foreign = interfaces.find((entry) => new URL(entry.url).origin !== endpointOrigin);
     if (foreign) {
       throw new A2AClientError(
         "AGENT_UNAVAILABLE",

@@ -75,7 +75,8 @@ export function resolveZone(
     return {
       zone: chosen,
       zoneSource: "geo-tz",
-      zoneEvidence: evidence(lat, lon, geoZones, cityZone, chosen) + "; unresolved (no operational zone)",
+      zoneEvidence:
+        evidence(lat, lon, geoZones, cityZone, chosen) + "; unresolved (no operational zone)",
       ambiguous: false,
       ocean,
       eligibleOrigin: false,
@@ -99,7 +100,8 @@ export function resolveZone(
     return {
       zone: cityZone,
       zoneSource: "geo-tz",
-      zoneEvidence: evidence(lat, lon, geoZones, cityZone, cityZone) + "; cross-checked against reference city",
+      zoneEvidence:
+        evidence(lat, lon, geoZones, cityZone, cityZone) + "; cross-checked against reference city",
       ambiguous: false,
       ocean: false,
       eligibleOrigin: true,
@@ -110,7 +112,8 @@ export function resolveZone(
   return {
     zone: chosen,
     zoneSource: "geo-tz",
-    zoneEvidence: evidence(lat, lon, geoZones, cityZone, chosen) + "; ambiguous (multiple operational zones)",
+    zoneEvidence:
+      evidence(lat, lon, geoZones, cityZone, chosen) + "; ambiguous (multiple operational zones)",
     ambiguous: true,
     ocean: false,
     eligibleOrigin: false,

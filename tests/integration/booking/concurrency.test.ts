@@ -57,10 +57,7 @@ describe("concurrency", () => {
       confirmationKey: randomUUID(),
     };
 
-    const [a, b] = await Promise.all([
-      serviceA.confirm(base),
-      serviceB.confirm(base),
-    ]);
+    const [a, b] = await Promise.all([serviceA.confirm(base), serviceB.confirm(base)]);
     expect(a.reservationId).toBe(b.reservationId);
     expect(a.demoReference).toBe(b.demoReference);
 

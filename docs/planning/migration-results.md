@@ -7,15 +7,15 @@ found, and the evidence for the 25 success conditions in `ODFT_BRIEF.md`.
 
 ## 1. Final gate
 
-| Check | Command | Result |
-| --- | --- | --- |
-| TypeScript | `npm run typecheck` | pass |
-| Lint | `npm run lint` | pass |
-| Unit | `npm run test:unit` | 62 files / 532 tests pass |
-| Integration | `npm run test:integration` | 50 files / 275 tests pass |
-| Production build + boundary verification | `npm run build` | pass (5 known Turbopack tracing warnings) |
-| Browser E2E (isolated stack) | `npm run test:e2e` | 101 passed / 1 skipped |
-| Comparable benchmark | `npm run benchmark:baseline` | 25/30 completed; negative route PASS |
+| Check                                    | Command                      | Result                                    |
+| ---------------------------------------- | ---------------------------- | ----------------------------------------- |
+| TypeScript                               | `npm run typecheck`          | pass                                      |
+| Lint                                     | `npm run lint`               | pass                                      |
+| Unit                                     | `npm run test:unit`          | 62 files / 532 tests pass                 |
+| Integration                              | `npm run test:integration`   | 50 files / 275 tests pass                 |
+| Production build + boundary verification | `npm run build`              | pass (5 known Turbopack tracing warnings) |
+| Browser E2E (isolated stack)             | `npm run test:e2e`           | 101 passed / 1 skipped                    |
+| Comparable benchmark                     | `npm run benchmark:baseline` | 25/30 completed; negative route PASS      |
 
 The E2E suite runs the production `next start` build against a disposable
 `*_test` database and starts the real MCP host, all specialist agents and the
@@ -29,16 +29,16 @@ database names and timing noise. The command to reproduce it is in section 7.
 
 ## 2. Comparable benchmark (six cases × five repetitions)
 
-| Case | Phase 01 graph | Phase 12 coordinator | Total p50 / p95 (Phase 12) |
-| --- | --- | --- | --- |
-| `prg-rome-one-night` | 5/5 | 5/5 | 4941 ms / 5059 ms |
-| `prg-rome-two-nights` | 5/5 | 5/5 | 4807 ms / 5028 ms |
-| `prg-paris-one-night` | **0/5** | **0/5** | — |
-| `prg-paris-two-nights` | **0/5** | **5/5** | 4874 ms / 5091 ms |
-| `prg-barcelona-one-night` | 5/5 | 5/5 | 4765 ms / 4968 ms |
-| `prg-barcelona-two-nights` | 5/5 | 5/5 | 4817 ms / 4919 ms |
-| **Overall** | **20/30 (66.7 %)** | **25/30 (83.3 %)** | **4817 ms / 5059 ms** |
-| Negative route (PRG → České Budějovice) | PASS | PASS | — |
+| Case                                    | Phase 01 graph     | Phase 12 coordinator | Total p50 / p95 (Phase 12) |
+| --------------------------------------- | ------------------ | -------------------- | -------------------------- |
+| `prg-rome-one-night`                    | 5/5                | 5/5                  | 4941 ms / 5059 ms          |
+| `prg-rome-two-nights`                   | 5/5                | 5/5                  | 4807 ms / 5028 ms          |
+| `prg-paris-one-night`                   | **0/5**            | **0/5**              | —                          |
+| `prg-paris-two-nights`                  | **0/5**            | **5/5**              | 4874 ms / 5091 ms          |
+| `prg-barcelona-one-night`               | 5/5                | 5/5                  | 4765 ms / 4968 ms          |
+| `prg-barcelona-two-nights`              | 5/5                | 5/5                  | 4817 ms / 4919 ms          |
+| **Overall**                             | **20/30 (66.7 %)** | **25/30 (83.3 %)**   | **4817 ms / 5059 ms**      |
+| Negative route (PRG → České Budějovice) | PASS               | PASS                 | —                          |
 
 Phase 01 baseline totals were 20/30 with p50 5215 ms / p95 5832 ms; the Phase 02
 post-extraction run was 20/30 with p50 5228 ms. The coordinator therefore
@@ -128,50 +128,50 @@ be mistaken for the active architecture.
 
 ## 4. Scenarios A–L against the final build
 
-| Scenario | Evidence (all re-run in the final gate) |
-| --- | --- |
-| A — Agent discovery | `tests/integration/a2a/*.test.ts`, `coordinator/admission.test.ts`; inspector E2E renders discovered cards. |
-| B — Independent delegation | `tests/integration/a2a/{flight,accommodation,city-guide}.test.ts`; real HTTP tasks and validated v1 artifacts. |
-| C — MCP discovery | `tests/integration/mcp/*.test.ts`; official client discovery/invocation and safe telemetry. |
-| D — Parallel execution | `tests/integration/a2a/parallel-research.test.ts`; overlapping execution windows and persisted aggregation. |
-| E — Additional information | `tests/integration/a2a/{input-required,accommodation-alt}.test.ts`; queue-before-drain and same-task continuations; `protocols/restart.test.ts`. |
-| F — Streaming | `tests/integration/protocols/sdk-interoperability.test.ts`, `tests/e2e/sse-replay.spec.ts`; real status events and deduped replay. |
-| G — Agent failure | `tests/integration/protocols/failure-recovery.test.ts`; explicit `AGENT_RESTARTED`, preserved hotel, scoped City Guide retry. |
-| H — MCP failure | `tests/integration/protocols/failure-recovery.test.ts`; host outage, timeout and fresh-task recovery. |
-| I — Hotel re-planning | `tests/integration/coordinator/itinerary.test.ts`, `tests/e2e/phase-07.spec.ts`; hotel-only refresh and confirmation. |
-| J — Agent replacement | `tests/integration/protocols/agent-replacement.test.ts`, `tests/e2e/agent-replacement.spec.ts`; registry-only switch, old binding retained. |
-| K — Restart recovery | `tests/integration/protocols/restart.test.ts`, `failure-recovery.test.ts`, `coordinator/recovery.test.ts`; canonical task reuse, commit-before-cursor replay (confirm and decline), owner retry. |
-| L — Booking safety | `tests/integration/coordinator/flight-hotel-flow.test.ts`, `tests/integration/coordinator/recovery.test.ts`, `tests/integration/coordinator/cancellation.test.ts`, `tests/e2e/phase-07.spec.ts`; `DEMO-*` references, explicit consent, one confirmed service, idempotent replay. |
+| Scenario                   | Evidence (all re-run in the final gate)                                                                                                                                                                                                                                           |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A — Agent discovery        | `tests/integration/a2a/*.test.ts`, `coordinator/admission.test.ts`; inspector E2E renders discovered cards.                                                                                                                                                                       |
+| B — Independent delegation | `tests/integration/a2a/{flight,accommodation,city-guide}.test.ts`; real HTTP tasks and validated v1 artifacts.                                                                                                                                                                    |
+| C — MCP discovery          | `tests/integration/mcp/*.test.ts`; official client discovery/invocation and safe telemetry.                                                                                                                                                                                       |
+| D — Parallel execution     | `tests/integration/a2a/parallel-research.test.ts`; overlapping execution windows and persisted aggregation.                                                                                                                                                                       |
+| E — Additional information | `tests/integration/a2a/{input-required,accommodation-alt}.test.ts`; queue-before-drain and same-task continuations; `protocols/restart.test.ts`.                                                                                                                                  |
+| F — Streaming              | `tests/integration/protocols/sdk-interoperability.test.ts`, `tests/e2e/sse-replay.spec.ts`; real status events and deduped replay.                                                                                                                                                |
+| G — Agent failure          | `tests/integration/protocols/failure-recovery.test.ts`; explicit `AGENT_RESTARTED`, preserved hotel, scoped City Guide retry.                                                                                                                                                     |
+| H — MCP failure            | `tests/integration/protocols/failure-recovery.test.ts`; host outage, timeout and fresh-task recovery.                                                                                                                                                                             |
+| I — Hotel re-planning      | `tests/integration/coordinator/itinerary.test.ts`, `tests/e2e/phase-07.spec.ts`; hotel-only refresh and confirmation.                                                                                                                                                             |
+| J — Agent replacement      | `tests/integration/protocols/agent-replacement.test.ts`, `tests/e2e/agent-replacement.spec.ts`; registry-only switch, old binding retained.                                                                                                                                       |
+| K — Restart recovery       | `tests/integration/protocols/restart.test.ts`, `failure-recovery.test.ts`, `coordinator/recovery.test.ts`; canonical task reuse, commit-before-cursor replay (confirm and decline), owner retry.                                                                                  |
+| L — Booking safety         | `tests/integration/coordinator/flight-hotel-flow.test.ts`, `tests/integration/coordinator/recovery.test.ts`, `tests/integration/coordinator/cancellation.test.ts`, `tests/e2e/phase-07.spec.ts`; `DEMO-*` references, explicit consent, one confirmed service, idempotent replay. |
 
 ## 5. The 25 success conditions
 
-| # | Condition | Evidence |
-| --- | --- | --- |
-| 1 | Existing planner remains functional | Full unit/integration/E2E gate; benchmark completes 25/30 deterministic trials. |
-| 2 | Frontend recognizably the same | Same wizard, rail, inspector and history routes; E2E covers desktop and mobile. |
-| 3 | European destination support preserved | Offline GeoNames/OurAirports assets; Rome, Paris and Barcelona benchmark cases plus generic-city coverage. |
-| 4 | Synthetic data deterministic and coherent | Six distinct derived seeds, `generator-v1`, `reference-2026-10-10`; identical seeds/fingerprints across trials. |
-| 5 | Travel Variant, Service Level, Activity Pace preserved | Variant cases in the benchmark; service-level and pace tests in `coordinator/itinerary.test.ts` and `e2e/phase-07.spec.ts`. |
-| 6 | Flight feasibility correct | Stage A/B route and schedule tests; negative route case PASS. |
-| 7 | Simulated bookings work | `coordinator/flight-hotel-flow.test.ts`, `coordinator/recovery.test.ts`, `coordinator/cancellation.test.ts`; one `DEMO-*` reservation per service, idempotent replay. |
-| 8 | Natural-language modifications work | `coordinator/decisions.test.ts`, `itinerary.test.ts` chat/pace/route-change tests; E2E chat flows. |
-| 9 | LangGraph no longer a runtime dependency | Build verification rejects LangGraph/checkpointer imports; no graph worker starts. |
-| 10 | Multiple independent A2A agents operational | Flight, Accommodation, Accommodation B and City Guide processes; integration/E2E start them separately. |
-| 11 | Agent Cards discoverable | Card discovery tests and inspector rendering; pinned origin/URL/timeout. |
-| 12 | A2A tasks and structured artifacts used correctly | `sdk-interoperability`, artifact validation, admission/replay and continuation suites. |
-| 13 | At least two agents invoke MCP tools | Flight/Accommodation/City Guide MCP scopes and integration tests. |
-| 14 | Multiple MCP services/capabilities | Three endpoints (`geography`, `travel-data`, `itinerary-tools`) with distinct tool/resource sets. |
-| 15 | Parallel agent execution | `parallel-research.test.ts`; concurrent accommodation/city-guide tasks and overlapping execution windows. |
-| 16 | Input-required interactions | `input-required.test.ts`, `accommodation-alt.test.ts`, coordinator question queue. |
-| 17 | Task progress streamed to the frontend | SSE replay tests and inspector live updates; polling fallback. |
-| 18 | State survives coordinator restart | `protocols/restart.test.ts`, `coordinator/recovery.test.ts`; lease reclaim and saved cursor. |
-| 19 | Agent failures do not corrupt trip state | `failure-recovery.test.ts`; terminal failures, preserved siblings, explicit retry. |
-| 20 | Selective re-planning preserves selections | `coordinator/itinerary.test.ts`; unaffected artifacts/selections/reservations retained. |
-| 21 | One specialist replaceable | `agent-replacement.test.ts`, `e2e/agent-replacement.spec.ts`; registry-only switch. |
-| 22 | Inspector distinguishes A2A and MCP | `agent-communication.spec.ts`; distinct edges and tables for real persisted rows. |
-| 23 | LLM usage/cost observable | Inspector AI telemetry and `llm_usage` ledger; fixture trials record zero billable usage. |
-| 24 | No real reservations/payments | `DEMO-*` references only; disclaimer required; no payment code. |
-| 25 | Automated tests and demos pass | Final gate above: typecheck, lint, 532 unit, 275 integration, build verification, 101 E2E, 30-trial benchmark. |
+| #   | Condition                                              | Evidence                                                                                                                                                              |
+| --- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Existing planner remains functional                    | Full unit/integration/E2E gate; benchmark completes 25/30 deterministic trials.                                                                                       |
+| 2   | Frontend recognizably the same                         | Same wizard, rail, inspector and history routes; E2E covers desktop and mobile.                                                                                       |
+| 3   | European destination support preserved                 | Offline GeoNames/OurAirports assets; Rome, Paris and Barcelona benchmark cases plus generic-city coverage.                                                            |
+| 4   | Synthetic data deterministic and coherent              | Six distinct derived seeds, `generator-v1`, `reference-2026-10-10`; identical seeds/fingerprints across trials.                                                       |
+| 5   | Travel Variant, Service Level, Activity Pace preserved | Variant cases in the benchmark; service-level and pace tests in `coordinator/itinerary.test.ts` and `e2e/phase-07.spec.ts`.                                           |
+| 6   | Flight feasibility correct                             | Stage A/B route and schedule tests; negative route case PASS.                                                                                                         |
+| 7   | Simulated bookings work                                | `coordinator/flight-hotel-flow.test.ts`, `coordinator/recovery.test.ts`, `coordinator/cancellation.test.ts`; one `DEMO-*` reservation per service, idempotent replay. |
+| 8   | Natural-language modifications work                    | `coordinator/decisions.test.ts`, `itinerary.test.ts` chat/pace/route-change tests; E2E chat flows.                                                                    |
+| 9   | LangGraph no longer a runtime dependency               | Build verification rejects LangGraph/checkpointer imports; no graph worker starts.                                                                                    |
+| 10  | Multiple independent A2A agents operational            | Flight, Accommodation, Accommodation B and City Guide processes; integration/E2E start them separately.                                                               |
+| 11  | Agent Cards discoverable                               | Card discovery tests and inspector rendering; pinned origin/URL/timeout.                                                                                              |
+| 12  | A2A tasks and structured artifacts used correctly      | `sdk-interoperability`, artifact validation, admission/replay and continuation suites.                                                                                |
+| 13  | At least two agents invoke MCP tools                   | Flight/Accommodation/City Guide MCP scopes and integration tests.                                                                                                     |
+| 14  | Multiple MCP services/capabilities                     | Three endpoints (`geography`, `travel-data`, `itinerary-tools`) with distinct tool/resource sets.                                                                     |
+| 15  | Parallel agent execution                               | `parallel-research.test.ts`; concurrent accommodation/city-guide tasks and overlapping execution windows.                                                             |
+| 16  | Input-required interactions                            | `input-required.test.ts`, `accommodation-alt.test.ts`, coordinator question queue.                                                                                    |
+| 17  | Task progress streamed to the frontend                 | SSE replay tests and inspector live updates; polling fallback.                                                                                                        |
+| 18  | State survives coordinator restart                     | `protocols/restart.test.ts`, `coordinator/recovery.test.ts`; lease reclaim and saved cursor.                                                                          |
+| 19  | Agent failures do not corrupt trip state               | `failure-recovery.test.ts`; terminal failures, preserved siblings, explicit retry.                                                                                    |
+| 20  | Selective re-planning preserves selections             | `coordinator/itinerary.test.ts`; unaffected artifacts/selections/reservations retained.                                                                               |
+| 21  | One specialist replaceable                             | `agent-replacement.test.ts`, `e2e/agent-replacement.spec.ts`; registry-only switch.                                                                                   |
+| 22  | Inspector distinguishes A2A and MCP                    | `agent-communication.spec.ts`; distinct edges and tables for real persisted rows.                                                                                     |
+| 23  | LLM usage/cost observable                              | Inspector AI telemetry and `llm_usage` ledger; fixture trials record zero billable usage.                                                                             |
+| 24  | No real reservations/payments                          | `DEMO-*` references only; disclaimer required; no payment code.                                                                                                       |
+| 25  | Automated tests and demos pass                         | Final gate above: typecheck, lint, 532 unit, 275 integration, build verification, 101 E2E, 30-trial benchmark.                                                        |
 
 ## 6. Architecture review conclusions
 

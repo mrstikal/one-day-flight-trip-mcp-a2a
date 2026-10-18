@@ -18,13 +18,13 @@ Use plain input for a new thread or a new command after `END`, `Command({resume}
 
 ## Alternatives
 
-| Alternative | Reason not chosen |
-| --- | --- |
-| Prebuilt autonomous agent/supervisor | Unclear domain authority, unnecessary tools/loops/cost |
-| Linear function sequence decorated as a graph | Does not demonstrate the required graph behavior |
-| Six independent chat agents | Deterministic provider research is sufficient; no conversational coordination needed |
-| Static all-domain fan-in barrier | Selective subsets could wait for unscheduled branches |
-| Multiple conditionally reordered interrupts in one node | Index-based resume semantics are fragile |
+| Alternative                                             | Reason not chosen                                                                    |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Prebuilt autonomous agent/supervisor                    | Unclear domain authority, unnecessary tools/loops/cost                               |
+| Linear function sequence decorated as a graph           | Does not demonstrate the required graph behavior                                     |
+| Six independent chat agents                             | Deterministic provider research is sufficient; no conversational coordination needed |
+| Static all-domain fan-in barrier                        | Selective subsets could wait for unscheduled branches                                |
+| Multiple conditionally reordered interrupts in one node | Index-based resume semantics are fragile                                             |
 
 ## Consequences
 

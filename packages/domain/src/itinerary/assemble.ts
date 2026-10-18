@@ -350,10 +350,7 @@ function resolveActivity(
   return { stop, startMinute: start, endMinute: start + duration };
 }
 
-function resolveStops(
-  input: AssembleItineraryInput,
-  issues: ItineraryIssue[],
-): ResolvedStop[] {
+function resolveStops(input: AssembleItineraryInput, issues: ItineraryIssue[]): ResolvedStop[] {
   const resolved: ResolvedStop[] = [];
   for (const stop of input.proposal.stops) {
     if (stop.kind === "meal") {
@@ -448,7 +445,9 @@ export function assembleItinerary(input: AssembleItineraryInput): ItineraryAssem
 
   for (const entry of resolved) {
     const stop = entry.stop;
-    const previousWithRoute = [...placed].reverse().find((candidate) => candidate.routeRef !== null);
+    const previousWithRoute = [...placed]
+      .reverse()
+      .find((candidate) => candidate.routeRef !== null);
     if (previousWithRoute && previousWithRoute.anchor) {
       const gap = entry.startMinute - previousWithRoute.event.endMinute;
       const nextAnchor = anchorFor(stop, input);
@@ -556,7 +555,7 @@ export function assembleItinerary(input: AssembleItineraryInput): ItineraryAssem
         }
       }
     }
-    const event = eventFor(stop, input, entry, eventIndex += 1);
+    const event = eventFor(stop, input, entry, (eventIndex += 1));
     placed.push({
       event,
       anchor: anchorFor(stop, input),
@@ -578,7 +577,10 @@ export function assembleItinerary(input: AssembleItineraryInput): ItineraryAssem
   const sameDayReturn = departureMinuteRaw < 1440;
   const departureMinute = Math.min(1440, departureMinuteRaw);
   const contentEvents = placed.filter(
-    (entry) => entry.event.kind === "meal" || entry.event.kind === "activity" || entry.event.kind === "free_time",
+    (entry) =>
+      entry.event.kind === "meal" ||
+      entry.event.kind === "activity" ||
+      entry.event.kind === "free_time",
   );
   const lastContent = [...contentEvents]
     .sort((a, b) => a.event.endMinute - b.event.endMinute)
@@ -637,7 +639,10 @@ export function assembleItinerary(input: AssembleItineraryInput): ItineraryAssem
     }
   }
   const remainingContent = placed.filter(
-    (entry) => entry.event.kind === "meal" || entry.event.kind === "activity" || entry.event.kind === "free_time",
+    (entry) =>
+      entry.event.kind === "meal" ||
+      entry.event.kind === "activity" ||
+      entry.event.kind === "free_time",
   );
   const lastContentEnd =
     remainingContent.length === 0
@@ -661,7 +666,10 @@ export function assembleItinerary(input: AssembleItineraryInput): ItineraryAssem
         provenance: [
           "Return-flight buffer",
           ...(airportTransfer
-            ? [`Airport transfer ~${airportTransfer.estimatedMinutes} min (simulated)`, "Fixed flight window"]
+            ? [
+                `Airport transfer ~${airportTransfer.estimatedMinutes} min (simulated)`,
+                "Fixed flight window",
+              ]
             : ["Fixed flight window"]),
         ],
         physicalDemand: "low",
@@ -733,7 +741,7 @@ function anchorFor(stop: ProposedStop, input: AssembleItineraryInput): Itinerary
 }
 
 function routeRefFor(stop: ProposedStop): string | null {
-  return stop.kind === "meal" || stop.kind === "activity" ? stop.refId ?? null : null;
+  return stop.kind === "meal" || stop.kind === "activity" ? (stop.refId ?? null) : null;
 }
 
 function titleFor(stop: ProposedStop, input: AssembleItineraryInput): string {
@@ -765,7 +773,9 @@ function eventFor(
       refId: offer?.id ?? null,
       activityTags: [],
       provenance: [
-        locked ? `Confirmed ${offer?.meal ?? "meal"}` : `Selected ${offer?.meal ?? "meal"} (${offer?.level ?? "standard"})`,
+        locked
+          ? `Confirmed ${offer?.meal ?? "meal"}`
+          : `Selected ${offer?.meal ?? "meal"} (${offer?.level ?? "standard"})`,
         ...(offer?.provenance ?? []),
       ].slice(0, 6),
       physicalDemand: "low",
@@ -978,7 +988,10 @@ function buildCosts(
   const excludedNotes = [
     ...[...input.selfArrangedMeals]
       .sort()
-      .map((meal) => `${meal.charAt(0).toUpperCase()}${meal.slice(1)} is self-arranged and not part of the plan.`),
+      .map(
+        (meal) =>
+          `${meal.charAt(0).toUpperCase()}${meal.slice(1)} is self-arranged and not part of the plan.`,
+      ),
     ...(input.selfArrangedActivities
       ? ["Activities are self-arranged and not part of the plan."]
       : []),
@@ -1004,7 +1017,6 @@ export function haversineKm(a: ItineraryLatLon, b: ItineraryLatLon): number {
   const dLon = ((b.lon - a.lon) * Math.PI) / 180;
   const lat1 = (a.lat * Math.PI) / 180;
   const lat2 = (b.lat * Math.PI) / 180;
-  const h =
-    Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
   return 2 * radiusKm * Math.asin(Math.sqrt(h));
 }

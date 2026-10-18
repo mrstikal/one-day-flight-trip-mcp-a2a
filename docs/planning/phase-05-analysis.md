@@ -20,15 +20,15 @@ legacy removal.
 
 ### 2.1 Shared lock graph today (§3.8 audit)
 
-| Path | Current locks (in order) | Verdict |
-| --- | --- | --- |
-| `operations/control.ts` (`retry/cancel control`) | `lockTrip` → operation update | compliant (trip → operation) |
-| `llm-calls.ts` `reserveCall` | `BEGIN` → `SELECT trips … FOR UPDATE` → ledger insert/update | compliant (trip → ledger) |
-| `booking-store.ts` (BookingService) | `lockTrip` → proposal/reservation writes | compliant (trip first) |
-| `operations/claim.ts` claim/renew | operation-only (`FOR UPDATE SKIP LOCKED`) | allowed (never takes a trip lock afterwards) |
-| `operations/fencing.ts` checkpoint gate | `pg_advisory_xact_lock` after caller's app locks; saver-side guard reads ownership WITHOUT `FOR UPDATE` | compliant with §3.8's gate rule |
-| **`operations/finalize.ts` `finalizeWaiting`/`finalizeSuccess`** | **`UPDATE workflow_operations` (operation row lock) → `UPDATE trips`** | **VIOLATION: operation → trip** |
-| **`operations/claim.ts` `reapExhaustedOperations`** | **batch `FOR UPDATE SKIP LOCKED` on operations → `UPDATE trips` per row** | **VIOLATION: operation batch → trip** |
+| Path                                                             | Current locks (in order)                                                                                | Verdict                                      |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `operations/control.ts` (`retry/cancel control`)                 | `lockTrip` → operation update                                                                           | compliant (trip → operation)                 |
+| `llm-calls.ts` `reserveCall`                                     | `BEGIN` → `SELECT trips … FOR UPDATE` → ledger insert/update                                            | compliant (trip → ledger)                    |
+| `booking-store.ts` (BookingService)                              | `lockTrip` → proposal/reservation writes                                                                | compliant (trip first)                       |
+| `operations/claim.ts` claim/renew                                | operation-only (`FOR UPDATE SKIP LOCKED`)                                                               | allowed (never takes a trip lock afterwards) |
+| `operations/fencing.ts` checkpoint gate                          | `pg_advisory_xact_lock` after caller's app locks; saver-side guard reads ownership WITHOUT `FOR UPDATE` | compliant with §3.8's gate rule              |
+| **`operations/finalize.ts` `finalizeWaiting`/`finalizeSuccess`** | **`UPDATE workflow_operations` (operation row lock) → `UPDATE trips`**                                  | **VIOLATION: operation → trip**              |
+| **`operations/claim.ts` `reapExhaustedOperations`**              | **batch `FOR UPDATE SKIP LOCKED` on operations → `UPDATE trips` per row**                               | **VIOLATION: operation batch → trip**        |
 
 Both violations are exactly the "existing operation-before-trip
 finalizers/reapers" §3.8 orders fixed before delegated reservations can be
@@ -75,7 +75,7 @@ Concrete changes (implementation pass):
 
 1. **`finalizeWaiting`/`finalizeSuccess`/`finalizeFailure`** (and the blocked
    path): take the trip row lock FIRST (`SELECT … FROM trips WHERE id = $1 FOR
-   UPDATE`, i.e. reuse `lockTrip`), then transition the operation by fence.
+UPDATE`, i.e. reuse `lockTrip`), then transition the operation by fence.
    Ordering change only; the fence check, decision insert/retire, event and
    result payload stay byte-identical. On a stale fence the transaction rolls
    back (already the behavior).
@@ -107,9 +107,14 @@ New tagged authority in `packages/services/src/ai/authority.ts`:
 ```ts
 interface DelegatedAuthority {
   kind: "delegation";
-  delegationId: string; agentIdentity: string; skillId: string;
-  tripId: string; snapshotId: string; acceptedRevision: number;
-  domains: DelegationDomain[]; inputGeneration: number;
+  delegationId: string;
+  agentIdentity: string;
+  skillId: string;
+  tripId: string;
+  snapshotId: string;
+  acceptedRevision: number;
+  domains: DelegationDomain[];
+  inputGeneration: number;
 }
 ```
 
@@ -200,14 +205,14 @@ progress/artifact/terminal events, `markSettled`/`markWorking`, cancellation.
 
 ## 6. Crash-boundary matrix (proposed verification)
 
-| Boundary | Behavior | Test |
-| --- | --- | --- |
-| before send | reclaim + deliver persisted message | coordinator-side test in Phase 07; here: agent-side admission only |
-| after remote admission / lost acknowledgement | resend identical message id → canonical task, no second execution | `message-deduplication.test.ts` |
-| crash before first work | startup reconciliation → `FAILED/AGENT_RESTARTED`, duplicate replays failed task | `flight.test.ts` (crash flag fixture, as Phase 03) |
-| while streaming | retrieve canonical task; completed output retrievable | `flight.test.ts` |
-| after artifact persistence before completion | artifact cached (`protocol_validated_outputs`), terminal event on resume | `flight.test.ts` |
-| cancellation | SDK cancellation + local revocation; late artifacts inadmissible | `flight.test.ts` |
+| Boundary                                      | Behavior                                                                         | Test                                                               |
+| --------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| before send                                   | reclaim + deliver persisted message                                              | coordinator-side test in Phase 07; here: agent-side admission only |
+| after remote admission / lost acknowledgement | resend identical message id → canonical task, no second execution                | `message-deduplication.test.ts`                                    |
+| crash before first work                       | startup reconciliation → `FAILED/AGENT_RESTARTED`, duplicate replays failed task | `flight.test.ts` (crash flag fixture, as Phase 03)                 |
+| while streaming                               | retrieve canonical task; completed output retrievable                            | `flight.test.ts`                                                   |
+| after artifact persistence before completion  | artifact cached (`protocol_validated_outputs`), terminal event on resume         | `flight.test.ts`                                                   |
+| cancellation                                  | SDK cancellation + local revocation; late artifacts inadmissible                 | `flight.test.ts`                                                   |
 
 ## 7. Validation approach
 

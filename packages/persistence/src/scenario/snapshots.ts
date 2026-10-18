@@ -261,7 +261,13 @@ export async function persistSnapshotVersion(
       }
     }
     const previous = latest ? scenarioManifestSchema.parse(latest.manifest) : undefined;
-    const manifest = buildManifest(randomUUID(), content, content.routeFingerprint, input.scenarioId, previous);
+    const manifest = buildManifest(
+      randomUUID(),
+      content,
+      content.routeFingerprint,
+      input.scenarioId,
+      previous,
+    );
     await insertSnapshot(client, input.tripId, content, manifest);
     await client.query("COMMIT");
     return { manifest, reused: false };

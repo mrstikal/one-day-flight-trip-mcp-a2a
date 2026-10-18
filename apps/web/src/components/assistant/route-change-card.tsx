@@ -80,7 +80,8 @@ export function RouteChangeCard({
           <ul className="mt-1 list-disc pl-5 text-xs" data-testid="route-change-reservations">
             {preview.affectedReservations.map((reservation) => (
               <li key={reservation.id}>
-                {reservation.serviceKey} — {reservation.demoReference} ({money(reservation.partyTotalMinor)})
+                {reservation.serviceKey} — {reservation.demoReference} (
+                {money(reservation.partyTotalMinor)})
               </li>
             ))}
           </ul>

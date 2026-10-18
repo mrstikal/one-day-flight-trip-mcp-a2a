@@ -68,13 +68,13 @@ tests/e2e/phase-09.spec.ts
 
 ## 7. Functions and Interfaces to Implement
 
-| Contract | Input -> Output | Required failure behavior |
-| --- | --- | --- |
-| `dispatchResearch(ctx)` | current fingerprints + failed scope -> `Send[]` or direct continuation | idempotent run scope under the dispatch effect key; zero domains never wait on fan-in |
-| `researchDomain(one TaskInput)` | domain + refs -> tagged result + artifact | known provider errors tagged, unexpected errors abort the superstep |
-| `joinResearch(state)` | scheduled keys -> merged retained results or retry scope | missing scheduled key -> typed failure; conflicting same-key results rejected |
-| `rankRecommendations(ctx)` | valid candidates + preferences -> ordered IDs + reasons | deterministic filter binding; invalid AI IDs/claims rejected |
-| `recordFaultOutcome(tx, { tripId, operationId, domain, fault })` | persisted overlay counters -> updated state | survives retries/restarts; never regenerates inventory |
+| Contract                                                         | Input -> Output                                                        | Required failure behavior                                                             |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `dispatchResearch(ctx)`                                          | current fingerprints + failed scope -> `Send[]` or direct continuation | idempotent run scope under the dispatch effect key; zero domains never wait on fan-in |
+| `researchDomain(one TaskInput)`                                  | domain + refs -> tagged result + artifact                              | known provider errors tagged, unexpected errors abort the superstep                   |
+| `joinResearch(state)`                                            | scheduled keys -> merged retained results or retry scope               | missing scheduled key -> typed failure; conflicting same-key results rejected         |
+| `rankRecommendations(ctx)`                                       | valid candidates + preferences -> ordered IDs + reasons                | deterministic filter binding; invalid AI IDs/claims rejected                          |
+| `recordFaultOutcome(tx, { tripId, operationId, domain, fault })` | persisted overlay counters -> updated state                            | survives retries/restarts; never regenerates inventory                                |
 
 ## 8. Outputs / Deliverables
 

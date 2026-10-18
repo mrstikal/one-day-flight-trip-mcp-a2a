@@ -102,9 +102,7 @@ export async function linkObservationToEvent(
   const current = existing.rows[0]?.application_event_id;
   if (current !== null && current !== undefined) {
     if (current !== input.applicationEventId) {
-      throw new Error(
-        `observation ${input.observationId} is already linked to event ${current}`,
-      );
+      throw new Error(`observation ${input.observationId} is already linked to event ${current}`);
     }
     return;
   }

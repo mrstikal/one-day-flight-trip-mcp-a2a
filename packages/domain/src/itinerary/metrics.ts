@@ -58,7 +58,9 @@ export function computeItineraryMetrics(input: ItineraryMetricsInput): Itinerary
     }
     if (event.kind === "activity" || event.kind === "meal") {
       firstContentStart =
-        firstContentStart === null ? event.startMinute : Math.min(firstContentStart, event.startMinute);
+        firstContentStart === null
+          ? event.startMinute
+          : Math.min(firstContentStart, event.startMinute);
       lastContentEnd =
         lastContentEnd === null ? event.endMinute : Math.max(lastContentEnd, event.endMinute);
     }
@@ -77,8 +79,7 @@ export function computeItineraryMetrics(input: ItineraryMetricsInput): Itinerary
     }
   }
 
-  const remaining =
-    input.budgetMinor === null ? null : input.budgetMinor - input.totalCostMinor;
+  const remaining = input.budgetMinor === null ? null : input.budgetMinor - input.totalCostMinor;
 
   return {
     activityCount,
@@ -101,10 +102,7 @@ export function computeItineraryMetrics(input: ItineraryMetricsInput): Itinerary
 /**
  * Pace guideline warning: a visible explanation, never a blocker.
  */
-export function paceGuidelineMessage(
-  profile: PaceProfile,
-  activityCount: number,
-): string | null {
+export function paceGuidelineMessage(profile: PaceProfile, activityCount: number): string | null {
   if (activityCount === 0) {
     return null;
   }

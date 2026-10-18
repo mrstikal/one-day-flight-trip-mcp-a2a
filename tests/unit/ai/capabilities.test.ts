@@ -112,7 +112,9 @@ describe("capability manifest loading", () => {
       now: new Date("2026-10-15T12:00:00.000Z"),
     }).catch((thrown: unknown) => thrown);
     expect(error).toBeInstanceOf(AdapterError);
-    expect((error as AdapterError).message).toMatch(/does not cover configured model\(s\) openai\/gpt-other/);
+    expect((error as AdapterError).message).toMatch(
+      /does not cover configured model\(s\) openai\/gpt-other/,
+    );
     expect((error as AdapterError).message).toMatch(/npm run ai:validate-models/);
   });
 

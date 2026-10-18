@@ -1,8 +1,5 @@
 import { z } from "zod";
-import {
-  ResourceTemplate,
-  type McpServer,
-} from "@modelcontextprotocol/server";
+import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/server";
 import { REFERENCE_VERSION } from "@odft/contracts";
 import { PACE_PROFILES } from "@odft/domain";
 import { countReferenceCoverage, listReferenceManifests } from "@odft/persistence";
@@ -96,7 +93,6 @@ export function registerResources(
       },
     );
   }
-
 }
 
 /** Delegation-scoped manifest resource (travel-data endpoint). */
@@ -105,7 +101,9 @@ export function registerScenarioManifestResource(
   context: McpHostContext,
   identity: string,
 ): void {
-  const template = new ResourceTemplate("odft://scenario/{snapshotId}/manifest", { list: undefined });
+  const template = new ResourceTemplate("odft://scenario/{snapshotId}/manifest", {
+    list: undefined,
+  });
   server.registerResource(
     "scenario-manifest",
     template,

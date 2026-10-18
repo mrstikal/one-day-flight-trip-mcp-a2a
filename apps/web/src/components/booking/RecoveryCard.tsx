@@ -60,9 +60,9 @@ export function RecoveryCard({
         We need one change to keep your day feasible
       </h2>
       <p className="text-sm text-ink-muted">
-        The confirmed plan needs one adjustment (for example a transfer, a meal window, or an
-        option that is unavailable for the selected category). Nothing has been changed
-        automatically; pick which part to adjust.
+        The confirmed plan needs one adjustment (for example a transfer, a meal window, or an option
+        that is unavailable for the selected category). Nothing has been changed automatically; pick
+        which part to adjust.
       </p>
       {error ? (
         <p role="alert" className="text-sm text-clay">

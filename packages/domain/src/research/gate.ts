@@ -10,11 +10,17 @@ import { RESEARCH_DOMAINS, type ResearchDomain, type ResearchDomainStatus } from
  * contractually optional (a deterministic no-slot result) and events never block.
  */
 
-export const NECESSARY_RESEARCH_DOMAINS: readonly ResearchDomain[] = ["hotel", "breakfast", "lunch"];
+export const NECESSARY_RESEARCH_DOMAINS: readonly ResearchDomain[] = [
+  "hotel",
+  "breakfast",
+  "lunch",
+];
 
 export interface ResearchGateInput {
   /** Latest result per domain (only domains with a result). */
-  readonly results: Readonly<Partial<Record<ResearchDomain, { readonly status: ResearchDomainStatus }>>>;
+  readonly results: Readonly<
+    Partial<Record<ResearchDomain, { readonly status: ResearchDomainStatus }>>
+  >;
   /** The decision the run is heading to (`hotel_choice`, `program_choices`, ...). */
   readonly nextDecisionKind: string | null;
   /** Domains dispatched in the run being joined (kept small, never all six). */
@@ -58,8 +64,6 @@ export function computeResearchGate(input: ResearchGateInput): ResearchGateResul
           : `A required option is unavailable (${blocking[0]}).`,
     };
   }
-  const partial = input.requiredDomains.some(
-    (domain) => input.results[domain]?.status !== "ok",
-  );
+  const partial = input.requiredDomains.some((domain) => input.results[domain]?.status !== "ok");
   return { status: partial ? "partial" : "ok", blockingDomains: [], reason: null };
 }

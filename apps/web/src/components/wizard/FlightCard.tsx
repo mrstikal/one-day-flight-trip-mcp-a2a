@@ -27,8 +27,9 @@ function DirectionSummary({
               {formatTime(segment.arrivalInstant, segment.arrivalZone)}
             </span>
             <span className="text-xs text-ink-muted">
-              {segment.airlineName} {segment.flightNumber} · {formatDuration(segment.elapsedMinutes)}{" "}
-              · departs {formatTime(segment.departureInstant, "UTC")} UTC
+              {segment.airlineName} {segment.flightNumber} ·{" "}
+              {formatDuration(segment.elapsedMinutes)} · departs{" "}
+              {formatTime(segment.departureInstant, "UTC")} UTC
             </span>
             {segment.layoverAfterMinutes > 0 ? (
               <span className="text-xs text-ink-muted">

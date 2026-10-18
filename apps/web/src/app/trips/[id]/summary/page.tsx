@@ -42,12 +42,10 @@ export default async function SummaryPage({
   const activeReservations = reservations.filter((row) => row.status === "confirmed");
   // Phase 12: flight/hotel selections whose booking was declined ("I don't want
   // to book") are still unbooked and can be booked from here.
-  const notBooked = (
-    [
-      { serviceKey: "flights" as const, label: "flight", selection: selections.flights },
-      { serviceKey: "hotel" as const, label: "hotel", selection: selections.hotel },
-    ]
-  ).filter((entry) => entry.selection.offerId !== null && !entry.selection.booked);
+  const notBooked = [
+    { serviceKey: "flights" as const, label: "flight", selection: selections.flights },
+    { serviceKey: "hotel" as const, label: "hotel", selection: selections.hotel },
+  ].filter((entry) => entry.selection.offerId !== null && !entry.selection.booked);
   // The summary is also a waypoint: offer the trip's current step, if any.
   const nextStep = nextTripStep({
     tripId: id,
@@ -123,8 +121,8 @@ export default async function SummaryPage({
         <section className="flex flex-col gap-3" data-testid="not-booked-section">
           <h2 className="text-xl text-clay">Not booked</h2>
           <p className="text-sm text-ink-muted">
-            These keep your selection and are part of the plan, but no simulated reservation
-            exists. You can book them at any time.
+            These keep your selection and are part of the plan, but no simulated reservation exists.
+            You can book them at any time.
           </p>
           <ul className="flex flex-col gap-3">
             {notBooked.map((entry) => (

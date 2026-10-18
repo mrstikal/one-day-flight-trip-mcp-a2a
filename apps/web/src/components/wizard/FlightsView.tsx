@@ -213,7 +213,12 @@ export function FlightsView({ tripId }: { readonly tripId: string }): React.JSX.
   if (flights.routeStatus === "INFEASIBLE" || flights.routeStatus === "UNDETERMINED") {
     return wrap(
       <RouteRejectionCard reasons={flights.routeReasons} alternatives={flights.alternatives}>
-        <RouteFix tripId={tripId} revision={projection.trip.revision} onSubmitted={refresh} disabled={readOnly} />
+        <RouteFix
+          tripId={tripId}
+          revision={projection.trip.revision}
+          onSubmitted={refresh}
+          disabled={readOnly}
+        />
       </RouteRejectionCard>,
     );
   }
@@ -417,8 +422,8 @@ export function FlightsView({ tripId }: { readonly tripId: string }): React.JSX.
           </span>
         </header>
         <p role="note" className="rounded bg-info p-3 text-sm text-clay">
-          No simulated reservation exists for this flight; you arrange the booking yourself. The
-          day plan is still built around its times, including the airport buffer and its cost.
+          No simulated reservation exists for this flight; you arrange the booking yourself. The day
+          plan is still built around its times, including the airport buffer and its cost.
         </p>
         <ul className="flex flex-col gap-4" aria-label="Selected flight">
           <FlightCard

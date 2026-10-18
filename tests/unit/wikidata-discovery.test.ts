@@ -92,14 +92,22 @@ describe("discoverCityLandmarks", () => {
   it("fails closed on an unexpected response shape", async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ unexpected: true })));
     await expect(
-      discoverCityLandmarks({ center: CENTER, envelopeRadiusKm: 10, fetchImpl: fetchImpl as never }),
+      discoverCityLandmarks({
+        center: CENTER,
+        envelopeRadiusKm: 10,
+        fetchImpl: fetchImpl as never,
+      }),
     ).rejects.toThrow(/unexpected response shape/);
   });
 
   it("surfaces a non-OK HTTP status", async () => {
     const fetchImpl = vi.fn(async () => new Response("boom", { status: 502 }));
     await expect(
-      discoverCityLandmarks({ center: CENTER, envelopeRadiusKm: 10, fetchImpl: fetchImpl as never }),
+      discoverCityLandmarks({
+        center: CENTER,
+        envelopeRadiusKm: 10,
+        fetchImpl: fetchImpl as never,
+      }),
     ).rejects.toThrow(/HTTP 502/);
   });
 });

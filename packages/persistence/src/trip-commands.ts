@@ -59,8 +59,13 @@ async function applyCommandInMemory(
   state: TripRouteState,
   command: DomainCommand,
 ): Promise<{ state: TripRouteState; routeChanged: boolean; preferencesChanged: boolean }> {
-  let { originAirportId, destinationCityId, destinationCountryKey, sightseeingDate, travelVariant } =
-    state;
+  let {
+    originAirportId,
+    destinationCityId,
+    destinationCountryKey,
+    sightseeingDate,
+    travelVariant,
+  } = state;
   let preferences = state.preferences;
   let routeChanged = false;
   const originalPreferences = JSON.stringify(preferences);

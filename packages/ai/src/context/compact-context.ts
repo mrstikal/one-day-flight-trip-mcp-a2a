@@ -62,7 +62,9 @@ const pendingClarificationSchema = z
     question: nonEmptyStringSchema,
     requestedCommands: z.array(z.unknown()).max(4),
     preserve: z.array(preservableKeySchema),
-    options: z.array(z.object({ id: nonEmptyStringSchema, label: nonEmptyStringSchema }).strict()).max(4),
+    options: z
+      .array(z.object({ id: nonEmptyStringSchema, label: nonEmptyStringSchema }).strict())
+      .max(4),
   })
   .strict();
 
@@ -207,9 +209,7 @@ export function buildCompactContext(
     context = candidate();
   }
   if (estimateTokens(context) > budget.maxInputTokens) {
-    throw new ReducedScopeError(
-      "the required trip context exceeds the configured AI input budget",
-    );
+    throw new ReducedScopeError("the required trip context exceeds the configured AI input budget");
   }
   return context;
 }

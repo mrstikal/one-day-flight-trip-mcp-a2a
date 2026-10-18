@@ -17,10 +17,7 @@ import {
   dataMessage,
   agentTaskRequestData,
 } from "../a2a/_setup-agents.js";
-import {
-  seedDelegatedSnapshot,
-  type SeededSnapshot,
-} from "../mcp/_setup.js";
+import { seedDelegatedSnapshot, type SeededSnapshot } from "../mcp/_setup.js";
 import {
   createCoordinatorTrip,
   driveUntilParked,
@@ -42,7 +39,11 @@ let seeded: SeededSnapshot;
 let oldDelegationId: string;
 let oldTask: Task;
 
-async function sendWith(config: ReturnType<typeof accommodationAgentClientConfig>, identity: string, data: unknown): Promise<Task> {
+async function sendWith(
+  config: ReturnType<typeof accommodationAgentClientConfig>,
+  identity: string,
+  data: unknown,
+): Promise<Task> {
   const client = new A2AClient({ config });
   const result = await client.sendMessage(identity, {
     message: dataMessage(data),

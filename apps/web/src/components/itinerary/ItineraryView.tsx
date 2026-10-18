@@ -311,12 +311,10 @@ export function ItineraryView({ tripId }: { readonly tripId: string }): React.JS
 
       <CostBreakdown
         itinerary={itinerary}
-        notBooked={(
-          [
-            { category: "flights" as const, selection: projection.selections.flights },
-            { category: "hotel" as const, selection: projection.selections.hotel },
-          ]
-        )
+        notBooked={[
+          { category: "flights" as const, selection: projection.selections.flights },
+          { category: "hotel" as const, selection: projection.selections.hotel },
+        ]
           .filter((entry) => entry.selection.offerId !== null && !entry.selection.booked)
           .map((entry) => entry.category)}
       />

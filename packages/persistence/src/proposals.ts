@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import type { BookableKey, InsertProposalInput, ProposalRecord, ProposalStatus } from "@odft/contracts";
+import type {
+  BookableKey,
+  InsertProposalInput,
+  ProposalRecord,
+  ProposalStatus,
+} from "@odft/contracts";
 
 type Queryable = Pick<PoolClient, "query">;
 

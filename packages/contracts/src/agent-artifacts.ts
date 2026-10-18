@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { delegationDomainSchema, mealSchema, researchDomainSchema, serviceLevelSchema } from "./enums.js";
+import {
+  delegationDomainSchema,
+  mealSchema,
+  researchDomainSchema,
+  serviceLevelSchema,
+} from "./enums.js";
 import {
   fingerprintSchema,
   instantSchema,
@@ -194,9 +199,7 @@ export const agentInputRequestSchema = z
     question: z.string().trim().min(1).max(400),
     options: z
       .array(
-        z
-          .object({ id: nonEmptyStringSchema, label: z.string().trim().min(1).max(120) })
-          .strict(),
+        z.object({ id: nonEmptyStringSchema, label: z.string().trim().min(1).max(120) }).strict(),
       )
       .min(2)
       .max(4),
@@ -207,12 +210,20 @@ export const agentInputRequestSchema = z
 export type AgentInputRequest = z.infer<typeof agentInputRequestSchema>;
 
 export const agentArtifactSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("flight_recommendations"), value: flightRecommendationsSchema }).strict(),
   z
-    .object({ kind: z.literal("accommodation_recommendations"), value: accommodationRecommendationsSchema })
+    .object({ kind: z.literal("flight_recommendations"), value: flightRecommendationsSchema })
     .strict(),
   z
-    .object({ kind: z.literal("city_guide_recommendations"), value: cityGuideRecommendationsSchema })
+    .object({
+      kind: z.literal("accommodation_recommendations"),
+      value: accommodationRecommendationsSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("city_guide_recommendations"),
+      value: cityGuideRecommendationsSchema,
+    })
     .strict(),
   z.object({ kind: z.literal("itinerary_proposal"), value: itineraryProposalSchema }).strict(),
   z.object({ kind: z.literal("agent_input_request"), value: agentInputRequestSchema }).strict(),

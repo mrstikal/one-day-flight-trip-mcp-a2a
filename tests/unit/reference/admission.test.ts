@@ -10,10 +10,51 @@ const manifest = new AdmissionManifest(loadCountryPolicy());
 describe("T-UT-REF-01 admission manifest", () => {
   it("admits EU members and the listed non-EU countries", () => {
     const expected = [
-      "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE",
-      "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
-      "GB", "CH", "NO", "IS", "LI", "AL", "BA", "ME", "MK", "RS", "MD", "UA", "BY",
-      "AD", "MC", "SM", "VA", "XK",
+      "AT",
+      "BE",
+      "BG",
+      "HR",
+      "CY",
+      "CZ",
+      "DK",
+      "EE",
+      "FI",
+      "FR",
+      "DE",
+      "GR",
+      "HU",
+      "IE",
+      "IT",
+      "LV",
+      "LT",
+      "LU",
+      "MT",
+      "NL",
+      "PL",
+      "PT",
+      "RO",
+      "SK",
+      "SI",
+      "ES",
+      "SE",
+      "GB",
+      "CH",
+      "NO",
+      "IS",
+      "LI",
+      "AL",
+      "BA",
+      "ME",
+      "MK",
+      "RS",
+      "MD",
+      "UA",
+      "BY",
+      "AD",
+      "MC",
+      "SM",
+      "VA",
+      "XK",
     ];
     for (const key of expected) {
       expect(manifest.isAdmittedCountry(key), key).toBe(true);
@@ -57,7 +98,9 @@ describe("T-UT-REF-01 admission manifest", () => {
   });
 
   it("emits only admitted countries, with XK marked as an extension", async () => {
-    const path = fileURLToPath(new URL("../../../data/reference/countries.ndjson", import.meta.url));
+    const path = fileURLToPath(
+      new URL("../../../data/reference/countries.ndjson", import.meta.url),
+    );
     const rows = (await readFile(path, "utf8"))
       .split("\n")
       .filter((line) => line.trim().length > 0)

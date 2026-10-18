@@ -1,10 +1,11 @@
-import type { AIRole, BookableKey, ModelFacingCommand, ModelFacingIntentResult } from "@odft/contracts";
-import type { IntentContext } from "./context/compact-context.js";
 import type {
-  LLMAdapter,
-  StructuredRequest,
-  StructuredResponse,
-} from "./adapter.js";
+  AIRole,
+  BookableKey,
+  ModelFacingCommand,
+  ModelFacingIntentResult,
+} from "@odft/contracts";
+import type { IntentContext } from "./context/compact-context.js";
+import type { LLMAdapter, StructuredRequest, StructuredResponse } from "./adapter.js";
 import { AdapterError } from "./adapter.js";
 import type {
   PlannerContext,
@@ -69,9 +70,7 @@ export function fixtureIntent(message: string, context: IntentContext): ModelFac
   // A relative count ("two more museums") is resolved against the CURRENT count, so
   // the numeric request keeps its meaning instead of collapsing to the bare number.
   const requestedMuseums =
-    museumsRequest && relativeCount
-      ? museumCount(context) + (explicitCount ?? 1)
-      : explicitCount;
+    museumsRequest && relativeCount ? museumCount(context) + (explicitCount ?? 1) : explicitCount;
 
   // Above the seven-activity cap the request cannot be honored: ask, never clamp
   // silently (the numeric meaning must survive).
@@ -80,9 +79,7 @@ export function fixtureIntent(message: string, context: IntentContext): ModelFac
     return {
       kind: "clarification",
       question: `At most 7 museums fit the day; you asked for ${requestedMuseums}. What should I do?`,
-      requestedCommands: [
-        { type: "set_activity_requirement", tag: "museum", minimumCount: 7 },
-      ],
+      requestedCommands: [{ type: "set_activity_requirement", tag: "museum", minimumCount: 7 }],
       preserve: [],
       options: [
         {
@@ -139,7 +136,9 @@ export function fixtureIntent(message: string, context: IntentContext): ModelFac
       if (selected && selected.service !== "activities" && selected.service !== "events") {
         return {
           kind: "commands",
-          commands: [{ type: "propose_selection", service: selected.service, offerId: selected.offerId }],
+          commands: [
+            { type: "propose_selection", service: selected.service, offerId: selected.offerId },
+          ],
           preserve: [],
           interpretation: "Open the existing selection for review; nothing is confirmed yet.",
         };
@@ -162,7 +161,11 @@ export function fixtureIntent(message: string, context: IntentContext): ModelFac
             id: `review_${index + 1}`,
             label: `Review the ${service.service}`,
             commands: [
-              { type: "propose_selection" as const, service: service.service, offerId: service.offerId },
+              {
+                type: "propose_selection" as const,
+                service: service.service,
+                offerId: service.offerId,
+              },
             ],
           })),
         };
@@ -223,7 +226,14 @@ export function fixtureIntent(message: string, context: IntentContext): ModelFac
         {
           id: "luxury_level",
           label: "A luxury category hotel",
-          commands: [{ type: "find_alternatives", target: "hotel", objective: "match_preferences", level: "luxury" }],
+          commands: [
+            {
+              type: "find_alternatives",
+              target: "hotel",
+              objective: "match_preferences",
+              level: "luxury",
+            },
+          ],
         },
       ],
     };
@@ -319,9 +329,11 @@ export function fixtureIntent(message: string, context: IntentContext): ModelFac
 }
 
 /** Deterministic fixture ranking: cheaper first, then by id (stable ordering). */
-export function fixtureRecommendation(
-  context: RecommendationContext,
-): { rankedOfferIds: string[]; reasons: { offerId: string; explanation: string }[]; tradeoffs: string[] } {
+export function fixtureRecommendation(context: RecommendationContext): {
+  rankedOfferIds: string[];
+  reasons: { offerId: string; explanation: string }[];
+  tradeoffs: string[];
+} {
   const ranked = [...context.candidates].sort(
     (a, b) => a.partyTotalMinor - b.partyTotalMinor || a.offerId.localeCompare(b.offerId),
   );
@@ -339,9 +351,11 @@ export function fixtureRecommendation(
  * Phase 05 deterministic flight ranking: party total, then total duration, then
  * ID. Always a permutation of the supplied schedule-valid candidates.
  */
-export function fixtureFlightRecommendation(
-  context: FlightRecommendationContext,
-): { rankedOfferIds: string[]; reasons: { offerId: string; explanation: string }[]; tradeoffs: string[] } {
+export function fixtureFlightRecommendation(context: FlightRecommendationContext): {
+  rankedOfferIds: string[];
+  reasons: { offerId: string; explanation: string }[];
+  tradeoffs: string[];
+} {
   const ranked = [...context.candidates].sort(
     (a, b) =>
       a.partyTotalMinor - b.partyTotalMinor ||
@@ -355,9 +369,7 @@ export function fixtureFlightRecommendation(
       explanation: `Fixture ranking: ${candidate.partyTotalMinor} EUR minor units, ${candidate.totalDurationMinutes} travel minutes, ${candidate.stops} stop(s).`,
     })),
     tradeoffs:
-      ranked.length > 1
-        ? ["Fixture ranking orders by price, then travel time, then id."]
-        : [],
+      ranked.length > 1 ? ["Fixture ranking orders by price, then travel time, then id."] : [],
   };
 }
 
@@ -404,13 +416,14 @@ function mealCandidate(
   context: PlannerContext,
   meal: "breakfast" | "lunch" | "dinner",
 ): FixtureCandidate | undefined {
-  return context.candidates.find((candidate) => candidate.kind === "meal" && candidate.meal === meal);
+  return context.candidates.find(
+    (candidate) => candidate.kind === "meal" && candidate.meal === meal,
+  );
 }
 
 function windowStartFor(candidate: FixtureCandidate, fallbackMinute: number): number {
   return candidate.openingStartMinute ?? fallbackMinute;
 }
-
 
 /**
  * Deterministic full-day fixture planner (Phase 10 step 1): breakfast, morning
@@ -451,7 +464,8 @@ export function fixturePlanner(context: PlannerContext) {
 
   // 2. Required tags next: never silently drop a requested minimum.
   for (const tag of Object.keys(context.minimumActivityCounts).sort()) {
-    const minimum = context.minimumActivityCounts[tag as keyof typeof context.minimumActivityCounts];
+    const minimum =
+      context.minimumActivityCounts[tag as keyof typeof context.minimumActivityCounts];
     if (minimum === undefined || minimum === null || minimum <= 0) {
       continue;
     }
@@ -526,7 +540,8 @@ export function fixturePlanner(context: PlannerContext) {
       durationMinutes: breakfast.durationMinutes,
     });
   }
-  const breakfastEnd = breakfast && breakfastStart !== null ? breakfastStart + breakfast.durationMinutes : 9 * 60;
+  const breakfastEnd =
+    breakfast && breakfastStart !== null ? breakfastStart + breakfast.durationMinutes : 9 * 60;
 
   const lunchStart = lunch ? windowStartFor(lunch, 12 * 60 + 30) : 12 * 60 + 30;
   const lunchEnd = lunch ? lunchStart + lunch.durationMinutes : lunchStart;
@@ -558,7 +573,12 @@ export function fixturePlanner(context: PlannerContext) {
     if (candidate.openingEndMinute !== undefined && end > candidate.openingEndMinute) {
       break;
     }
-    stops.push({ kind: "activity", refId: candidate.id, startMinute: start, durationMinutes: candidate.durationMinutes });
+    stops.push({
+      kind: "activity",
+      refId: candidate.id,
+      startMinute: start,
+      durationMinutes: candidate.durationMinutes,
+    });
     remaining.splice(remaining.indexOf(candidate), 1);
     cursor = end + profile.rhythmBreak + travelGap;
   }
@@ -589,7 +609,12 @@ export function fixturePlanner(context: PlannerContext) {
     if (candidate.openingEndMinute !== undefined && end > candidate.openingEndMinute) {
       break;
     }
-    stops.push({ kind: "activity", refId: candidate.id, startMinute: start, durationMinutes: candidate.durationMinutes });
+    stops.push({
+      kind: "activity",
+      refId: candidate.id,
+      startMinute: start,
+      durationMinutes: candidate.durationMinutes,
+    });
     remaining.splice(remaining.indexOf(candidate), 1);
     cursor = end + profile.rhythmBreak + travelGap;
   }
@@ -642,7 +667,12 @@ export function fixtureReviewer(context: ReviewerContext) {
     });
   }
   if (issues.length === 0) {
-    return { verdict: "acceptable" as const, issues: [], suggestedOrder: [], explanation: "Fixture review." };
+    return {
+      verdict: "acceptable" as const,
+      issues: [],
+      suggestedOrder: [],
+      explanation: "Fixture review.",
+    };
   }
   return {
     verdict: "revise" as const,
@@ -659,7 +689,9 @@ export class FixtureAdapter implements LLMAdapter {
   };
   private readonly scriptedIntents: Record<string, ModelFacingIntentResult>;
 
-  constructor(options: { readonly scriptedIntents?: Record<string, ModelFacingIntentResult> } = {}) {
+  constructor(
+    options: { readonly scriptedIntents?: Record<string, ModelFacingIntentResult> } = {},
+  ) {
     this.scriptedIntents = options.scriptedIntents ?? {};
   }
 

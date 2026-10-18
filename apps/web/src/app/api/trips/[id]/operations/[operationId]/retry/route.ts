@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { technicalRetryApiRequestSchema } from "@odft/contracts";
 import { retryOperation } from "@odft/persistence";
-import { envelopeResponse, errorResponse, jsonResponse, readJsonResult, scopeErrorResponse } from "@/lib/http";
+import {
+  envelopeResponse,
+  errorResponse,
+  jsonResponse,
+  readJsonResult,
+  scopeErrorResponse,
+} from "@/lib/http";
 import { denyArchivedTripWrite, guardMutation } from "@/lib/guard";
 
 /**
@@ -36,7 +42,11 @@ export async function POST(
   }
   const parsed = technicalRetryApiRequestSchema.safeParse(body.value);
   if (!parsed.success) {
-    return envelopeResponse({ code: "VALIDATION_FAILED", message: "invalid retry request", retryable: false });
+    return envelopeResponse({
+      code: "VALIDATION_FAILED",
+      message: "invalid retry request",
+      retryable: false,
+    });
   }
 
   const { id, operationId } = await context.params;
