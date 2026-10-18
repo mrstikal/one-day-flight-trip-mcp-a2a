@@ -529,6 +529,10 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
 
       await runtime.admission.markWorking(task.id);
       try {
+        if (runtime.config.crashBeforeWork) {
+          process.stderr.write("city-guide-agent: simulated crash before work\n");
+          process.exit(3);
+        }
         const request = agentTaskRequestSchema.safeParse(dataPartOf(message));
         if (!request.success) {
           await session.publishFailure("INVALID_ARTIFACT", "the task request is not a valid city guide request");

@@ -394,6 +394,7 @@ export {
 } from "./coordinator-runs.js";
 
 export {
+  acceptDelegationArtifact,
   bindDelegationTask,
   findActiveDelegationForSnapshot,
   getAgentDelegation,
@@ -408,7 +409,6 @@ export {
   requestDelegationCancellation,
   resolveDelegationCancellation,
   revokeDelegation,
-  updateDelegationStatus,
   type AgentDelegationRecord,
   type InsertDelegationInput,
   type InsertOutboundMessageInput,

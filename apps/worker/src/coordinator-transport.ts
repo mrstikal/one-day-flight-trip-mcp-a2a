@@ -85,6 +85,10 @@ function normalizeState(state: unknown): string {
       return "canceled";
     case TaskState.TASK_STATE_INPUT_REQUIRED:
       return "input_required";
+    case TaskState.TASK_STATE_REJECTED:
+      return "rejected";
+    case TaskState.TASK_STATE_AUTH_REQUIRED:
+      return "auth_required";
     case TaskState.TASK_STATE_WORKING:
       return "working";
     case TaskState.TASK_STATE_SUBMITTED:
@@ -104,7 +108,10 @@ function artifactData(artifact: TaskArtifactLike): unknown {
 }
 
 export function createA2ADelegationTransport(config: ProtocolConfig): CoordinatorDelegationTransport {
-  const client = new A2AClient({ config });
+  // Non-blocking send + explicit polling: a durable outbound intent must not
+  // hold the coordinator's claim for the whole specialist computation, and a
+  // queued question can be observed while a sibling is still working.
+  const client = new A2AClient({ config, polling: true });
   return {
     async sendTask(input) {
       const dataMessage = {

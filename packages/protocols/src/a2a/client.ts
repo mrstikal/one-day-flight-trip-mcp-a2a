@@ -62,6 +62,12 @@ export interface A2AClientDependencies {
   readonly fetchImpl?: typeof fetch;
   /** Injectable clock for cache tests. */
   readonly now?: () => number;
+  /**
+   * Poll for task updates instead of blocking until a terminal state. The
+   * coordinator's durable delivery/polling loop requires the non-blocking
+   * mode; direct tests keep the SDK default (blocking).
+   */
+  readonly polling?: boolean;
 }
 
 export class A2AClient {
@@ -126,6 +132,7 @@ export class A2AClient {
     const factory = new ClientFactory({
       transports: [new JsonRpcTransportFactory({ fetchImpl: authenticatedFetch })],
       cardResolver: new DefaultAgentCardResolver({ fetchImpl: this.cardFetch }),
+      ...(this.deps.polling ? { clientConfig: { polling: true } } : {}),
     });
     const client = await factory.createFromAgentCard(card);
     const endpointOrigin = new URL(this.registry.entryFor(agentIdentity).endpointUrl).origin;

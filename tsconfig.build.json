@@ -38,6 +38,9 @@
       "path": "apps/accommodation-agent"
     },
     {
+      "path": "apps/accommodation-agent-alt"
+    },
+    {
       "path": "apps/city-guide-agent"
     }
   ]

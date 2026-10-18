@@ -163,6 +163,10 @@ export function createAccommodationExecutor(runtime: AccommodationAgentRuntime):
 
       await runtime.admission.markWorking(task.id);
       try {
+        if (runtime.config.crashBeforeWork) {
+          process.stderr.write("accommodation-agent: simulated crash before work\n");
+          process.exit(3);
+        }
         const request = agentTaskRequestSchema.safeParse(dataPartOf(message));
         if (!request.success || request.data.skillId !== ACCOMMODATION_SKILL_ID) {
           await session.publishFailure("INVALID_ARTIFACT", "the task request is not a valid accommodation request");

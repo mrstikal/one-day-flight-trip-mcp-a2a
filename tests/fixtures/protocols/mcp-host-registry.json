@@ -16,6 +16,13 @@
       "requiredSkills": ["accommodation.recommend.v1"]
     },
     {
+      "agentIdentity": "accommodation-agent-alt",
+      "endpointUrl": "http://127.0.0.1:4324",
+      "cardUrl": "http://127.0.0.1:4324/travel-data/mcp",
+      "credentialRef": "ODFT_AGENT_TOKEN_ACCOMMODATION_ALT",
+      "requiredSkills": ["accommodation.recommend.v1"]
+    },
+    {
       "agentIdentity": "city-guide-agent",
       "endpointUrl": "http://127.0.0.1:4323",
       "cardUrl": "http://127.0.0.1:4323/itinerary-tools/mcp",

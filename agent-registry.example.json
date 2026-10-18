@@ -21,6 +21,13 @@
       "cardUrl": "http://127.0.0.1:4213/.well-known/agent-card.json",
       "credentialRef": "ODFT_AGENT_TOKEN_CITY_GUIDE",
       "requiredSkills": ["city-guide.research.v1", "itinerary.propose.v1"]
+    },
+    {
+      "agentIdentity": "accommodation-agent-alt",
+      "endpointUrl": "http://127.0.0.1:4214",
+      "cardUrl": "http://127.0.0.1:4214/.well-known/agent-card.json",
+      "credentialRef": "ODFT_AGENT_TOKEN_ACCOMMODATION_ALT",
+      "requiredSkills": ["accommodation.recommend.v1"]
     }
   ]
 }

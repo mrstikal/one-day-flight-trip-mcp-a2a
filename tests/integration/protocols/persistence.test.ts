@@ -415,17 +415,6 @@ describe("delegations, outbound dedupe and validated outputs", () => {
 
 describe("safe observations", () => {
   it("persists sanitized observations and links them to events idempotently", async () => {
-    const observation = buildObservation({
-      source: "coordinator",
-      kind: "card_discovery",
-      correlation: { traceId: "trace-1" },
-      payload: { detail: "fetched  card\n  summary", status: "ok", counters: { attempts: 1 } },
-    });
-    const stored = await insertProtocolObservation(pool, observation);
-    expect(stored.payload.detail).toBe("fetched card summary");
-    const unlinked = await listUnlinkedObservations(pool);
-    expect(unlinked.some((row) => row.id === stored.id)).toBe(true);
-
     const client = await pool.connect();
     let sessionId: string;
     try {
@@ -437,6 +426,20 @@ describe("safe observations", () => {
     if (!("tripId" in trip)) {
       throw new Error(`trip fixture failed: ${trip.code}`);
     }
+    // Trip-less observations cannot bridge to an application event and are
+    // intentionally excluded from the unlinked round; the correlation must
+    // carry the trip id.
+    const observation = buildObservation({
+      source: "coordinator",
+      kind: "card_discovery",
+      correlation: { tripId: trip.tripId, traceId: "trace-1" },
+      payload: { detail: "fetched  card\n  summary", status: "ok", counters: { attempts: 1 } },
+    });
+    const stored = await insertProtocolObservation(pool, observation);
+    expect(stored.payload.detail).toBe("fetched card summary");
+    const unlinked = await listUnlinkedObservations(pool);
+    expect(unlinked.some((row) => row.id === stored.id)).toBe(true);
+
     const event = await pool.query<{ id: string }>(
       `INSERT INTO odft_app.execution_events (trip_id, type, payload)
        VALUES ($1, 'protocol.observation', '{}'::jsonb) RETURNING id`,

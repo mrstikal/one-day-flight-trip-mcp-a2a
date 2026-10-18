@@ -183,7 +183,7 @@ export async function deliverDelegation(
       delegationId: input.delegationId,
       messageId,
       state: "failed",
-      errorCode: reason.slice(0, 120),
+      errorCode: "AGENT_UNAVAILABLE",
     }).catch(() => undefined);
     return { taskId: null, contextId: null, delivered: false, reason };
   }

@@ -1,12 +1,25 @@
+import { randomUUID } from "node:crypto";
+import type { ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getActiveCoordinatorRun, getAgentDelegation } from "@odft/persistence";
+import {
+  admitResume,
+  getActiveCoordinatorRun,
+  getAgentDelegation,
+  retryOperation,
+} from "@odft/persistence";
 import { runCoordinatorOperation } from "@odft/workflow";
 import { createA2ADelegationTransport } from "../../../apps/worker/src/coordinator-transport.js";
 import { createTravelPortsFactory } from "../../../apps/worker/src/travel/ports.js";
 import { createTestAiService } from "../graph/_setup.js";
 import {
+  startAccommodationAgent,
+  stopAgent,
+  waitForAgentReady,
+} from "../a2a/_setup-agents.js";
+import {
   claimCoordinator,
   coordinatorClientConfigForTest,
+  coordinatorDriver,
   createCoordinatorTrip,
   driveUntilParked,
   startCoordinatorHarness,
@@ -85,7 +98,25 @@ beforeAll(async () => {
   harness = await startCoordinatorHarness();
 }, 180_000);
 
+let restartedAccommodation: ChildProcess | undefined;
+
+async function waitForProcessExit(child: ChildProcess, timeoutMs = 20_000): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("process did not exit")), timeoutMs);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 afterAll(async () => {
+  if (restartedAccommodation) {
+    await stopAgent(restartedAccommodation);
+  }
   await stopCoordinatorHarness(harness);
 });
 
@@ -183,4 +214,425 @@ describe("coordinator recovery", () => {
     expect(record?.status).toBe("completed");
     expect(record?.taskId).not.toBeNull();
   }, 240_000);
+
+  it("replays a booking committed before the cursor advance exactly once", async () => {
+    const { tripId, sessionId } = await createCoordinatorTrip(harness.pool);
+    const flightPark = await driveUntilParked(harness.pools, tripId);
+    expect(flightPark?.waitReason).toBe("flight_choice");
+    const flightDecision = await harness.pool.query<{
+      id: string;
+      allowed_offer_ids: string[];
+    }>(
+      `SELECT id, allowed_offer_ids FROM odft_app.pending_decisions
+        WHERE trip_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 1`,
+      [tripId],
+    );
+    const flightChoice = flightDecision.rows[0];
+    if (!flightChoice) {
+      throw new Error("no pending flight choice");
+    }
+    const admittedChoice = await admitResume(harness.pool, {
+      tripId,
+      sessionId,
+      request: {
+        requestId: randomUUID(),
+        decisionId: flightChoice.id,
+        expectedRevision: 1,
+        response: {
+          action: "choose_offer",
+          offerId: flightChoice.allowed_offer_ids[0],
+        } as never,
+      },
+    });
+    if (!("operationId" in admittedChoice)) {
+      throw new Error("flight choice was not admitted");
+    }
+    const bookingPark = await driveUntilParked(harness.pools, tripId);
+    expect(bookingPark?.waitReason).toBe("booking_confirmation");
+    const bookingDecision = await harness.pool.query<{
+      id: string;
+      proposal_id: string;
+    }>(
+      `SELECT id, proposal_id FROM odft_app.pending_decisions
+        WHERE trip_id = $1 AND kind = 'booking_confirmation' AND status = 'pending'
+        ORDER BY created_at DESC LIMIT 1`,
+      [tripId],
+    );
+    const booking = bookingDecision.rows[0];
+    if (!booking?.proposal_id) {
+      throw new Error("no pending booking confirmation");
+    }
+    const admittedBooking = await admitResume(harness.pool, {
+      tripId,
+      sessionId,
+      request: {
+        requestId: randomUUID(),
+        decisionId: booking.id,
+        expectedRevision: 1,
+        response: {
+          action: "confirm_booking",
+          proposalId: booking.proposal_id,
+          acceptedDemoDisclaimer: true,
+        } as never,
+      },
+    });
+    if (!("operationId" in admittedBooking)) {
+      throw new Error("booking confirmation was not admitted");
+    }
+
+    // Claim and run the operation with a ports wrapper that throws AFTER the
+    // booking effect committed: this is the crash-before-cursor kill point.
+    const claim = await claimCoordinator(harness.pools);
+    if (!claim || claim.operationId !== admittedBooking.operationId) {
+      throw new Error("the booking operation was not claimable");
+    }
+    const portsFactory = createTravelPortsFactory(
+      harness.pools.operations,
+      createTestAiService(harness.pools),
+    );
+    const ports = portsFactory({
+      operationId: claim.operationId,
+      tripId,
+      fencingToken: claim.fencingToken,
+    });
+    const failingPorts = {
+      ...ports,
+      confirm: async (input: Parameters<typeof ports.confirm>[0]) => {
+        await ports.confirm(input);
+        throw new Error("simulated crash after the booking commit");
+      },
+    };
+    await runCoordinatorOperation(
+      {
+        pool: harness.pools.operations,
+        transport: createA2ADelegationTransport(coordinatorClientConfigForTest()),
+        ports: failingPorts as never,
+        agents: specialistAgents(),
+        delegationWaitMs: 30_000,
+      },
+      claim,
+    ).catch(() => undefined);
+    await expireLease(claim.operationId);
+
+    // The replay must reuse the committed reservation and continue into hotel
+    // research instead of charging/booking a second flight.
+    const resumed = await driveUntilParked(harness.pools, tripId, 8);
+    expect(resumed?.waitReason).toBe("hotel_choice");
+    const reservations = await harness.pool.query<{ service_key: string }>(
+      `SELECT service_key FROM odft_app.reservations
+        WHERE trip_id = $1 AND status = 'confirmed'`,
+      [tripId],
+    );
+    expect(reservations.rows.filter((row) => row.service_key === "flights")).toHaveLength(1);
+    const proposals = await harness.pool.query<{ service_key: string; status: string }>(
+      `SELECT service_key, status FROM odft_app.selection_proposals WHERE trip_id = $1`,
+      [tripId],
+    );
+    expect(proposals.rows.filter((row) => row.service_key === "flights")).toHaveLength(1);
+  }, 300_000);
+
+  it("replays a declined booking committed before the cursor advance", async () => {
+    const { tripId, sessionId } = await createCoordinatorTrip(harness.pool);
+    const flightPark = await driveUntilParked(harness.pools, tripId);
+    expect(flightPark?.waitReason).toBe("flight_choice");
+    const flightDecision = await harness.pool.query<{
+      id: string;
+      allowed_offer_ids: string[];
+    }>(
+      `SELECT id, allowed_offer_ids FROM odft_app.pending_decisions
+        WHERE trip_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 1`,
+      [tripId],
+    );
+    const flight = flightDecision.rows[0];
+    if (!flight) {
+      throw new Error("no pending flight choice");
+    }
+    await admitResume(harness.pool, {
+      tripId,
+      sessionId,
+      request: {
+        requestId: randomUUID(),
+        decisionId: flight.id,
+        expectedRevision: 1,
+        response: { action: "choose_offer", offerId: flight.allowed_offer_ids[0] } as never,
+      },
+    });
+    const bookingPark = await driveUntilParked(harness.pools, tripId);
+    expect(bookingPark?.waitReason).toBe("booking_confirmation");
+    const booking = await harness.pool.query<{ id: string; proposal_id: string }>(
+      `SELECT id, proposal_id FROM odft_app.pending_decisions
+        WHERE trip_id = $1 AND kind = 'booking_confirmation' AND status = 'pending'
+        ORDER BY created_at DESC LIMIT 1`,
+      [tripId],
+    );
+    const bookingDecision = booking.rows[0];
+    if (!bookingDecision?.proposal_id) {
+      throw new Error("no pending booking confirmation");
+    }
+    const admitted = await admitResume(harness.pool, {
+      tripId,
+      sessionId,
+      request: {
+        requestId: randomUUID(),
+        decisionId: bookingDecision.id,
+        expectedRevision: 1,
+        response: {
+          action: "decline_booking",
+          proposalId: bookingDecision.proposal_id,
+        } as never,
+      },
+    });
+    if (!("operationId" in admitted)) {
+      throw new Error("decline was not admitted");
+    }
+    const claim = await claimCoordinator(harness.pools);
+    if (!claim || claim.operationId !== admitted.operationId) {
+      throw new Error("the decline operation was not claimable");
+    }
+    const portsFactory = createTravelPortsFactory(
+      harness.pools.operations,
+      createTestAiService(harness.pools),
+    );
+    const ports = portsFactory({
+      operationId: claim.operationId,
+      tripId,
+      fencingToken: claim.fencingToken,
+    });
+    const failingPorts = {
+      ...ports,
+      declineBooking: async (input: Parameters<typeof ports.declineBooking>[0]) => {
+        await ports.declineBooking(input);
+        throw new Error("simulated crash after the decline commit");
+      },
+    };
+    await runCoordinatorOperation(
+      {
+        pool: harness.pools.operations,
+        transport: createA2ADelegationTransport(coordinatorClientConfigForTest()),
+        ports: failingPorts as never,
+        agents: specialistAgents(),
+        delegationWaitMs: 30_000,
+      },
+      claim,
+    ).catch(() => undefined);
+    await expireLease(claim.operationId);
+
+    const resumed = await driveUntilParked(harness.pools, tripId, 8);
+    expect(resumed?.waitReason).toBe("hotel_choice");
+    const reservations = await harness.pool.query(
+      `SELECT 1 FROM odft_app.reservations
+        WHERE trip_id = $1 AND service_key = 'flights' AND status = 'confirmed'`,
+      [tripId],
+    );
+    expect(reservations.rowCount).toBe(0);
+    const selections = await harness.pool.query(
+      `SELECT 1 FROM odft_app.trip_selections
+        WHERE trip_id = $1 AND service_key = 'flights'`,
+      [tripId],
+    );
+    expect(selections.rowCount).toBe(1);
+    const effect = await harness.pool.query(
+      `SELECT 1 FROM odft_app.workflow_effects
+        WHERE operation_id = $1 AND node_name = 'decline_booking'`,
+      [admitted.operationId],
+    );
+    expect(effect.rowCount).toBe(1);
+  }, 300_000);
+
+  it("parks flight_choice from a completed flight delegation after a crash before the park", async () => {
+    const { tripId } = await createCoordinatorTrip(harness.pool);
+    const parked = await driveUntilParked(harness.pools, tripId);
+    expect(parked?.waitReason).toBe("flight_choice");
+    const flight = await harness.pool.query<{ id: string }>(
+      `SELECT id FROM odft_app.agent_delegations
+        WHERE trip_id = $1 AND skill_id = 'flight.recommend.v1'`,
+      [tripId],
+    );
+    const flightDelegationId = flight.rows[0]?.id;
+    if (!flightDelegationId) {
+      throw new Error("no completed flight delegation");
+    }
+    const run = await harness.pool.query<{ id: string; operation_id: string }>(
+      `SELECT id, operation_id FROM odft_app.coordinator_runs WHERE trip_id = $1`,
+      [tripId],
+    );
+    const runRow = run.rows[0];
+    if (!runRow) {
+      throw new Error("no coordinator run");
+    }
+    // Simulate the crash window: the flight artifact was accepted, but the
+    // cursor never parked flight_choice. Put the saved run back into
+    // researching with ONLY the completed flight delegation.
+    await harness.pool.query(
+      `UPDATE odft_app.pending_decisions SET status = 'cancelled'
+        WHERE trip_id = $1 AND status = 'pending'`,
+      [tripId],
+    );
+    await harness.pool.query(
+      `UPDATE odft_app.coordinator_runs
+          SET status = 'running', step = 'researching', wait_reason = NULL,
+              run_data = jsonb_set(
+                jsonb_set(run_data, '{delegationIds}', $1::jsonb),
+                '{questionQueue}', '[]'::jsonb
+              )
+        WHERE id = $2`,
+      [JSON.stringify([flightDelegationId]), runRow.id],
+    );
+    await harness.pool.query(
+      `UPDATE odft_app.workflow_operations
+          SET status = 'queued', lease_expires_at = NULL
+        WHERE id = $1`,
+      [runRow.operation_id],
+    );
+    const reparks = await driveUntilParked(harness.pools, tripId, 4);
+    expect(reparks?.waitReason).toBe("flight_choice");
+    const decision = await harness.pool.query(
+      `SELECT 1 FROM odft_app.pending_decisions
+        WHERE trip_id = $1 AND kind = 'flight_choice' AND status = 'pending'`,
+      [tripId],
+    );
+    expect(decision.rowCount).toBe(1);
+  }, 180_000);
+
+  it("reopens a failed run on owner retry and re-dispatches only the failed hotel domain", async () => {
+    // Replace the healthy accommodation process with one that crashes after
+    // admission. The City Guide sibling completes and must survive the retry.
+    await stopAgent(harness.accommodationAgent);
+    const crashing = startAccommodationAgent({ ODFT_ACCOMMODATION_AGENT_CRASH: "1" });
+    await waitForAgentReady(crashing, "accommodation-agent");
+
+    const { tripId, sessionId } = await createCoordinatorTrip(harness.pool);
+    const flightPark = await driveUntilParked(harness.pools, tripId);
+    expect(flightPark?.waitReason).toBe("flight_choice");
+    const flightChoice = await harness.pool.query<{
+      id: string;
+      allowed_offer_ids: string[];
+    }>(
+      `SELECT id, allowed_offer_ids FROM odft_app.pending_decisions
+        WHERE trip_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 1`,
+      [tripId],
+    );
+    const flight = flightChoice.rows[0];
+    if (!flight) {
+      throw new Error("no pending flight choice");
+    }
+    await admitResume(harness.pool, {
+      tripId,
+      sessionId,
+      request: {
+        requestId: randomUUID(),
+        decisionId: flight.id,
+        expectedRevision: 1,
+        response: { action: "choose_offer", offerId: flight.allowed_offer_ids[0] } as never,
+      },
+    });
+    const bookingPark = await driveUntilParked(harness.pools, tripId);
+    expect(bookingPark?.waitReason).toBe("booking_confirmation");
+    const booking = await harness.pool.query<{ id: string; proposal_id: string }>(
+      `SELECT id, proposal_id FROM odft_app.pending_decisions
+        WHERE trip_id = $1 AND kind = 'booking_confirmation' AND status = 'pending'
+        ORDER BY created_at DESC LIMIT 1`,
+      [tripId],
+    );
+    const bookingDecision = booking.rows[0];
+    if (!bookingDecision?.proposal_id) {
+      throw new Error("no pending booking confirmation");
+    }
+    await admitResume(harness.pool, {
+      tripId,
+      sessionId,
+      request: {
+        requestId: randomUUID(),
+        decisionId: bookingDecision.id,
+        expectedRevision: 1,
+        response: {
+          action: "confirm_booking",
+          proposalId: bookingDecision.proposal_id,
+          acceptedDemoDisclaimer: true,
+        } as never,
+      },
+    });
+
+    const driver = coordinatorDriver(harness.pools);
+    const claim = await claimCoordinator(harness.pools);
+    if (!claim) {
+      throw new Error("no coordinator claim for research");
+    }
+    const running = driver.runOperation(claim).catch(() => undefined);
+    await waitForProcessExit(crashing);
+    const restarted = startAccommodationAgent();
+    restartedAccommodation = restarted;
+    await waitForAgentReady(restarted, "accommodation-agent");
+    await running;
+    // The blocking hotel failure finalizes the run as recovery-required.
+    await driveUntilParked(harness.pools, tripId, 8);
+    const failedRun = await harness.pool.query<{
+      operation_id: string;
+      status: string;
+      failure_code: string | null;
+    }>(
+      `SELECT operation_id, status, failure_code FROM odft_app.coordinator_runs
+        WHERE trip_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [tripId],
+    );
+    expect(failedRun.rows[0]?.status).toBe("failed");
+    expect(failedRun.rows[0]?.failure_code).toBe("AGENT_RESTARTED");
+    const recovery = await harness.pool.query<{ recovery_required: boolean }>(
+      `SELECT recovery_required FROM odft_app.trips WHERE id = $1`,
+      [tripId],
+    );
+    expect(recovery.rows[0]?.recovery_required).toBe(true);
+    const cityBefore = await harness.pool.query<{ id: string }>(
+      `SELECT id FROM odft_app.agent_delegations
+        WHERE trip_id = $1 AND skill_id = 'city-guide.research.v1' AND status = 'completed'`,
+      [tripId],
+    );
+    expect(cityBefore.rowCount).toBe(1);
+
+    const failedOperationId = failedRun.rows[0]?.operation_id;
+    if (!failedOperationId) {
+      throw new Error("failed run has no operation");
+    }
+    const retried = await retryOperation(harness.pool, {
+      tripId,
+      sessionId,
+      operationId: failedOperationId,
+      controlRequestId: randomUUID(),
+      expectedRevision: 1,
+    });
+    if ("code" in retried) {
+      throw new Error(`retry refused: ${JSON.stringify(retried)}`);
+    }
+    const hotelPark = await driveUntilParked(harness.pools, tripId, 10);
+    expect(hotelPark?.waitReason).toBe("hotel_choice");
+
+    const delegations = await harness.pool.query<{
+      skill_id: string;
+      status: string;
+      id: string;
+    }>(
+      `SELECT skill_id, status, id FROM odft_app.agent_delegations
+        WHERE trip_id = $1 ORDER BY created_at ASC`,
+      [tripId],
+    );
+    const hotel = delegations.rows.filter(
+      (row) => row.skill_id === "accommodation.recommend.v1",
+    );
+    const city = delegations.rows.filter(
+      (row) => row.skill_id === "city-guide.research.v1",
+    );
+    expect(hotel.map((row) => row.status).sort()).toEqual(["completed", "failed"]);
+    // The completed City Guide sibling was reused, never re-run.
+    expect(city).toHaveLength(1);
+    expect(city[0]?.id).toBe(cityBefore.rows[0]?.id);
+    const recoveredRun = await harness.pool.query<{ status: string; wait_reason: string }>(
+      `SELECT status, wait_reason FROM odft_app.coordinator_runs
+        WHERE trip_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [tripId],
+    );
+    expect(recoveredRun.rows[0]).toMatchObject({
+      status: "waiting",
+      wait_reason: "hotel_choice",
+    });
+  }, 300_000);
 });

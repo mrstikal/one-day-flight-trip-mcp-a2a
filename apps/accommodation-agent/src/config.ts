@@ -22,6 +22,7 @@ const envSchema = z
     aiMode: z.enum(["fixture", "openrouter"]).default("fixture"),
     aiConfigPath: z.string().min(1).nullable().default(null),
     stepDelayMs: z.number().int().min(0).max(60000).default(0),
+    crashBeforeWork: z.boolean().default(false),
   })
   .strict();
 
@@ -36,6 +37,8 @@ export interface AccommodationAgentConfig {
   readonly aiConfigPath: string | null;
   /** Test-only delay between work steps (parallel-window observation). */
   readonly stepDelayMs: number;
+  /** Test-only crash hook AFTER durable admission, before any work. */
+  readonly crashBeforeWork: boolean;
   readonly inbound: TrustedRegistry;
   /** Client-side config used to reach the MCP endpoints (Phase 04). */
   readonly protocol: ProtocolConfig;
@@ -61,6 +64,7 @@ export function loadAccommodationAgentConfig(env: Record<string, string | undefi
     aiMode: env.AI_MODE === "openrouter" ? "openrouter" : "fixture",
     aiConfigPath: env.AI_CONFIG_PATH ?? null,
     stepDelayMs: envNumber(env, "ODFT_ACCOMMODATION_AGENT_STEP_DELAY_MS", 0),
+    crashBeforeWork: env.ODFT_ACCOMMODATION_AGENT_CRASH === "1",
   });
   if (!parsed.databaseUrl) {
     throw new Error("DATABASE_URL is required for the accommodation-agent");
@@ -80,6 +84,7 @@ export function loadAccommodationAgentConfig(env: Record<string, string | undefi
     aiMode: parsed.aiMode,
     aiConfigPath: parsed.aiConfigPath,
     stepDelayMs: parsed.stepDelayMs,
+    crashBeforeWork: parsed.crashBeforeWork,
     inbound,
     protocol: {
       selfAgentIdentity: ACCOMMODATION_AGENT_IDENTITY,

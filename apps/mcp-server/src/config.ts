@@ -19,8 +19,8 @@ export type McpEndpointKey = keyof typeof MCP_ENDPOINTS;
 
 /** Which authenticated agent identities may call which endpoint. */
 export const ENDPOINT_ALLOWED_AGENTS: Readonly<Record<McpEndpointKey, readonly string[]>> = {
-  geography: ["flight-agent", "accommodation-agent", "city-guide-agent"],
-  travelData: ["flight-agent", "accommodation-agent", "city-guide-agent"],
+  geography: ["flight-agent", "accommodation-agent", "accommodation-agent-alt", "city-guide-agent"],
+  travelData: ["flight-agent", "accommodation-agent", "accommodation-agent-alt", "city-guide-agent"],
   itineraryTools: ["city-guide-agent"],
 };
 
@@ -32,6 +32,7 @@ export const ENDPOINT_ALLOWED_AGENTS: Readonly<Record<McpEndpointKey, readonly s
 export const TRAVEL_DATA_DOMAIN_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
   "flight-agent": ["flights"],
   "accommodation-agent": ["hotel"],
+  "accommodation-agent-alt": ["hotel"],
   "city-guide-agent": ["breakfast", "lunch", "dinner", "attractions", "events"],
 };
 

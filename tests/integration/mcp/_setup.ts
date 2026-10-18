@@ -30,6 +30,7 @@ export const MCP_TEST_PORTS = { geography: 4421, travelData: 4422, itineraryTool
 export const AGENT_TOKENS = {
   flight: "test-token-flight-agent-0123456789",
   accommodation: "test-token-accommodation-0123456789",
+  accommodationAlt: "test-token-accommodation-alt-0123456789",
   cityGuide: "test-token-city-guide-0123456789",
 } as const;
 export { FLIGHT_AGENT_PASSWORD, PROTOCOL_PASSWORD, READONLY_PASSWORD, REPO_ROOT };
@@ -187,6 +188,7 @@ export function startMcpHost(env: Record<string, string> = {}): ChildProcess {
       ODFT_MCP_ITINERARY_TOOLS_PORT: String(MCP_TEST_PORTS.itineraryTools),
       ODFT_AGENT_TOKEN_FLIGHT: AGENT_TOKENS.flight,
       ODFT_AGENT_TOKEN_ACCOMMODATION: AGENT_TOKENS.accommodation,
+      ODFT_AGENT_TOKEN_ACCOMMODATION_ALT: AGENT_TOKENS.accommodationAlt,
       ODFT_AGENT_TOKEN_CITY_GUIDE: AGENT_TOKENS.cityGuide,
       ...env,
     },

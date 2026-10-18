@@ -138,6 +138,32 @@ plus the shared lock-order concurrency checks.
 - Task limits: 60 s active / 4 MCP / 2 LLM attempts / USD 0.10 (the paid
   comparison is reserved only in `AI_MODE=openrouter`).
 
+## Accommodation Agent B (`apps/accommodation-agent-alt`)
+
+| Item | Value |
+| --- | --- |
+| Identity / card | `accommodation-agent-alt`, skill `accommodation.recommend.v1` |
+| Default bind | `127.0.0.1:4404` (`ODFT_ACCOMMODATION_ALT_AGENT_HOST` / `..._PORT`) |
+| Task storage | `odft_protocol.agent_tasks_accommodation_alt` |
+| DB role | `odft_accommodation_agent` (same restricted profile) |
+| MCP scope | `odft-travel-data` `search_hotels` + `get_scenario_metadata` (hotel domain only) |
+
+- Phase 10 replacement implementation. It shares the public request/artifact
+  contracts, official SDK plumbing, deterministic read services and governed AI
+  infrastructure, but imports **no code** from `apps/accommodation-agent`.
+- Its strategy is a value score (`0.6 × normalized price + 0.4 × normalized
+  centre distance`); answering the tradeoff question selects the cheapest-first
+  or distance-first order. It uses its own optional model profile
+  (`ODFT_ACCOMMODATION_ALT_AI_CONFIG_PATH`) and the same task limits.
+- It asks the same genuine price-versus-location question with request id prefix
+  `accommodation-alt-tradeoff:`; eligibility, continuation validation and output
+  contracts are identical.
+- The MCP host allowlists `accommodation-agent-alt` for the same hotel domain.
+- Switching the trusted registry's accommodation entry from A to B requires no
+  coordinator source change; see
+  `docs/protocols/recovery-and-demonstrations.md` and
+  `tests/integration/protocols/agent-replacement.test.ts`.
+
 ## City Guide Agent (`apps/city-guide-agent`)
 
 | Item | Value |
@@ -190,3 +216,8 @@ success retention, the tradeoff question and its continuation, duplicate
 answers, expiry, restart while awaiting input, revoked authority, cumulative
 caps, least-privilege write denial, the hotel-context paid comparison and
 overlapping parallel execution windows.
+
+Phase 10 adds `tests/integration/a2a/accommodation-alt.test.ts` (the
+independent replacement executor), `tests/integration/protocols/{failure-recovery,restart,cancellation,agent-replacement}.test.ts`
+(real outage/restart/cancel/replacement races) and
+`tests/e2e/{protocol-failures,agent-replacement}.spec.ts` (browser evidence).

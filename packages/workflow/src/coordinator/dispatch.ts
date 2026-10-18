@@ -2,6 +2,7 @@ import type { Pool, PoolClient } from "pg";
 import {
   domainCommandSchema,
   chatCommandPayloadSchema,
+  researchDomainSchema,
   tripPreferencesSchema,
   type CoordinatorRunData,
   type DomainCommand,
@@ -14,14 +15,17 @@ import {
 } from "@odft/contracts";
 import { fingerprint } from "@odft/domain";
 import {
+  acceptDelegationArtifact,
   contentHash,
   finalizeFailure,
   finalizeSuccess,
   finalizeWaiting,
   getActiveCoordinatorRun,
   getAgentDelegation,
+  getCoordinatorRun,
   getPendingDecisionForTrip,
   getProposal,
+  getReservationByConfirmationKey,
   getTrip,
   insertConversationMessage,
   insertCoordinatorRun,
@@ -100,6 +104,54 @@ export interface CoordinatorDispatchDeps {
 
 const DEFAULT_DELEGATION_WAIT_MS = 20_000;
 
+/**
+ * Safe application categories a specialist may report through its terminal
+ * task text (plan §3.5). Anything else becomes `AGENT_FAILED`; provider stacks,
+ * prompts and credentials never reach the coordinator's error envelope.
+ */
+const SAFE_AGENT_FAILURE_CODES: ReadonlySet<string> = new Set([
+  "AGENT_UNAVAILABLE",
+  "AGENT_TIMEOUT",
+  "AGENT_RESTARTED",
+  "AGENT_FAILED",
+  "MCP_UNAVAILABLE",
+  "MCP_TIMEOUT",
+  "INVALID_ARTIFACT",
+  "TASK_BUDGET_EXCEEDED",
+  "INPUT_EXPIRED",
+  "DELEGATION_REVOKED",
+  "STALE_AGENT_RESULT",
+]);
+
+/** Extract a safe application code from a terminal task text or an error. */
+function safeAgentFailureCode(value: unknown, fallback: string): string {
+  if (typeof value === "string") {
+    const match = /^([A-Z][A-Z0-9_]{2,40}):/.exec(value.trim());
+    if (match && SAFE_AGENT_FAILURE_CODES.has(match[1] as string)) {
+      return match[1] as string;
+    }
+  }
+  if (value !== null && typeof value === "object" && "code" in value) {
+    const code = (value as { code?: unknown }).code;
+    if (typeof code === "string" && SAFE_AGENT_FAILURE_CODES.has(code)) {
+      return code;
+    }
+  }
+  return fallback;
+}
+
+/** Every research domain of a persisted delegation scope (failure events). */
+function researchDomainsOf(delegation: { scope: unknown }): ResearchDomain[] {
+  const scope = delegation.scope as { domains?: unknown } | null;
+  if (!Array.isArray(scope?.domains)) {
+    return [];
+  }
+  return scope.domains.flatMap((domain) => {
+    const parsed = researchDomainSchema.safeParse(domain);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
 type RunDataPatch = Partial<Omit<CoordinatorRunData, "schemaVersion">>;
 
 function runDataWith(base: CoordinatorRunData, patch: RunDataPatch): CoordinatorRunDataInput {
@@ -177,6 +229,24 @@ async function reuseOrCreateResearchDelegation(
         WHERE id = $1 AND status IN ('pending','dispatched','working','input_required')`,
       [existingId],
     );
+  }
+  // Owner retry: a COMPLETED, accepted sibling of the SAME operation and input
+  // is durable work. Reuse it instead of starting a second paid delegation
+  // (plan §3.12/§3.17); only the failed domain gets a fresh delegation.
+  const completed = await deps.pool.query<{ id: string }>(
+    `SELECT d.id FROM odft_app.agent_delegations d
+      WHERE d.trip_id = $1 AND d.skill_id = $2 AND d.originating_operation_id = $3
+        AND d.status = 'completed' AND d.accepted_artifact_hash IS NOT NULL
+        AND d.input_fingerprint = $4
+      ORDER BY d.created_at DESC LIMIT 1`,
+    [claim.tripId, input.skillId, claim.operationId, input.inputFingerprint],
+  );
+  const completedId = completed.rows[0]?.id;
+  if (completedId) {
+    const persisted = await loadDelegationDelivery(deps.pool, completedId);
+    if (persisted.outbound) {
+      return { delegationId: completedId, taskData: persisted.outbound.payload };
+    }
   }
   const created = await createOutboundDelegation(deps.pool, {
     tripId: claim.tripId,
@@ -352,6 +422,65 @@ async function dispatchSpecialistResearch(
 }
 
 
+/**
+ * Mark a delegation terminal after a failed/canceled specialist task or a
+ * transport read failure (plan §3.13/§3.17). The terminal status is what lets a
+ * later owner retry create a FRESH delegation instead of re-polling a dead task
+ * forever; the research event keeps the safe reason for the inspector.
+ */
+async function markDelegationFailed(
+  deps: CoordinatorDispatchDeps,
+  tripId: string,
+  delegation: {
+    id: string;
+    skillId: string;
+    scope: unknown;
+    inputFingerprint: string;
+    attempt: number;
+    originatingOperationId: string;
+  },
+  code: string,
+  reason: string,
+): Promise<void> {
+  const updated = await deps.pool.query<{ id: string }>(
+    `UPDATE odft_app.agent_delegations
+        SET status = 'failed', updated_at = now()
+      WHERE id = $1 AND status IN ('pending','dispatched','working','input_required')
+      RETURNING id`,
+    [delegation.id],
+  );
+  if (updated.rows.length === 0) {
+    return;
+  }
+  const domains = researchDomainsOf(delegation);
+  const cleanReason = reason.startsWith(`${code}: `)
+    ? reason.slice(code.length + 2)
+    : reason;
+  for (const domain of domains) {
+    await deps.ports.recordResearchEvent({
+      tripId,
+      operationId: delegation.originatingOperationId,
+      domain,
+      phase: "finished",
+      attempt: delegation.attempt,
+      durationMs: null,
+      status: "unavailable",
+      simulatedFailure: false,
+      reason: `${code}: ${cleanReason}`.slice(0, 500),
+      fingerprint: delegation.inputFingerprint,
+    });
+  }
+  deps.logger?.({
+    level: "warn",
+    component: "coordinator",
+    message: "specialist delegation failed",
+    delegationId: delegation.id,
+    skillId: delegation.skillId,
+    code,
+    reason,
+  });
+}
+
 /** Re-read and validate the accepted artifact of a completed delegation. */
 async function acceptedArtifactPayload(
   deps: CoordinatorDispatchDeps,
@@ -428,6 +557,28 @@ async function openProgramChoices(
   // the research domain is `attractions`.
   const activityIds = byService.get("activities") ?? [];
   if (mealIds.length === 0) {
+    // A completed hotel must not be lost because the City Guide task failed
+    // (plan §3.11). Re-research the meal/activity domains ONCE per operation;
+    // a repeated empty outcome fails explicitly instead of looping.
+    const trip = await getTrip(deps.pool, claim.tripId);
+    if (!trip) {
+      return {
+        kind: "fail",
+        runData: { ...data },
+        code: "NOT_FOUND",
+        reason: "trip not found",
+      };
+    }
+    if (data.researchTarget !== "program_choices") {
+      return dispatchScopedResearch(deps, claim, trip, data, {
+        hotel: false,
+        cityDomains: ["breakfast", "lunch", "dinner", "attractions", "events"],
+        objective: null,
+        levelOverride: null,
+        searchIntent: null,
+        target: "program_choices",
+      });
+    }
     return {
       kind: "fail",
       runData: { ...data },
@@ -457,6 +608,27 @@ async function openHotelChoice(
   const ranked =
     artifacts.find((artifact) => artifact.serviceKey === "hotel")?.rankedOfferIds ?? [];
   if (ranked.length === 0) {
+    // The hotel artifact may be missing after an agent outage. Re-research the
+    // hotel domain once (target `hotel_choice`), never silently invent offers.
+    const trip = await getTrip(deps.pool, claim.tripId);
+    if (!trip) {
+      return {
+        kind: "fail",
+        runData: { ...data },
+        code: "NOT_FOUND",
+        reason: "trip not found",
+      };
+    }
+    if (data.researchTarget !== "hotel_choice") {
+      return dispatchScopedResearch(deps, claim, trip, data, {
+        hotel: true,
+        cityDomains: [],
+        objective: "preserve_level",
+        levelOverride: null,
+        searchIntent: null,
+        target: "hotel_choice",
+      });
+    }
     return {
       kind: "fail",
       runData: { ...data },
@@ -495,6 +667,7 @@ async function ingestCityArtifact(
       reason?: string | null;
     }[];
   },
+  options: { recordEvents?: boolean } = {},
 ): Promise<void> {
   const outcomes = value.outcomes ?? [];
   const ranked = outcomes.filter(
@@ -505,22 +678,24 @@ async function ingestCityArtifact(
       outcome.rankedOfferIds.length > 0 &&
       typeof outcome.inputFingerprint === "string",
   );
-  for (const outcome of outcomes) {
-    if (typeof outcome.domain !== "string") {
-      continue;
+  if (options.recordEvents !== false) {
+    for (const outcome of outcomes) {
+      if (typeof outcome.domain !== "string") {
+        continue;
+      }
+      await deps.ports.recordResearchEvent({
+        tripId: claim.tripId,
+        operationId: claim.operationId,
+        domain: outcome.domain as ResearchDomain,
+        phase: "finished",
+        attempt: 1,
+        durationMs: null,
+        status: outcome.status as never,
+        simulatedFailure: outcome.simulatedFailure ?? false,
+        reason: outcome.reason ?? null,
+        fingerprint: outcome.inputFingerprint ?? null,
+      });
     }
-    await deps.ports.recordResearchEvent({
-      tripId: claim.tripId,
-      operationId: claim.operationId,
-      domain: outcome.domain as ResearchDomain,
-      phase: "finished",
-      attempt: 1,
-      durationMs: null,
-      status: outcome.status as never,
-      simulatedFailure: outcome.simulatedFailure ?? false,
-      reason: outcome.reason ?? null,
-      fingerprint: outcome.inputFingerprint ?? null,
-    });
   }
   if (ranked.length > 0) {
     await deps.ports.rankRecommendations({
@@ -543,23 +718,26 @@ async function ingestHotelArtifact(
   claim: ClaimedOperation,
   delegationId: string,
   rankedIds: readonly string[],
+  options: { recordEvents?: boolean } = {},
 ): Promise<void> {
   const delegation = await getAgentDelegation(deps.pool, delegationId);
   if (!delegation) {
     return;
   }
-  await deps.ports.recordResearchEvent({
-    tripId: claim.tripId,
-    operationId: claim.operationId,
-    domain: "hotel",
-    phase: "finished",
-    attempt: 1,
-    durationMs: null,
-    status: "ok",
-    simulatedFailure: false,
-    reason: null,
-    fingerprint: delegation.inputFingerprint,
-  });
+  if (options.recordEvents !== false) {
+    await deps.ports.recordResearchEvent({
+      tripId: claim.tripId,
+      operationId: claim.operationId,
+      domain: "hotel",
+      phase: "finished",
+      attempt: 1,
+      durationMs: null,
+      status: "ok",
+      simulatedFailure: false,
+      reason: null,
+      fingerprint: delegation.inputFingerprint,
+    });
+  }
   await deps.ports.rankRecommendations({
     tripId: claim.tripId,
     operationId: claim.operationId,
@@ -1466,6 +1644,32 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           [existingId],
         );
       }
+      // Owner retry: reuse an accepted completed flight delegation of the same
+      // operation and schedule fingerprint (no duplicate flight MCP work).
+      const completedFlight = await deps.pool.query<{ id: string }>(
+        `SELECT d.id FROM odft_app.agent_delegations d
+          WHERE d.trip_id = $1 AND d.skill_id = 'flight.recommend.v1'
+            AND d.originating_operation_id = $2
+            AND d.status = 'completed' AND d.accepted_artifact_hash IS NOT NULL
+            AND d.input_fingerprint = $3
+          ORDER BY d.created_at DESC LIMIT 1`,
+        [context.tripId, claim.operationId, schedule.fingerprint],
+      );
+      const completedFlightId = completedFlight.rows[0]?.id;
+      if (completedFlightId) {
+        const persisted = await loadDelegationDelivery(deps.pool, completedFlightId);
+        if (persisted.outbound) {
+          return {
+            kind: "continue",
+            step: "researching",
+            runData: runDataWith(data, {
+              delegationIds: data.delegationIds.includes(completedFlightId)
+                ? data.delegationIds
+                : [...data.delegationIds, completedFlightId],
+            }),
+          };
+        }
+      }
       // Persist the delegation + outbound intent BEFORE any delivery attempt.
       const taskData = buildFlightTaskRequest({
         tripId: context.tripId,
@@ -1555,7 +1759,45 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
         };
       }
       const decision = await loadDecision(deps.pool, payload.decisionId);
-      if (!decision || decision.status !== "pending" || decision.coordinatorRunId !== run.id) {
+      // Commit-before-cursor replay (plan §3.14): the booking effect may have
+      // committed and resolved the decision before the coordinator cursor was
+      // advanced. A confirmed reservation keyed by THIS operation is durable
+      // proof of that committed effect, so the same operation may replay it.
+      let replayCommittedBooking = false;
+      if (
+        decision?.status === "resolved" &&
+        decision.coordinatorRunId === run.id &&
+        (decision.kind === "booking_confirmation" ||
+          decision.kind === "replacement_confirmation") &&
+        decision.proposalId
+      ) {
+        const proposal = await getProposal(deps.pool, context.tripId, decision.proposalId);
+        if (proposal) {
+          const reservation = await getReservationByConfirmationKey(
+            deps.pool,
+            context.tripId,
+            `confirm:${proposal.serviceKey}:${claim.operationId}:${decision.proposalId}`,
+          );
+          replayCommittedBooking = reservation !== undefined;
+          if (!replayCommittedBooking) {
+            // `decline_booking` commits a stored effect and a selection, not a
+            // reservation. The effect ledger is the durable proof of that
+            // committed decision (plan §3.14).
+            const declineEffect = await deps.pool.query(
+              `SELECT 1 FROM odft_app.workflow_effects
+                WHERE operation_id = $1 AND node_name = 'decline_booking'
+                  AND effect_scope = $2`,
+              [claim.operationId, decision.proposalId],
+            );
+            replayCommittedBooking = (declineEffect.rowCount ?? 0) > 0;
+          }
+        }
+      }
+      if (
+        !decision ||
+        (decision.status !== "pending" && !replayCommittedBooking) ||
+        decision.coordinatorRunId !== run.id
+      ) {
         return {
           kind: "fail",
           runData: runDataWith(data, {}),
@@ -1807,46 +2049,10 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           };
         }
         // The hotel side is settled (booked or kept as a selection): open the
-        // program choices from the City Guide specialist's ranked domains.
-        const cityDelegation = await deps.pool.query<{ id: string }>(
-          `SELECT id FROM odft_app.agent_delegations
-            WHERE trip_id = $1 AND skill_id = 'city-guide.research.v1' AND status = 'completed'
-            ORDER BY created_at DESC LIMIT 1`,
-          [context.tripId],
-        );
-        const cityId = cityDelegation.rows[0]?.id;
-        const cityArtifact = cityId
-          ? ((await acceptedArtifactPayload(deps, cityId)) as
-              | { outcomes?: { domain?: string; status?: string; rankedOfferIds?: string[] }[] }
-              | undefined)
-          : undefined;
-        const meals = new Set(["breakfast", "lunch", "dinner"]);
-        const mealIds =
-          cityArtifact?.outcomes
-            ?.filter((outcome) => outcome.status === "ok" && meals.has(outcome.domain ?? ""))
-            .flatMap((outcome) => outcome.rankedOfferIds ?? []) ?? [];
-        const activityIds =
-          cityArtifact?.outcomes
-            ?.filter((outcome) => outcome.status === "ok" && outcome.domain === "attractions")
-            .flatMap((outcome) => outcome.rankedOfferIds ?? []) ?? [];
-        if (!cityId || mealIds.length === 0) {
-          return {
-            kind: "fail",
-            runData: runDataWith(data, {}),
-            code: "MCP_UNAVAILABLE",
-            reason: "the program choices need usable City Guide meal outcomes",
-          };
-        }
-        return {
-          kind: "wait",
-          step: "awaiting_user",
-          waitReason: "program_choices",
-          runData: runDataWith(data, {}),
-          fingerprint: contentHash(cityArtifact ?? {}),
-          allowedOptionIds: activityIds,
-          allowedOfferIds: mealIds,
-          optionPayload: { rankedMeals: mealIds, rankedActivities: activityIds },
-        };
+        // program choices from the City Guide specialist's ranked domains. The
+        // helper re-researches only the failed City Guide domains when the
+        // earlier task failed, preserving the confirmed hotel (plan §3.11).
+        return openProgramChoices(deps, claim, data);
       }
       if (decision.kind === "program_choices") {
         if (payload.response.action !== "submit_program") {
@@ -2081,10 +2287,33 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
         }[];
       } | null = null;
       const queue = [...(data.questionQueue ?? [])];
+      // Terminal specialist failures are collected instead of failing the whole
+      // pass immediately: a completed hotel must not be discarded because an
+      // unrelated City Guide query failed (plan §3.11), and a failed delegation
+      // must be marked terminal so an owner retry creates a FRESH scoped
+      // delegation instead of polling the same failed task forever.
+      const failedDelegations: {
+        delegationId: string;
+        skillId: string;
+        code: string;
+        reason: string;
+      }[] = [];
+      // Consecutive read failures per delegation. A transient network blip must
+      // not terminalize a possibly-live paid computation (plan §3.12).
+      const pollFailures = new Map<string, number>();
       for (;;) {
         // `drained` is true while every submitted sibling is terminal OR
         // awaiting an answer; a WORKING sibling blocks the question promotion.
         let drained = true;
+        // A delegation whose outbound intent exists but whose acknowledgement
+        // was lost (agent crash after admission) must be re-delivered before a
+        // choice parks: the same message id replays the canonical task and
+        // binds it, so no duplicate paid work starts.
+        let unacknowledged = false;
+        // A delivery acknowledged in THIS pass must be polled once before a
+        // choice parks: a replayed canonical task may already be terminal
+        // (AGENT_RESTARTED), and that terminal state must be reconciled first.
+        let newlyBound = false;
         if (deps.signal?.aborted) {
           return { kind: "abandon", runData: runDataWith(data, { questionQueue: queue, drainPending: queue.length > 0 }) };
         }
@@ -2103,14 +2332,64 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           if (delegation.status === "revoked") {
             continue;
           }
+          // A previous pass already proved this delegation terminal. It stays
+          // in the run data for audit but never blocks the drain.
+          if (delegation.status === "failed" || delegation.status === "cancelled") {
+            continue;
+          }
           if (delegation.status === "completed") {
+            // Accepted earlier (hash on the delegation row). Re-derive the
+            // outcome so a later pass can still park the SAME choice after an
+            // intervening question/restart. The flight artifact must be
+            // re-derived too: a crash between acceptance and the flight_choice
+            // park would otherwise fall through to STALE_AGENT_RESULT.
+            if (delegation.skillId === "flight.recommend.v1") {
+              const progress = await deps.ports.loadProgress(claim.tripId);
+              const flightSettled =
+                progress.flightConfirmed || progress.selectedServices.includes("flights");
+              if (!flightSettled) {
+                let payload: { rankedCombinationIds?: unknown } | undefined;
+                try {
+                  payload = (await acceptedArtifactPayload(deps, delegationId)) as
+                    | { rankedCombinationIds?: unknown }
+                    | undefined;
+                } catch {
+                  return {
+                    kind: "abandon",
+                    runData: runDataWith(data, { questionQueue: queue }),
+                  };
+                }
+                const ranked = payload?.rankedCombinationIds;
+                if (Array.isArray(ranked) && ranked.length > 0) {
+                  return {
+                    kind: "wait",
+                    step: "awaiting_user",
+                    waitReason: "flight_choice",
+                    runData: runDataWith(data, { questionQueue: queue, drainPending: false }),
+                    fingerprint:
+                      delegation.acceptedArtifactHash ?? contentHash(payload ?? {}),
+                    allowedOptionIds: [],
+                    allowedOfferIds: ranked as string[],
+                    optionPayload: { rankedCombinationIds: ranked },
+                  };
+                }
+              }
+            }
             // Accepted earlier (hash on the delegation row). Re-derive the
             // accommodation outcome so a later pass can still park the hotel
             // choice after an intervening question was answered.
             if (delegation.skillId === "accommodation.recommend.v1" && !hotel) {
-              const payload = (await acceptedArtifactPayload(deps, delegationId)) as
-                | { rankedHotelOfferIds?: unknown }
-                | undefined;
+              let payload: { rankedHotelOfferIds?: unknown } | undefined;
+              try {
+                payload = (await acceptedArtifactPayload(deps, delegationId)) as
+                  | { rankedHotelOfferIds?: unknown }
+                  | undefined;
+              } catch {
+                return {
+                  kind: "abandon",
+                  runData: runDataWith(data, { questionQueue: queue }),
+                };
+              }
               if (Array.isArray(payload?.rankedHotelOfferIds) && payload.rankedHotelOfferIds.length > 0) {
                 hotel = {
                   payloadHash: delegation.acceptedArtifactHash ?? contentHash(payload),
@@ -2121,11 +2400,12 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
                   claim,
                   delegationId,
                   hotel.rankedIds,
+                  { recordEvents: false },
                 );
               }
             }
             if (delegation.skillId === "city-guide.research.v1" && !city) {
-              const payload = (await acceptedArtifactPayload(deps, delegationId)) as
+              let payload:
                 | {
                     outcomes?: {
                       domain?: string;
@@ -2137,9 +2417,30 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
                     }[];
                   }
                 | undefined;
+              try {
+                payload = (await acceptedArtifactPayload(deps, delegationId)) as
+                  | {
+                      outcomes?: {
+                        domain?: string;
+                        status?: string;
+                        rankedOfferIds?: string[];
+                        inputFingerprint?: string | null;
+                        simulatedFailure?: boolean;
+                        reason?: string | null;
+                      }[];
+                    }
+                  | undefined;
+              } catch {
+                return {
+                  kind: "abandon",
+                  runData: runDataWith(data, { questionQueue: queue }),
+                };
+              }
               if (payload?.outcomes) {
                 city = payload;
-                await ingestCityArtifact(deps, claim, data, payload);
+                await ingestCityArtifact(deps, claim, data, payload, {
+                  recordEvents: false,
+                });
               }
             }
             continue;
@@ -2148,27 +2449,76 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             drained = false;
             const persisted = await loadDelegationDelivery(deps.pool, delegationId);
             if (persisted.outbound) {
-              await deliverDelegation(deps.pool, deps.transport, {
+              const delivered = await deliverDelegation(deps.pool, deps.transport, {
                 delegationId,
                 agentIdentity: delegation.agentIdentity,
                 data: persisted.outbound.payload,
               });
+              if (!delivered.delivered) {
+                unacknowledged = true;
+              } else {
+                newlyBound = true;
+              }
+            } else {
+              unacknowledged = true;
             }
             continue;
           }
-          const task = await deps.transport.getTask({
-            agentIdentity: delegation.agentIdentity,
-            taskId: delegation.taskId,
-          });
+          const task = await deps.transport
+            .getTask({
+              agentIdentity: delegation.agentIdentity,
+              taskId: delegation.taskId,
+            })
+            .catch(async (error: unknown) => {
+              const failures = (pollFailures.get(delegationId) ?? 0) + 1;
+              pollFailures.set(delegationId, failures);
+              if (failures <= 5) {
+                return "retry" as const;
+              }
+              const code = safeAgentFailureCode(error, "AGENT_UNAVAILABLE");
+              const reason =
+                error instanceof Error ? error.message : "the specialist task read failed";
+              await markDelegationFailed(deps, claim.tripId, delegation, code, reason);
+              failedDelegations.push({
+                delegationId,
+                skillId: delegation.skillId,
+                code,
+                reason,
+              });
+              return null;
+            });
+          if (task === "retry") {
+            drained = false;
+            continue;
+          }
+          if (!task) {
+            continue;
+          }
+          pollFailures.delete(delegationId);
           if (task.state === "failed" || task.state === "canceled") {
-            return {
-              kind: "fail",
-              runData: runDataWith(data, {}),
-              code: "AGENT_FAILED",
-              reason: `the ${delegation.skillId} specialist ${task.state} the task${
-                task.failureCode ? `: ${task.failureCode}` : ""
-              }`,
-            };
+            const code = safeAgentFailureCode(task.failureCode, "AGENT_FAILED");
+            const reason =
+              task.failureCode ?? `the ${delegation.skillId} specialist ${task.state} the task`;
+            await markDelegationFailed(deps, claim.tripId, delegation, code, reason);
+            failedDelegations.push({
+              delegationId,
+              skillId: delegation.skillId,
+              code,
+              reason,
+            });
+            continue;
+          }
+          if (task.state === "rejected" || task.state === "auth_required") {
+            const code = "AGENT_FAILED";
+            const reason = `the ${delegation.skillId} specialist ${task.state} the task`;
+            await markDelegationFailed(deps, claim.tripId, delegation, code, reason);
+            failedDelegations.push({
+              delegationId,
+              skillId: delegation.skillId,
+              code,
+              reason,
+            });
+            continue;
           }
           if (task.state === "input_required") {
             // A genuine specialist question is persisted in the FIFO queue and
@@ -2260,12 +2610,19 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               reason?: string | null;
             }[];
           };
-          await deps.pool.query(
-            `UPDATE odft_app.agent_delegations
-                SET status = 'completed', accepted_artifact_hash = $2, updated_at = now()
-              WHERE id = $1`,
-            [delegationId, accepted.payloadHash],
-          );
+          // Terminal-status guard: a cancellation that commits while this task
+          // completes must win. A revoked delegation is never resurrected and
+          // its late artifact is not ingested (plan §3.8/§3.14).
+          const acceptedNow = await acceptDelegationArtifact(deps.pool, {
+            delegationId,
+            artifactHash: accepted.payloadHash,
+          });
+          if (!acceptedNow) {
+            return {
+              kind: "abandon",
+              runData: runDataWith(data, { questionQueue: queue }),
+            };
+          }
           if (delegation.skillId === "flight.recommend.v1") {
             const ranked = value.rankedCombinationIds;
             if (!Array.isArray(ranked) || ranked.length === 0) {
@@ -2314,6 +2671,40 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           }
           void acceptedArtifactId;
         }
+        // Decide whether a terminal specialist failure blocks THIS pass. A
+        // flight failure always blocks; a hotel failure blocks the hotel choice;
+        // a City Guide failure only blocks the meal/program step. A completed
+        // sibling artifact is never discarded (plan §3.11/§3.17).
+        if (failedDelegations.length > 0) {
+          const flightFailure = failedDelegations.find(
+            (failure) => failure.skillId === "flight.recommend.v1",
+          );
+          const hotelFailure = failedDelegations.find(
+            (failure) => failure.skillId === "accommodation.recommend.v1",
+          );
+          const cityFailure = failedDelegations.find(
+            (failure) => failure.skillId === "city-guide.research.v1",
+          );
+          const needsHotel =
+            data.researchTarget === null || data.researchTarget === "hotel_choice";
+          const needsCity =
+            data.researchTarget === "program_choices" || data.researchTarget === "plan";
+          const blocking =
+            flightFailure ??
+            (needsHotel ? hotelFailure : undefined) ??
+            (needsCity ? cityFailure : undefined);
+          if (blocking) {
+            return {
+              kind: "fail",
+              runData: runDataWith(data, {
+                questionQueue: queue,
+                drainPending: queue.length > 0,
+              }),
+              code: blocking.code,
+              reason: blocking.reason,
+            };
+          }
+        }
         // A queued question outranks a parked choice: promote exactly one FIFO
         // head AFTER the drain, before any choice park.
         if (queue.length > 0 && drained) {
@@ -2324,12 +2715,24 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           }
           if (queued) {
             const answering = await getAgentDelegation(deps.pool, queued.delegationId);
-            const questionTask = answering?.taskId
-              ? await deps.transport.getTask({
+            let questionTask:
+              | Awaited<ReturnType<typeof deps.transport.getTask>>
+              | undefined;
+            if (answering?.taskId) {
+              try {
+                questionTask = await deps.transport.getTask({
                   agentIdentity: answering.agentIdentity,
                   taskId: answering.taskId,
-                })
-              : undefined;
+                });
+              } catch {
+                // Transient read error at promotion: preserve the queue and let
+                // the next claim retry instead of failing the run.
+                return {
+                  kind: "abandon",
+                  runData: runDataWith(data, { questionQueue: queue }),
+                };
+              }
+            }
             const question = questionTask?.question as
               | { question?: string; options?: { id: string; label?: string }[] }
               | undefined;
@@ -2374,7 +2777,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
         if (data.researchTarget === "program_choices" && drained && queue.length === 0) {
           return openProgramChoices(deps, claim, data);
         }
-        if (hotel) {
+        if (hotel && !unacknowledged && !newlyBound) {
           return {
             kind: "wait",
             step: "awaiting_user",
@@ -2387,7 +2790,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             optionPayload: { rankedHotelOfferIds: hotel.rankedIds },
           };
         }
-        if (drained && queue.length === 0) {
+        if (drained && queue.length === 0 && !unacknowledged && !newlyBound) {
           return {
             kind: "fail",
             runData: runDataWith(data, { questionQueue: queue, drainPending: false }),
@@ -2395,7 +2798,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             reason: "the research delegations settled without a usable outcome",
           };
         }
-        if (Date.now() - startedAt >= waitMs && !hotel) {
+        if (Date.now() - startedAt >= waitMs && !newlyBound) {
           // The operation stays running; its lease expires and the next claim
           // resumes this step from the persisted cursor (saved-task recovery).
           return {
@@ -2403,7 +2806,9 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             runData: runDataWith(data, { questionQueue: queue, drainPending: queue.length > 0 }),
           };
         }
-        await delay(250);
+        // An unacknowledged delivery is retried with a slower cadence: the
+        // same message id is safe, but a down agent should not be hammered.
+        await delay(unacknowledged ? 1_000 : 250);
       }
     }
     default:
@@ -2499,6 +2904,29 @@ export async function runCoordinatorOperation(
     throw new Error(`operation ${claim.operationId} belongs to a ${trip.engine} trip`);
   }
   let run = await getActiveCoordinatorRun(deps.pool, claim.tripId);
+  if (!run) {
+    // Owner retry (plan §3.12): a terminally failed run bound to THIS operation
+    // is reopened at `interpreting`. The durable run data (accepted siblings,
+    // queue, fingerprints) is preserved; completed accepted delegations are
+    // reused and only the failed scope is re-dispatched.
+    const failed = await deps.pool.query<{ id: string }>(
+      `SELECT id FROM odft_app.coordinator_runs
+        WHERE trip_id = $1 AND operation_id = $2 AND status = 'failed'
+        ORDER BY created_at DESC LIMIT 1`,
+      [claim.tripId, claim.operationId],
+    );
+    const failedRunId = failed.rows[0]?.id;
+    const failedRun = failedRunId ? await getCoordinatorRun(deps.pool, failedRunId) : undefined;
+    if (failedRun) {
+      run = await updateCoordinatorRun(deps.pool, {
+        runId: failedRun.id,
+        step: "interpreting",
+        waitReason: null,
+        status: "running",
+        runData: failedRun.runData,
+      });
+    }
+  }
   if (!run) {
     if (claim.kind === "decision") {
       // A decision always answers a decision owned by an active run.

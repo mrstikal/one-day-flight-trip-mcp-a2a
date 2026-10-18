@@ -23,6 +23,7 @@ const envSchema = z
     stepDelayMs: z.number().int().min(0).max(60000).default(0),
     aiMode: z.enum(["fixture", "openrouter"]).default("fixture"),
     aiConfigPath: z.string().min(1).nullable().default(null),
+    crashBeforeWork: z.boolean().default(false),
   })
   .strict();
 
@@ -37,6 +38,8 @@ export interface CityGuideAgentConfig {
   readonly stepDelayMs: number;
   readonly aiMode: "fixture" | "openrouter";
   readonly aiConfigPath: string | null;
+  /** Test-only crash hook AFTER durable admission, before any work. */
+  readonly crashBeforeWork: boolean;
   readonly inbound: TrustedRegistry;
   /** Client-side config used to reach the MCP endpoints (Phase 04). */
   readonly protocol: ProtocolConfig;
@@ -62,6 +65,7 @@ export function loadCityGuideAgentConfig(env: Record<string, string | undefined>
     stepDelayMs: envNumber(env, "ODFT_CITY_GUIDE_AGENT_STEP_DELAY_MS", 0),
     aiMode: env.AI_MODE === "openrouter" ? "openrouter" : "fixture",
     aiConfigPath: env.AI_CONFIG_PATH ?? null,
+    crashBeforeWork: env.ODFT_CITY_GUIDE_AGENT_CRASH === "1",
   });
   if (!parsed.databaseUrl) {
     throw new Error("DATABASE_URL is required for the city-guide-agent");
@@ -81,6 +85,7 @@ export function loadCityGuideAgentConfig(env: Record<string, string | undefined>
     stepDelayMs: parsed.stepDelayMs,
     aiMode: parsed.aiMode,
     aiConfigPath: parsed.aiConfigPath,
+    crashBeforeWork: parsed.crashBeforeWork,
     inbound,
     protocol: {
       selfAgentIdentity: CITY_GUIDE_AGENT_IDENTITY,

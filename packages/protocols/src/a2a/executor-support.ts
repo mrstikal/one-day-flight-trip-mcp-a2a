@@ -58,7 +58,18 @@ export function dataPartOf(message: Message): unknown {
  */
 export function safeFailureCode(error: unknown): string {
   const code = (error as { code?: unknown } | undefined)?.code;
-  return typeof code === "string" && code.length > 0 ? code : "INTERNAL_ERROR";
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{2,40}$/.test(code)
+    ? code
+    : "INTERNAL_ERROR";
+}
+
+/** Terminal text is safe, bounded and free of credential-bearing URLs. */
+export function safeFailureReason(reason: string): string {
+  const cleaned = reason
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'`]+/gi, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (cleaned.length > 0 ? cleaned : "the task failed").slice(0, 300);
 }
 
 /**
@@ -198,7 +209,12 @@ export function createTaskSession(input: {
       // caller that observes FAILED (streaming or not) can always read the
       // settled row immediately.
       await input.admission.markSettled({ messageId, taskId: task.id, state: "failed" });
-      publishStatus(TaskState.TASK_STATE_FAILED, reason, { failureCode: code });
+      // The safe application code is part of the terminal text: the coordinator
+      // maps it to its own error category (AGENT_RESTARTED, MCP_UNAVAILABLE, …)
+      // without reading SDK internals or provider stacks.
+      publishStatus(TaskState.TASK_STATE_FAILED, `${code}: ${safeFailureReason(reason)}`, {
+        failureCode: code,
+      });
       eventBus.finished();
     },
     async publishCancelled() {

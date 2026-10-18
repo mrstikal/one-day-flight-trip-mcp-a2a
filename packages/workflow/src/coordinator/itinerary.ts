@@ -7,6 +7,7 @@ import {
 } from "@odft/contracts";
 import { fingerprint } from "@odft/domain";
 import {
+  acceptDelegationArtifact,
   contentHash,
   getAgentDelegation,
   ItineraryPersistenceError,
@@ -365,10 +366,32 @@ export async function pollItineraryAttempt(
     });
     return { kind: "abandon", runData: { ...data } };
   }
-  const task = await deps.transport.getTask({
-    agentIdentity: delegation.agentIdentity,
-    taskId: delegation.taskId,
-  });
+  const waitMs = deps.delegationWaitMs ?? 20_000;
+  const startedAt = Date.now();
+  let task: Awaited<ReturnType<typeof deps.transport.getTask>>;
+  // Non-blocking delivery: poll the accepted task within this claim instead of
+  // abandoning on the first submitted/working state (plan §3.11/§3.13).
+  for (;;) {
+    try {
+      task = await deps.transport.getTask({
+        agentIdentity: delegation.agentIdentity,
+        taskId: delegation.taskId,
+      });
+    } catch {
+      if (Date.now() - startedAt >= waitMs) {
+        return { kind: "abandon", runData: { ...data } };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      continue;
+    }
+    if (task.state === "completed" || task.state === "failed" || task.state === "canceled") {
+      break;
+    }
+    if (Date.now() - startedAt >= waitMs) {
+      return { kind: "abandon", runData: { ...data } };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
   if (task.state === "failed" || task.state === "canceled") {
     const failureCode = task.failureCode ?? "AGENT_FAILED";
     if (data.planningAttempt < MAX_ITINERARY_ATTEMPTS) {
@@ -397,10 +420,6 @@ export async function pollItineraryAttempt(
       },
     };
   }
-  if (task.state !== "completed") {
-    return { kind: "abandon", runData: { ...data } };
-  }
-
   const accepted = acceptedItineraryArtifact(task.artifacts, delegation);
   if (!accepted) {
     return {
@@ -441,12 +460,15 @@ export async function pollItineraryAttempt(
     };
   }
   const artifactValue = accepted.stops;
-  await deps.pool.query(
-    `UPDATE odft_app.agent_delegations
-        SET status = 'completed', accepted_artifact_hash = $2, updated_at = now()
-      WHERE id = $1`,
-    [delegationId, accepted.payloadHash],
-  );
+  // Same terminal-status guard as the research path: a cancellation that
+  // commits while the proposal is accepted must win, never resurrect the row.
+  const acceptedNow = await acceptDelegationArtifact(deps.pool, {
+    delegationId,
+    artifactHash: accepted.payloadHash,
+  });
+  if (!acceptedNow) {
+    return { kind: "abandon", runData: { ...data } };
+  }
 
   let plan: Awaited<ReturnType<TravelPorts["acceptItineraryProposal"]>>;
   try {

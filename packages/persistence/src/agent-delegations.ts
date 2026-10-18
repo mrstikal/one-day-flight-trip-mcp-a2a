@@ -183,27 +183,35 @@ export async function listOutstandingDelegations(
 }
 
 /** Persist the canonical SDK task/context mapping of a dispatched delegation. */
+/** Mark a completed artifact accepted without ever resurrecting terminal rows. */
+export async function acceptDelegationArtifact(
+  client: Queryable,
+  input: { delegationId: string; artifactHash: string },
+): Promise<boolean> {
+  const result = await client.query(
+    `UPDATE odft_app.agent_delegations
+        SET status = 'completed', accepted_artifact_hash = $2, updated_at = now()
+      WHERE id = $1 AND status NOT IN ('revoked','failed','cancelled')`,
+    [input.delegationId, input.artifactHash],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function bindDelegationTask(
   client: Queryable,
   input: { delegationId: string; taskId: string; contextId: string; status?: DelegationStatus },
 ): Promise<void> {
   await client.query(
     `UPDATE odft_app.agent_delegations
-        SET task_id = $2, context_id = $3, status = COALESCE($4, 'working'), updated_at = now()
+        SET task_id = COALESCE(task_id, $2),
+            context_id = COALESCE(context_id, $3),
+            status = CASE
+              WHEN status IN ('revoked','failed','cancelled','completed') THEN status
+              ELSE COALESCE($4, 'working')
+            END,
+            updated_at = now()
       WHERE id = $1`,
     [input.delegationId, input.taskId, input.contextId, input.status ?? null],
-  );
-}
-
-export async function updateDelegationStatus(
-  client: Queryable,
-  input: { delegationId: string; status: DelegationStatus; acceptedArtifactHash?: string },
-): Promise<void> {
-  await client.query(
-    `UPDATE odft_app.agent_delegations
-        SET status = $2, accepted_artifact_hash = COALESCE($3, accepted_artifact_hash), updated_at = now()
-      WHERE id = $1`,
-    [input.delegationId, input.status, input.acceptedArtifactHash ?? null],
   );
 }
 

@@ -3,7 +3,7 @@ import type { RequestHandler, Response } from "express";
 import type { Kysely } from "kysely";
 import { sql } from "kysely";
 import { ServerCallContext } from "@a2a-js/sdk/server";
-import { Task as ProtoTask, TaskState, type Message, type Task } from "@a2a-js/sdk";
+import { Task as ProtoTask, Role, TaskState, type Message, type Task } from "@a2a-js/sdk";
 import { authenticateServiceRequest, type ServiceIdentity } from "../auth.js";
 import { canonicalHash } from "../canonical-json.js";
 import type { ProtocolConfig } from "../config.js";
@@ -322,7 +322,27 @@ export class DurableMessageAdmission {
                 ...task,
                 status: {
                   state: TaskState.TASK_STATE_FAILED,
-                  message: undefined,
+                  message: {
+                    messageId: randomUUID(),
+                    contextId: task.contextId,
+                    taskId: task.id,
+                    role: Role.ROLE_AGENT,
+                    parts: [
+                      {
+                        content: {
+                          $case: "text",
+                          value:
+                            "AGENT_RESTARTED: the service restarted before the task finished; interrupted computation is not resumed",
+                        },
+                        mediaType: "text/plain",
+                        filename: "",
+                        metadata: {},
+                      },
+                    ],
+                    metadata: undefined,
+                    extensions: [],
+                    referenceTaskIds: [],
+                  },
                   timestamp: new Date().toISOString(),
                 },
               },

@@ -35,9 +35,12 @@ import {
 import {
   ACCOMMODATION_AGENT_PORT,
   ACCOMMODATION_AGENT_TOKEN,
+  ACCOMMODATION_ALT_AGENT_PORT,
+  ACCOMMODATION_ALT_AGENT_TOKEN,
   CITY_GUIDE_AGENT_PORT,
   CITY_GUIDE_AGENT_TOKEN,
   startAccommodationAgent,
+  startAccommodationAltAgent,
   startCityGuideAgent,
   stopAgent,
   waitForAgentReady,
@@ -55,10 +58,13 @@ export interface CoordinatorHarness {
   readonly mcpHost: ChildProcess;
   readonly flightAgent: ChildProcess;
   readonly accommodationAgent: ChildProcess;
+  readonly accommodationAltAgent?: ChildProcess;
   readonly cityGuideAgent: ChildProcess;
 }
 
-export async function startCoordinatorHarness(): Promise<CoordinatorHarness> {
+export async function startCoordinatorHarness(
+  options: { readonly accommodationAlt?: boolean } = {},
+): Promise<CoordinatorHarness> {
   const pool = createMcpTestPool();
   const pools = createMcpTestWorkerPools();
   await resetMcpDatabase(pool);
@@ -69,12 +75,29 @@ export async function startCoordinatorHarness(): Promise<CoordinatorHarness> {
   await waitForFlightAgent(flightAgent);
   const accommodationAgent = startAccommodationAgent();
   await waitForAgentReady(accommodationAgent, "accommodation-agent");
+  const accommodationAltAgent = options.accommodationAlt
+    ? startAccommodationAltAgent()
+    : undefined;
+  if (accommodationAltAgent) {
+    await waitForAgentReady(accommodationAltAgent, "accommodation-agent-alt");
+  }
   const cityGuideAgent = startCityGuideAgent();
   await waitForAgentReady(cityGuideAgent, "city-guide-agent");
-  return { pool, pools, mcpHost, flightAgent, accommodationAgent, cityGuideAgent };
+  return {
+    pool,
+    pools,
+    mcpHost,
+    flightAgent,
+    accommodationAgent,
+    ...(accommodationAltAgent ? { accommodationAltAgent } : {}),
+    cityGuideAgent,
+  };
 }
 
 export async function stopCoordinatorHarness(harness: CoordinatorHarness): Promise<void> {
+  if (harness.accommodationAltAgent) {
+    await stopAgent(harness.accommodationAltAgent);
+  }
   await stopAgent(harness.accommodationAgent);
   await stopAgent(harness.cityGuideAgent);
   await stopFlightAgent(harness.flightAgent);
@@ -86,21 +109,32 @@ export async function stopCoordinatorHarness(harness: CoordinatorHarness): Promi
 
 /** The in-process coordinator driver (same code path as the worker loop). */
 /** The coordinator's client view of all three specialists (one registry). */
-export function coordinatorClientConfigForTest() {
+export function coordinatorClientConfigForTest(
+  options: { readonly accommodationAlt?: boolean } = {},
+) {
   const base = flightAgentClientConfig();
+  const accommodation = options.accommodationAlt
+    ? {
+        agentIdentity: "accommodation-agent-alt",
+        endpointUrl: `http://127.0.0.1:${ACCOMMODATION_ALT_AGENT_PORT}`,
+        cardUrl: `http://127.0.0.1:${ACCOMMODATION_ALT_AGENT_PORT}/.well-known/agent-card.json`,
+        credentialRef: "TEST_TOKEN_ACCOMMODATION_ALT",
+        requiredSkills: ["accommodation.recommend.v1" as const],
+      }
+    : {
+        agentIdentity: "accommodation-agent",
+        endpointUrl: `http://127.0.0.1:${ACCOMMODATION_AGENT_PORT}`,
+        cardUrl: `http://127.0.0.1:${ACCOMMODATION_AGENT_PORT}/.well-known/agent-card.json`,
+        credentialRef: "TEST_TOKEN_ACCOMMODATION",
+        requiredSkills: ["accommodation.recommend.v1" as const],
+      };
   return {
     ...base,
     registry: {
       schemaVersion: 1 as const,
       agents: [
         ...base.registry.agents,
-        {
-          agentIdentity: "accommodation-agent",
-          endpointUrl: `http://127.0.0.1:${ACCOMMODATION_AGENT_PORT}`,
-          cardUrl: `http://127.0.0.1:${ACCOMMODATION_AGENT_PORT}/.well-known/agent-card.json`,
-          credentialRef: "TEST_TOKEN_ACCOMMODATION",
-          requiredSkills: ["accommodation.recommend.v1" as const],
-        },
+        accommodation,
         {
           agentIdentity: "city-guide-agent",
           endpointUrl: `http://127.0.0.1:${CITY_GUIDE_AGENT_PORT}`,
@@ -117,6 +151,9 @@ export function coordinatorClientConfigForTest() {
       if (ref === "TEST_TOKEN_ACCOMMODATION") {
         return ACCOMMODATION_AGENT_TOKEN;
       }
+      if (ref === "TEST_TOKEN_ACCOMMODATION_ALT") {
+        return ACCOMMODATION_ALT_AGENT_TOKEN;
+      }
       if (ref === "TEST_TOKEN_CITY_GUIDE") {
         return CITY_GUIDE_AGENT_TOKEN;
       }
@@ -127,11 +164,30 @@ export function coordinatorClientConfigForTest() {
 
 export function coordinatorDriver(
   pools: WorkerPools,
-  options: { readonly hotelObjective?: "preserve_level" | "cheaper" } = {},
+  options: {
+    readonly hotelObjective?: "preserve_level" | "cheaper";
+    readonly accommodationAlt?: boolean;
+    readonly delegationWaitMs?: number;
+  } = {},
 ): OperationDriver {
   const ai = createTestAiService(pools);
   const portsFactory = createTravelPortsFactory(pools.operations, ai);
-  const transport = createA2ADelegationTransport(coordinatorClientConfigForTest());
+  const transport = createA2ADelegationTransport(
+    coordinatorClientConfigForTest({ accommodationAlt: options.accommodationAlt }),
+  );
+  const accommodationBinding = options.accommodationAlt
+    ? {
+        agentIdentity: "accommodation-agent-alt",
+        endpointUrl: `http://127.0.0.1:${ACCOMMODATION_ALT_AGENT_PORT}`,
+        skillId: "accommodation.recommend.v1",
+        cardVersion: "",
+      }
+    : {
+        agentIdentity: "accommodation-agent",
+        endpointUrl: `http://127.0.0.1:${ACCOMMODATION_AGENT_PORT}`,
+        skillId: "accommodation.recommend.v1",
+        cardVersion: "",
+      };
   return {
     async runOperation(claim: ClaimedOperation) {
       const ctx = {
@@ -151,12 +207,7 @@ export function coordinatorDriver(
               skillId: "flight.recommend.v1",
               cardVersion: "",
             },
-            accommodation: {
-              agentIdentity: "accommodation-agent",
-              endpointUrl: `http://127.0.0.1:${ACCOMMODATION_AGENT_PORT}`,
-              skillId: "accommodation.recommend.v1",
-              cardVersion: "",
-            },
+            accommodation: accommodationBinding,
             cityGuide: {
               agentIdentity: "city-guide-agent",
               endpointUrl: `http://127.0.0.1:${CITY_GUIDE_AGENT_PORT}`,
@@ -170,7 +221,7 @@ export function coordinatorDriver(
               cardVersion: "",
             },
           },
-          delegationWaitMs: 30_000,
+          delegationWaitMs: options.delegationWaitMs ?? 30_000,
           ...(options.hotelObjective ? { hotelObjective: options.hotelObjective } : {}),
         },
         claim,
@@ -215,7 +266,11 @@ export async function driveUntilParked(
   pools: WorkerPools,
   tripId: string,
   maxRounds = 6,
-  options: { readonly hotelObjective?: "preserve_level" | "cheaper" } = {},
+  options: {
+    readonly hotelObjective?: "preserve_level" | "cheaper";
+    readonly accommodationAlt?: boolean;
+    readonly delegationWaitMs?: number;
+  } = {},
 ): Promise<CoordinatorRunRecord | undefined> {
   const driver = coordinatorDriver(pools, options);
   let claim = await claimCoordinator(pools);

@@ -19,8 +19,10 @@ import { AGENT_TOKENS, MCP_TEST_PORTS, stopMcpHost, type SeededSnapshot } from "
 const TSX = `${REPO_ROOT}/node_modules/.bin/tsx`;
 
 export const ACCOMMODATION_AGENT_PORT = 4432;
+export const ACCOMMODATION_ALT_AGENT_PORT = 4434;
 export const CITY_GUIDE_AGENT_PORT = 4433;
 export const ACCOMMODATION_AGENT_TOKEN = AGENT_TOKENS.accommodation;
+export const ACCOMMODATION_ALT_AGENT_TOKEN = AGENT_TOKENS.accommodationAlt;
 export const CITY_GUIDE_AGENT_TOKEN = AGENT_TOKENS.cityGuide;
 
 export { stopMcpHost };
@@ -72,6 +74,25 @@ export function startAccommodationAgent(env: Record<string, string> = {}): Child
     ACCOMMODATION_AGENT_TOKEN,
     env,
   );
+}
+
+export function startAccommodationAltAgent(env: Record<string, string> = {}): ChildProcess {
+  const prefix = "ODFT_ACCOMMODATION_ALT_AGENT";
+  return spawn(TSX, ["apps/accommodation-agent-alt/src/main.ts"], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      DATABASE_URL: accommodationAgentDatabaseUrl(),
+      [`${prefix}_PORT`]: String(ACCOMMODATION_ALT_AGENT_PORT),
+      [`${prefix}_REGISTRY_PATH`]: `${REPO_ROOT}/tests/fixtures/protocols/mcp-host-registry.json`,
+      [`${prefix}_MCP_REGISTRY_PATH`]: `${REPO_ROOT}/tests/fixtures/protocols/mcp-services-registry-accommodation-alt.json`,
+      ODFT_AGENT_TOKEN_ACCOMMODATION_ALT: ACCOMMODATION_ALT_AGENT_TOKEN,
+      AI_MODE: "fixture",
+      ...env,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
+  });
 }
 
 export function startCityGuideAgent(env: Record<string, string> = {}): ChildProcess {
@@ -154,6 +175,15 @@ export function accommodationAgentClientConfig(): ProtocolConfig {
   );
 }
 
+export function accommodationAltAgentClientConfig(): ProtocolConfig {
+  return clientConfig(
+    "accommodation-agent-alt",
+    ACCOMMODATION_ALT_AGENT_PORT,
+    "accommodation.recommend.v1",
+    ACCOMMODATION_ALT_AGENT_TOKEN,
+  );
+}
+
 export function cityGuideAgentClientConfig(): ProtocolConfig {
   return clientConfig("city-guide-agent", CITY_GUIDE_AGENT_PORT, "city-guide.research.v1", CITY_GUIDE_AGENT_TOKEN);
 }
@@ -166,6 +196,8 @@ export async function createAccommodationDelegation(
     readonly objective?: "preserve_level" | "cheaper" | null;
     readonly levelOverride?: string | null;
     readonly domains?: string[];
+    readonly agentIdentity?: string;
+    readonly endpointUrl?: string;
   } = {},
 ): Promise<string> {
   const created = await insertAgentDelegation(pool, {
@@ -173,8 +205,8 @@ export async function createAccommodationDelegation(
     originatingOperationId: seeded.operationId,
     acceptedRevision: 1,
     skillId: "accommodation.recommend.v1",
-    agentIdentity: "accommodation-agent",
-    endpointUrl: `http://127.0.0.1:${ACCOMMODATION_AGENT_PORT}`,
+    agentIdentity: options.agentIdentity ?? "accommodation-agent",
+    endpointUrl: options.endpointUrl ?? `http://127.0.0.1:${ACCOMMODATION_AGENT_PORT}`,
     snapshotId: seeded.snapshotId,
     inputFingerprint: "e".repeat(64),
     scope: {
