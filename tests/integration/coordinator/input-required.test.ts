@@ -18,7 +18,9 @@ import {
 
 let harness: CoordinatorHarness;
 
-async function pending(tripId: string): Promise<{ id: string; kind: string; offers: string[]; options: string[] }> {
+async function pending(
+  tripId: string,
+): Promise<{ id: string; kind: string; offers: string[]; options: string[] }> {
   const result = await harness.pool.query<{
     id: string;
     kind: string;
@@ -33,7 +35,12 @@ async function pending(tripId: string): Promise<{ id: string; kind: string; offe
   if (!row) {
     throw new Error("no pending decision");
   }
-  return { id: row.id, kind: row.kind, offers: row.allowed_offer_ids, options: row.allowed_option_ids };
+  return {
+    id: row.id,
+    kind: row.kind,
+    offers: row.allowed_offer_ids,
+    options: row.allowed_option_ids,
+  };
 }
 
 async function resume(
@@ -41,7 +48,7 @@ async function resume(
   sessionId: string,
   decisionId: string,
   response: Record<string, unknown>,
-): Promise<void> {
+): Promise<string> {
   const admitted = await admitResume(harness.pool, {
     tripId,
     sessionId,
@@ -52,9 +59,10 @@ async function resume(
       response: response as never,
     },
   });
-  if (!("operationId" in admitted)) {
+  if (!("operationId" in admitted) || !admitted.operationId) {
     throw new Error(`admitResume refused: ${JSON.stringify(admitted)}`);
   }
+  return admitted.operationId;
 }
 
 beforeAll(async () => {
@@ -70,22 +78,28 @@ describe("coordinator input-required bridge", () => {
     // The hotel research objective makes the accommodation specialist ask its
     // genuine cheaper-tradeoff question (fixture data is deterministic).
     const { tripId, sessionId } = await createCoordinatorTrip(harness.pool);
-    const flightPark = await driveUntilParked(harness.pools, tripId, 6, { hotelObjective: "cheaper" });
+    const flightPark = await driveUntilParked(harness.pools, tripId, 6, {
+      hotelObjective: "cheaper",
+    });
     expect(flightPark?.waitReason).toBe("flight_choice");
     const flightChoice = await pending(tripId);
     await resume(tripId, sessionId, flightChoice.id, {
       action: "choose_offer",
       offerId: flightChoice.offers[0],
     });
-    const bookingPark = await driveUntilParked(harness.pools, tripId, 6, { hotelObjective: "cheaper" });
+    const bookingPark = await driveUntilParked(harness.pools, tripId, 6, {
+      hotelObjective: "cheaper",
+    });
     expect(bookingPark?.waitReason).toBe("booking_confirmation");
     const booking = await pending(tripId);
     await resume(tripId, sessionId, booking.id, {
       action: "confirm_booking",
-      proposalId: (await harness.pool.query<{ proposal_id: string }>(
-        `SELECT proposal_id FROM odft_app.pending_decisions WHERE id = $1`,
-        [booking.id],
-      )).rows[0]?.proposal_id,
+      proposalId: (
+        await harness.pool.query<{ proposal_id: string }>(
+          `SELECT proposal_id FROM odft_app.pending_decisions WHERE id = $1`,
+          [booking.id],
+        )
+      ).rows[0]?.proposal_id,
       acceptedDemoDisclaimer: true,
     });
 
@@ -110,11 +124,13 @@ describe("coordinator input-required bridge", () => {
       [tripId],
     );
     const answeringTaskId = answering.rows[0]?.task_id as string;
-    await resume(tripId, sessionId, question.id, {
+    const answerOperationId = await resume(tripId, sessionId, question.id, {
       action: "choose_option",
       optionId: "central",
     });
-    const hotelPark = await driveUntilParked(harness.pools, tripId, 8, { hotelObjective: "cheaper" });
+    const hotelPark = await driveUntilParked(harness.pools, tripId, 8, {
+      hotelObjective: "cheaper",
+    });
     expect(hotelPark?.waitReason).toBe("hotel_choice");
     // The answered "closest to the centre" preference must survive persistence:
     // the stored artifact order is the specialist's distance order, not a
@@ -129,12 +145,20 @@ describe("coordinator input-required bridge", () => {
     expect(storedHotel.rows[0]?.ranked_offers).toEqual(hotelDecision.offers);
 
     // Same task, one input, unchanged revision.
-    const after = await harness.pool.query<{ task_id: string; status: string }>(
-      `SELECT task_id, status FROM odft_app.agent_delegations WHERE id = $1`,
+    const after = await harness.pool.query<{
+      task_id: string;
+      status: string;
+      current_operation_id: string | null;
+    }>(
+      `SELECT task_id, status, current_operation_id
+         FROM odft_app.agent_delegations WHERE id = $1`,
       [answering.rows[0]?.id],
     );
     expect(after.rows[0]?.task_id).toBe(answeringTaskId);
     expect(after.rows[0]?.status).toBe("completed");
+    // The answer operation adopted the continued delegation: cancelling it
+    // would revoke the delegation it now counts on.
+    expect(after.rows[0]?.current_operation_id).toBe(answerOperationId);
     const taskCount = await harness.pool.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM odft_app.protocol_outbound_messages
         WHERE delegation_id = $1`,

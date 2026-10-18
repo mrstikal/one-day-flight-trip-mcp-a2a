@@ -2,7 +2,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { insertAgentDelegation } from "@odft/persistence";
-import { DEFAULT_PROTOCOL_TIMEOUTS, trustedRegistrySchema, type ProtocolConfig } from "@odft/protocols";
+import {
+  DEFAULT_PROTOCOL_TIMEOUTS,
+  trustedRegistrySchema,
+  type ProtocolConfig,
+} from "@odft/protocols";
 import {
   ACCOMMODATION_AGENT_PASSWORD,
   CITY_GUIDE_AGENT_PASSWORD,
@@ -46,7 +50,9 @@ function startAgent(
   token: string,
   env: Record<string, string>,
 ): ChildProcess {
-  const prefix = entry.includes("accommodation") ? "ODFT_ACCOMMODATION_AGENT" : "ODFT_CITY_GUIDE_AGENT";
+  const prefix = entry.includes("accommodation")
+    ? "ODFT_ACCOMMODATION_AGENT"
+    : "ODFT_CITY_GUIDE_AGENT";
   return spawn(TSX, [`apps/${entry}/src/main.ts`], {
     cwd: REPO_ROOT,
     env: {
@@ -56,6 +62,7 @@ function startAgent(
       [`${prefix}_REGISTRY_PATH`]: `${REPO_ROOT}/tests/fixtures/protocols/mcp-host-registry.json`,
       [`${prefix}_MCP_REGISTRY_PATH`]: `${REPO_ROOT}/tests/fixtures/protocols/${mcpRegistry}`,
       [tokenEnv]: token,
+      ODFT_COORDINATOR_TOKEN: AGENT_TOKENS.coordinator,
       AI_MODE: "fixture",
       ...env,
     },
@@ -87,6 +94,7 @@ export function startAccommodationAltAgent(env: Record<string, string> = {}): Ch
       [`${prefix}_REGISTRY_PATH`]: `${REPO_ROOT}/tests/fixtures/protocols/mcp-host-registry.json`,
       [`${prefix}_MCP_REGISTRY_PATH`]: `${REPO_ROOT}/tests/fixtures/protocols/mcp-services-registry-accommodation-alt.json`,
       ODFT_AGENT_TOKEN_ACCOMMODATION_ALT: ACCOMMODATION_ALT_AGENT_TOKEN,
+      ODFT_COORDINATOR_TOKEN: AGENT_TOKENS.coordinator,
       AI_MODE: "fixture",
       ...env,
     },
@@ -107,7 +115,11 @@ export function startCityGuideAgent(env: Record<string, string> = {}): ChildProc
   );
 }
 
-export function waitForAgentReady(child: ChildProcess, name: string, timeoutMs = 30_000): Promise<string> {
+export function waitForAgentReady(
+  child: ChildProcess,
+  name: string,
+  timeoutMs = 30_000,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     let buffer = "";
     const timer = setTimeout(() => reject(new Error(`${name} not ready: ${buffer}`)), timeoutMs);
@@ -185,7 +197,12 @@ export function accommodationAltAgentClientConfig(): ProtocolConfig {
 }
 
 export function cityGuideAgentClientConfig(): ProtocolConfig {
-  return clientConfig("city-guide-agent", CITY_GUIDE_AGENT_PORT, "city-guide.research.v1", CITY_GUIDE_AGENT_TOKEN);
+  return clientConfig(
+    "city-guide-agent",
+    CITY_GUIDE_AGENT_PORT,
+    "city-guide.research.v1",
+    CITY_GUIDE_AGENT_TOKEN,
+  );
 }
 
 /** Insert an accommodation delegation (hotel domain, explicit objective/level). */
@@ -237,7 +254,13 @@ export async function createCityGuideDelegation(
     snapshotId: seeded.snapshotId,
     inputFingerprint: "e".repeat(64),
     scope: {
-      domains: (options.domains ?? ["breakfast", "lunch", "dinner", "attractions", "events"]) as never,
+      domains: (options.domains ?? [
+        "breakfast",
+        "lunch",
+        "dinner",
+        "attractions",
+        "events",
+      ]) as never,
       snapshotId: seeded.snapshotId,
       allowRouteValidation: false,
       allowItinerary: false,
@@ -292,7 +315,12 @@ export function agentTaskRequestData(input: AgentTaskDataInput): unknown {
     searchObjective: input.searchObjective ?? "preserve_level",
     queryContext: input.queryContext ?? {},
     deadlineAt: new Date(Date.now() + 600_000).toISOString(),
-    limits: { activeTimeMs: 90_000, mcpInvocations: 8, llmTransportAttempts: 2, maxTaskCostUsd: 0.1 },
+    limits: {
+      activeTimeMs: 90_000,
+      mcpInvocations: 8,
+      llmTransportAttempts: 2,
+      maxTaskCostUsd: 0.1,
+    },
     preferences: {
       travelVariant: "two_nights",
       defaultServiceLevel: input.effectiveLevel ?? "standard",

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 import {
   DEFAULT_PROTOCOL_TIMEOUTS,
+  scopeInboundRegistry,
   trustedRegistrySchema,
   type ProtocolConfig,
   type TrustedRegistry,
@@ -41,6 +42,8 @@ export interface AccommodationAltAgentConfig {
   /** Restricted accommodation role connection (never the owner role). */
   readonly databaseUrl: string;
   readonly registryPath: string;
+  /** Environment variable holding this agent's own inbound bearer. */
+  readonly selfTokenRef: string;
   readonly mcpRegistryPath: string | null;
   readonly aiMode: "fixture" | "openrouter";
   /** Optional distinct model/profile file for this implementation. */
@@ -82,8 +85,10 @@ export function loadAccommodationAltAgentConfig(
   if (!parsed.databaseUrl) {
     throw new Error("DATABASE_URL is required for the accommodation-agent-alt");
   }
-  const inbound = trustedRegistrySchema.parse(
-    JSON.parse(readFileSync(parsed.registryPath, "utf8")),
+  const inbound = scopeInboundRegistry(
+    trustedRegistrySchema.parse(JSON.parse(readFileSync(parsed.registryPath, "utf8"))),
+    ACCOMMODATION_ALT_AGENT_IDENTITY,
+    parsed.selfTokenRef,
   );
   const mcpRegistry = parsed.mcpRegistryPath
     ? JSON.parse(readFileSync(parsed.mcpRegistryPath, "utf8"))
@@ -93,6 +98,7 @@ export function loadAccommodationAltAgentConfig(
     port: parsed.port,
     databaseUrl: parsed.databaseUrl,
     registryPath: parsed.registryPath,
+    selfTokenRef: parsed.selfTokenRef,
     mcpRegistryPath: parsed.mcpRegistryPath,
     aiMode: parsed.aiMode,
     aiConfigPath: parsed.aiConfigPath,

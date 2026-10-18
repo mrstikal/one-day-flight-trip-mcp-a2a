@@ -34,6 +34,10 @@ interface ConnectedClient {
 }
 
 export class McpClient {
+  /** One live connection per trusted MCP endpoint per process (plan §3.4). */
+  private readonly connections = new Map<string, Promise<ConnectedClient>>();
+  private readonly activeCalls = new Map<string, number>();
+
   constructor(private readonly deps: McpClientDependencies) {}
 
   serviceFor(serviceName: string): McpServiceEntry {
@@ -75,6 +79,8 @@ export class McpClient {
           ),
       );
     } catch (error) {
+      // A timed-out/failed handshake must not leak the transport or its socket.
+      await client.close().catch(() => undefined);
       if (error instanceof McpClientError) {
         throw error;
       }
@@ -86,21 +92,70 @@ export class McpClient {
     return { client, transport, service };
   }
 
+  private async connectionFor(service: McpServiceEntry): Promise<ConnectedClient> {
+    const existing = this.connections.get(service.serviceName);
+    if (existing) {
+      return existing;
+    }
+    const pending = this.connect(service);
+    this.connections.set(service.serviceName, pending);
+    try {
+      return await pending;
+    } catch (error) {
+      if (this.connections.get(service.serviceName) === pending) {
+        this.connections.delete(service.serviceName);
+      }
+      throw error;
+    }
+  }
+
+  private async invalidateConnection(serviceName: string): Promise<void> {
+    const pending = this.connections.get(serviceName);
+    this.connections.delete(serviceName);
+    if (!pending) {
+      return;
+    }
+    const connected = await pending.catch(() => undefined);
+    await connected?.client.close().catch(() => undefined);
+  }
+
+  /** Graceful shutdown: close every cached MCP connection. */
+  async close(): Promise<void> {
+    const pending = [...this.connections.values()];
+    this.connections.clear();
+    for (const connection of pending) {
+      const connected = await connection.catch(() => undefined);
+      await connected?.client.close().catch(() => undefined);
+    }
+  }
+
   private async withClient<T>(
     serviceName: string,
     work: (connected: ConnectedClient) => Promise<T>,
   ): Promise<T> {
     const service = this.serviceFor(serviceName);
-    const connected = await this.connect(service);
+    this.activeCalls.set(serviceName, (this.activeCalls.get(serviceName) ?? 0) + 1);
     try {
+      const connected = await this.connectionFor(service);
       return await withDeadline(
         this.deps.config.timeouts.mcpTimeoutMs,
         () => work(connected),
-        () =>
-          new McpClientError("MCP_TIMEOUT", `MCP call to ${serviceName} exceeded its deadline`),
+        () => new McpClientError("MCP_TIMEOUT", `MCP call to ${serviceName} exceeded its deadline`),
       );
+    } catch (error) {
+      // Invalidate only when this is the last in-flight call: closing a
+      // connection still serving a concurrent sibling would abort valid work.
+      if ((this.activeCalls.get(serviceName) ?? 1) <= 1) {
+        await this.invalidateConnection(serviceName);
+      }
+      throw error;
     } finally {
-      await connected.client.close().catch(() => undefined);
+      const remaining = (this.activeCalls.get(serviceName) ?? 1) - 1;
+      if (remaining <= 0) {
+        this.activeCalls.delete(serviceName);
+      } else {
+        this.activeCalls.set(serviceName, remaining);
+      }
     }
   }
 
@@ -139,7 +194,9 @@ export class McpClient {
     let lastError: unknown;
     for (let attempt = 0; attempt <= this.deps.config.timeouts.mcpReadRetries; attempt += 1) {
       try {
-        return await this.withClient(serviceName, async ({ client }) => client.readResource(params));
+        return await this.withClient(serviceName, async ({ client }) =>
+          client.readResource(params),
+        );
       } catch (error) {
         lastError = error;
         if (error instanceof McpClientError) {

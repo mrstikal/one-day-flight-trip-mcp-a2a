@@ -1,10 +1,12 @@
 import type { Pool } from "pg";
 import {
+  assertOperationFence,
   getTrip,
+  operationEffectLockKey,
   projectSafeEvent,
+  readEffect,
   releaseClaim,
-  StaleFencingError,
-  withEffect,
+  writeEffect,
   type ClaimedOperation,
   type OperationFencingContext,
 } from "@odft/persistence";
@@ -166,46 +168,56 @@ export function createFencedEventWriter(
  * Build the fenced effect runner for one claimed operation. A stale writer
  * performs no callback; concurrent identical effect scopes serialize so the
  * callback runs once.
+ *
+ * The operation row is locked only in two short transactions (ledger read and
+ * ledger write). The callback runs between them under a per-operation advisory
+ * gate that cancellation also takes BEFORE its trip lock: the effect therefore
+ * never holds an operation lock while waiting for a callback that may take the
+ * trip lock, and cancellation cannot interleave with an in-flight effect.
  */
 export function createFencedRunEffect(
   operationsPool: Pool,
   ctx: OperationFencingContext,
 ): <T>(nodeName: string, effectScope: string, fn: () => Promise<T>) => Promise<T> {
   return async <T>(nodeName: string, effectScope: string, fn: () => Promise<T>): Promise<T> => {
+    const key = { operationId: ctx.operationId, nodeName, effectScope };
+    const gateKey = operationEffectLockKey(ctx.operationId);
     const client = await operationsPool.connect();
+    let gateHeld = false;
     try {
+      // Session-level gate: held across both short transactions AND the
+      // callback, released only after the effect ledger write commits.
+      await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [gateKey]);
+      gateHeld = true;
+
       await client.query("BEGIN");
       // Fence the effect: a stale worker (token rotated) performs no callback.
-      // `FOR SHARE` also blocks a concurrent fencing-token rotation until the
-      // effect transaction commits.
-      const owned = await client.query(
-        `SELECT 1 FROM odft_app.workflow_operations
-          WHERE id = $1 AND trip_id = $2 AND fencing_token = $3::bigint
-          FOR SHARE`,
-        [ctx.operationId, ctx.tripId, ctx.fencingToken],
-      );
-      if (owned.rowCount !== 1) {
-        throw new StaleFencingError(ctx.operationId);
+      await assertOperationFence(client, ctx);
+      const existing = await readEffect(client, key);
+      await client.query("COMMIT");
+      if (existing !== undefined) {
+        return existing as T;
       }
-      // Serialize concurrent identical effect scopes so the callback runs once.
-      await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
-        `effect:${ctx.operationId}:${nodeName}:${effectScope}`,
-      ]);
-      const result = await withEffect<T>(
-        client,
-        { operationId: ctx.operationId, nodeName, effectScope },
-        fn,
-      );
+
+      // Network/domain work happens with NO operation row lock held.
+      const result = await fn();
+
+      await client.query("BEGIN");
+      // Re-check ownership after the callback: a lease handover that rotated
+      // the token while the callback ran must not persist its result.
+      await assertOperationFence(client, ctx);
+      await writeEffect(client, key, result);
       await client.query("COMMIT");
       return result;
     } catch (error) {
-      try {
-        await client.query("ROLLBACK");
-      } catch {
-        // Ignore rollback failures; the original error is what matters.
-      }
+      await client.query("ROLLBACK").catch(() => undefined);
       throw error;
     } finally {
+      if (gateHeld) {
+        await client
+          .query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [gateKey])
+          .catch(() => undefined);
+      }
       client.release();
     }
   };

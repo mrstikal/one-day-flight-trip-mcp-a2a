@@ -79,6 +79,7 @@ export function startFlightAgent(env: Record<string, string> = {}): ChildProcess
       ODFT_FLIGHT_AGENT_REGISTRY_PATH: `${REPO_ROOT}/tests/fixtures/protocols/mcp-host-registry.json`,
       ODFT_MCP_REGISTRY_PATH: `${REPO_ROOT}/tests/fixtures/protocols/mcp-services-registry.json`,
       ODFT_AGENT_TOKEN_FLIGHT: FLIGHT_AGENT_TOKEN,
+      ODFT_COORDINATOR_TOKEN: AGENT_TOKENS.coordinator,
       AI_MODE: "fixture",
       ...env,
     },

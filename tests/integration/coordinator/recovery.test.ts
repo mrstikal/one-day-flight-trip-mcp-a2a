@@ -38,19 +38,16 @@ function specialistAgents() {
       agentIdentity: "flight-agent",
       endpointUrl: "http://127.0.0.1:4431",
       skillId: "flight.recommend.v1",
-      cardVersion: "",
     },
     accommodation: {
       agentIdentity: "accommodation-agent",
       endpointUrl: "http://127.0.0.1:4432",
       skillId: "accommodation.recommend.v1",
-      cardVersion: "",
     },
     cityGuide: {
       agentIdentity: "city-guide-agent",
       endpointUrl: "http://127.0.0.1:4433",
       skillId: "city-guide.research.v1",
-      cardVersion: "",
     },
   };
 }

@@ -5,6 +5,7 @@ import { contentHash } from "../hash.js";
 import { insertEvent } from "../events.js";
 import { getActiveOperation } from "../operations.js";
 import { lockTrip } from "../trips.js";
+import { lockOperationEffectGate } from "./fencing.js";
 import { getActiveCoordinatorRun, updateCoordinatorRun } from "../coordinator-runs.js";
 import { requestDelegationCancellation, revokeDelegation } from "../agent-delegations.js";
 import { requestTaskCancellation } from "../protocol-tasks.js";
@@ -330,7 +331,11 @@ export async function cancelOperation(
       return stored;
     }
 
-    // Section 3.8 lock order: trip first, then the operation row.
+    // Section 3.8 lock order: trip first, then the operation row. The effect
+    // gate is taken BEFORE the trip lock so an in-flight fenced effect (which
+    // may itself take the trip row inside its callback) can finish without an
+    // ABBA cycle. The gate is keyed by the operation being cancelled.
+    await lockOperationEffectGate(client, operationId);
     const trip = await lockTrip(client, tripId);
     if (!trip || trip.sessionId !== sessionId) {
       await client.query("ROLLBACK");
@@ -464,18 +469,25 @@ export async function cancelOperation(
 
     // Delegation level: revoke active work and persist the durable remote-cancel
     // intent in the same commit (SDK cancellation itself happens after commit;
-    // local revocation already makes late artifacts inadmissible).
+    // local revocation already makes late artifacts inadmissible). A delegation
+    // may have been created by an earlier operation and CONTINUED by this one,
+    // or still be listed in this operation's durable run cursor; both are
+    // authority the cancelled operation still counts on.
+    const cancelledDelegationIds =
+      cancelledRunId && cancelledRun ? cancelledRun.runData.delegationIds : [];
     const delegations = await client.query<{
       id: string;
       agent_identity: string;
       task_id: string | null;
     }>(
       `SELECT id, agent_identity, task_id FROM odft_app.agent_delegations
-        WHERE trip_id = $1 AND originating_operation_id = $2
+        WHERE trip_id = $1
+          AND (originating_operation_id = $2 OR current_operation_id = $2
+               OR id = ANY($3::uuid[]))
           AND status IN ('pending', 'dispatched', 'working', 'input_required')
         ORDER BY id
         FOR UPDATE`,
-      [tripId, operationId],
+      [tripId, operationId, cancelledDelegationIds],
     );
     for (const delegation of delegations.rows) {
       await revokeDelegation(client, {

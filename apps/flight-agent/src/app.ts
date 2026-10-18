@@ -5,6 +5,7 @@ import {
   AGENT_TASK_TABLES,
   DurableMessageAdmission,
   ProtocolTelemetryWriter,
+  a2aHostValidationMiddleware,
   createAdmissionMiddleware,
   createTaskStore,
   mountA2AServer,
@@ -13,7 +14,7 @@ import type { DelegatedFlightRankingDeps } from "@odft/services";
 import { buildFlightAgentCard } from "./card.js";
 import { createFlightExecutor } from "./executor.js";
 import { FLIGHT_AGENT_IDENTITY, type FlightAgentConfig } from "./config.js";
-import type { ServerConfig } from "@odft/persistence";
+import { setTaskState, type ServerConfig } from "@odft/persistence";
 
 /**
  * Phase 05 Flight Agent HTTP surface: durable admission middleware, official
@@ -33,6 +34,13 @@ export function createFlightAgentApp(input: {
   app.get("/health", (_request, response) => {
     response.json({ status: "ok", endpoint: FLIGHT_AGENT_IDENTITY, version: "1.0.0" });
   });
+  // Host/Origin validation runs BEFORE admission: a misdirected or
+  // browser-origin request never claims a message.
+  app.use(
+    a2aHostValidationMiddleware({
+      allowedHostnames: [input.config.host, "127.0.0.1", "localhost", "[::1]"],
+    }),
+  );
   app.use(express.json({ limit: "1mb" }));
   app.use(
     createAdmissionMiddleware({
@@ -41,22 +49,34 @@ export function createFlightAgentApp(input: {
       telemetry: input.telemetry,
     }),
   );
-  mountA2AServer(app, {
-    config: input.config.protocol,
-    agentCard: buildFlightAgentCard(input.config),
-    taskStore: createTaskStore(input.db, {
-      tableName: AGENT_TASK_TABLES.flight,
-      owner: FLIGHT_AGENT_IDENTITY,
-    }),
-    executor: createFlightExecutor({
-      config: input.config,
-      serverConfig: input.serverConfig,
-      admission: input.admission,
-      pool: input.pool,
-      mcp: input.mcp,
-      protocol: input.config.protocol,
-      rankingDeps: input.rankingDeps,
-    }),
-  });
+  mountA2AServer(
+    app,
+    {
+      config: input.config.protocol,
+      agentCard: buildFlightAgentCard(input.config),
+      taskStore: createTaskStore(input.db, {
+        tableName: AGENT_TASK_TABLES.flight,
+        owner: FLIGHT_AGENT_IDENTITY,
+      }),
+      executor: createFlightExecutor({
+        config: input.config,
+        serverConfig: input.serverConfig,
+        admission: input.admission,
+        pool: input.pool,
+        mcp: input.mcp,
+        protocol: input.config.protocol,
+        rankingDeps: input.rankingDeps,
+      }),
+    },
+    {
+      onSaturation: async (taskId) => {
+        await setTaskState(input.pool, {
+          agentIdentity: FLIGHT_AGENT_IDENTITY,
+          taskId,
+          state: "failed",
+        });
+      },
+    },
+  );
   return app;
 }

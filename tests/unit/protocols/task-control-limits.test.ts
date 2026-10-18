@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { agentTaskRequestLimits } from "@odft/contracts";
 import { assertAllowance, limitsForSkill, TaskLimitError } from "@odft/protocols";
 
 /**
@@ -19,6 +20,19 @@ describe("task allowance caps", () => {
       llmAttempts: 2,
       maxInputs: 2,
     });
+    // The wire envelope must declare the same per-skill budget.
+    expect(agentTaskRequestLimits("accommodation.recommend.v1")).toEqual({
+      activeTimeMs: 60_000,
+      mcpInvocations: 4,
+      llmTransportAttempts: 2,
+      maxTaskCostUsd: 0.1,
+    });
+    expect(agentTaskRequestLimits("city-guide.research.v1")).toEqual({
+      activeTimeMs: 90_000,
+      mcpInvocations: 8,
+      llmTransportAttempts: 2,
+      maxTaskCostUsd: 0.1,
+    });
   });
 
   const state = {
@@ -33,7 +47,9 @@ describe("task allowance caps", () => {
   };
 
   it("refuses an exhausted MCP invocation allowance", () => {
-    expect(() => assertAllowance({ ...state, remainingMcp: 0 }, { mcpInvocation: true })).toThrow(TaskLimitError);
+    expect(() => assertAllowance({ ...state, remainingMcp: 0 }, { mcpInvocation: true })).toThrow(
+      TaskLimitError,
+    );
   });
 
   it("refuses an exhausted input-request allowance", () => {
@@ -41,9 +57,9 @@ describe("task allowance caps", () => {
   });
 
   it("refuses an exhausted active-time allowance", () => {
-    expect(() =>
-      assertAllowance({ ...state, remainingActiveMs: 0 }, { activeTime: true }),
-    ).toThrow(TaskLimitError);
+    expect(() => assertAllowance({ ...state, remainingActiveMs: 0 }, { activeTime: true })).toThrow(
+      TaskLimitError,
+    );
   });
 
   it("allows the requested work while the allowance lasts", () => {

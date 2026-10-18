@@ -1,9 +1,11 @@
 import type { Pool } from "pg";
+import { AGENT_TASK_LIMITS, type AgentTaskLimitProfile } from "@odft/contracts";
 import {
   addTaskCounters,
   consumeInputContinuation as consumeInputContinuationRow,
   getTaskControl,
   recordInputRequest as recordInputRequestRow,
+  reserveTaskMcpInvocation,
   type ConsumeInputContinuationResult,
   type TaskControlRecord,
 } from "@odft/persistence";
@@ -17,55 +19,10 @@ import {
  * (callers accrue active time around actual work only).
  */
 
-export interface TaskLimits {
-  /** Maximum active execution time (ms), human waiting excluded. */
-  readonly activeTimeMs: number;
-  /** MCP invocations including retries. */
-  readonly mcpInvocations: number;
-  /** LLM transport attempts (each attempt is a separate reservation). */
-  readonly llmAttempts: number;
-  /** Maximum reserved+actual task USD. */
-  readonly maxTaskCostUsd: number;
-  /** Input requests per task (plan §3.9: two). */
-  readonly maxInputs: number;
-}
+export type TaskLimits = AgentTaskLimitProfile;
 
 /** Per-skill task allowances of the plan's §3.9 table. */
-export const TASK_LIMITS: Readonly<Record<string, TaskLimits>> = {
-  "flight.recommend.v1": {
-    activeTimeMs: 60_000,
-    mcpInvocations: 4,
-    llmAttempts: 2,
-    maxTaskCostUsd: 0.1,
-    maxInputs: 2,
-  },
-  "accommodation.recommend.v1": {
-    activeTimeMs: 60_000,
-    mcpInvocations: 4,
-    llmAttempts: 2,
-    maxTaskCostUsd: 0.1,
-    maxInputs: 2,
-  },
-  "city-guide.research.v1": {
-    activeTimeMs: 90_000,
-    mcpInvocations: 8,
-    llmAttempts: 2,
-    maxTaskCostUsd: 0.1,
-    maxInputs: 2,
-  },
-  /**
-   * Phase 08: one application planning attempt. The planner role's ceiling is
-   * 0.20 USD and the deterministic preflight is free, so 0.25 covers exactly
-   * one paid planner send plus its reservation headroom.
-   */
-  "itinerary.propose.v1": {
-    activeTimeMs: 120_000,
-    mcpInvocations: 6,
-    llmAttempts: 4,
-    maxTaskCostUsd: 0.25,
-    maxInputs: 2,
-  },
-};
+export const TASK_LIMITS: Readonly<Record<string, TaskLimits>> = AGENT_TASK_LIMITS;
 
 export class TaskLimitError extends Error {
   readonly code = "TASK_BUDGET_EXCEEDED" as const;
@@ -120,12 +77,15 @@ export async function loadTaskAllowance(
 }
 
 /** Refuse work that would exceed the task allowance BEFORE doing it. */
-export function assertAllowance(state: TaskAllowanceState, need: {
-  readonly mcpInvocation?: boolean;
-  readonly llmAttempt?: boolean;
-  readonly input?: boolean;
-  readonly activeTime?: boolean;
-}): void {
+export function assertAllowance(
+  state: TaskAllowanceState,
+  need: {
+    readonly mcpInvocation?: boolean;
+    readonly llmAttempt?: boolean;
+    readonly input?: boolean;
+    readonly activeTime?: boolean;
+  },
+): void {
   if (need.activeTime && state.remainingActiveMs <= 0) {
     throw new TaskLimitError("the task active-execution allowance is exhausted");
   }
@@ -140,16 +100,16 @@ export function assertAllowance(state: TaskAllowanceState, need: {
   }
 }
 
-/** Count one MCP invocation (retries included) against the task allowance. */
-export async function countMcpInvocation(
+/**
+ * Reserve one MCP invocation (retries included) against the task allowance.
+ * The conditional UPDATE is atomic, so concurrent callers can never exceed the
+ * cap by racing on a stale snapshot.
+ */
+export async function reserveMcpInvocation(
   pool: Pool,
-  input: { agentIdentity: string; taskId: string },
-): Promise<void> {
-  await addTaskCounters(pool, {
-    agentIdentity: input.agentIdentity,
-    taskId: input.taskId,
-    mcpInvocations: 1,
-  });
+  input: { agentIdentity: string; taskId: string; maxInvocations: number },
+): Promise<boolean> {
+  return reserveTaskMcpInvocation(pool, input);
 }
 
 /** Accrue active execution time (never human waiting) on the task counters. */

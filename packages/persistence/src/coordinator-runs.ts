@@ -223,12 +223,16 @@ export async function updateCoordinatorRunFenced(
   pool: Pool,
   input: UpdateCoordinatorRunInput,
   fence: OperationFencingContext,
+  extraWrites?: (client: Pick<PoolClient, "query">) => Promise<void>,
 ): Promise<CoordinatorRunRecord> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await lockOperationFence(client, fence);
     const run = await updateCoordinatorRun(client, input);
+    if (extraWrites) {
+      await extraWrites(client);
+    }
     await client.query("COMMIT");
     return run;
   } catch (error) {

@@ -6,6 +6,7 @@ import {
   finalizeSuccess,
   finalizeWaiting,
   reapExhaustedOperations,
+  reserveTaskMcpInvocation,
   upsertTaskControl,
 } from "@odft/persistence";
 import {
@@ -64,20 +65,28 @@ describe("shared transaction locking", () => {
   it("runs concurrent finalize/control/reap without deadlocks or self-blocking", async () => {
     const { operationId, fence } = await createClaimedOperation();
     const results = await Promise.allSettled([
-      finalizeWaiting(pool, { tripId: seeded.tripId, operationId, fencingToken: fence }, {
-        kind: "flight_choice",
-        fingerprint: "a".repeat(64),
-        allowedOfferIds: ["demo-1"],
-        allowedOptionIds: [],
-        graphVersion: "travel-graph-v7",
-        createdRevision: 1,
-        engine: "langgraph",
-      }),
-      finalizeSuccess(pool, { tripId: seeded.tripId, operationId, fencingToken: fence }, {
-        result: { summary: "concurrent" },
-        summary: "concurrent success",
-        workflowStatus: "ready",
-      }),
+      finalizeWaiting(
+        pool,
+        { tripId: seeded.tripId, operationId, fencingToken: fence },
+        {
+          kind: "flight_choice",
+          fingerprint: "a".repeat(64),
+          allowedOfferIds: ["demo-1"],
+          allowedOptionIds: [],
+          graphVersion: "travel-graph-v7",
+          createdRevision: 1,
+          engine: "langgraph",
+        },
+      ),
+      finalizeSuccess(
+        pool,
+        { tripId: seeded.tripId, operationId, fencingToken: fence },
+        {
+          result: { summary: "concurrent" },
+          summary: "concurrent success",
+          workflowStatus: "ready",
+        },
+      ),
       pool.query(`SELECT id FROM odft_app.workflow_operations WHERE id = $1 FOR UPDATE`, [
         operationId,
       ]),
@@ -87,9 +96,9 @@ describe("shared transaction locking", () => {
       expect(result.status).toBe("fulfilled");
     }
     // Exactly one of the two finalizers won; the other saw a stale fence.
-    const outcomes = results.slice(0, 2).map((result) =>
-      result.status === "fulfilled" ? (result.value as boolean) : false,
-    );
+    const outcomes = results
+      .slice(0, 2)
+      .map((result) => (result.status === "fulfilled" ? (result.value as boolean) : false));
     expect(outcomes.filter(Boolean).length).toBe(1);
   }, 60_000);
 
@@ -108,10 +117,12 @@ describe("shared transaction locking", () => {
       [operationId],
     );
     expect(row.rows[0]?.status).toBe("failed");
-    const trip = await pool.query<{ recovery_required: boolean; last_unfinished_operation_id: string }>(
-      `SELECT recovery_required, last_unfinished_operation_id FROM odft_app.trips WHERE id = $1`,
-      [seeded.tripId],
-    );
+    const trip = await pool.query<{
+      recovery_required: boolean;
+      last_unfinished_operation_id: string;
+    }>(`SELECT recovery_required, last_unfinished_operation_id FROM odft_app.trips WHERE id = $1`, [
+      seeded.tripId,
+    ]);
     expect(trip.rows[0]?.recovery_required).toBe(true);
     expect(trip.rows[0]?.last_unfinished_operation_id).toBe(operationId);
     // Reset the trip flag so later suites start clean.
@@ -125,15 +136,19 @@ describe("shared transaction locking", () => {
     const { operationId, fence } = await createClaimedOperation();
     const results = await Promise.allSettled([
       pool.query(`SELECT id FROM odft_app.trips WHERE id = $1 FOR UPDATE`, [seeded.tripId]),
-      finalizeWaiting(pool, { tripId: seeded.tripId, operationId, fencingToken: fence }, {
-        kind: "clarification",
-        fingerprint: "b".repeat(64),
-        allowedOfferIds: [],
-        allowedOptionIds: ["keep", "change"],
-        graphVersion: "travel-graph-v7",
-        createdRevision: 1,
-        engine: "langgraph",
-      }),
+      finalizeWaiting(
+        pool,
+        { tripId: seeded.tripId, operationId, fencingToken: fence },
+        {
+          kind: "clarification",
+          fingerprint: "b".repeat(64),
+          allowedOfferIds: [],
+          allowedOptionIds: ["keep", "change"],
+          graphVersion: "travel-graph-v7",
+          createdRevision: 1,
+          engine: "langgraph",
+        },
+      ),
     ]);
     for (const result of results) {
       expect(result.status).toBe("fulfilled");
@@ -167,11 +182,15 @@ describe("shared transaction locking", () => {
             1000, 0.01, 0.05, 10, 1, 2, 0.1) AS outcome`,
         [delegationId, taskId],
       ),
-      finalizeSuccess(pool, { tripId: seeded.tripId, operationId, fencingToken: fence }, {
-        result: { summary: "concurrent reserve" },
-        summary: "concurrent reserve success",
-        workflowStatus: "ready",
-      }),
+      finalizeSuccess(
+        pool,
+        { tripId: seeded.tripId, operationId, fencingToken: fence },
+        {
+          result: { summary: "concurrent reserve" },
+          summary: "concurrent reserve success",
+          workflowStatus: "ready",
+        },
+      ),
       pool.query(`SELECT id FROM odft_app.trips WHERE id = $1 FOR UPDATE`, [seeded.tripId]),
     ]);
     for (const result of results) {
@@ -182,4 +201,30 @@ describe("shared transaction locking", () => {
     }>;
     expect(reservation.value.rows[0]?.outcome.ok).toBe(true);
   }, 60_000);
+
+  it("atomically caps concurrent MCP invocations", async () => {
+    const taskId = randomUUID();
+    await upsertTaskControl(pool, {
+      agentIdentity: "flight-agent",
+      taskId,
+      contextId: `ctx-${taskId}`,
+    });
+    const results = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        reserveTaskMcpInvocation(pool, {
+          agentIdentity: "flight-agent",
+          taskId,
+          maxInvocations: 4,
+        }),
+      ),
+    );
+    // Exactly four callers win the conditional UPDATE; the rest are refused.
+    expect(results.filter(Boolean)).toHaveLength(4);
+    const stored = await pool.query<{ mcp_invocations: number }>(
+      `SELECT mcp_invocations FROM odft_app.protocol_task_control
+        WHERE agent_identity = 'flight-agent' AND task_id = $1`,
+      [taskId],
+    );
+    expect(stored.rows[0]?.mcp_invocations).toBe(4);
+  });
 });

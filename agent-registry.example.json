@@ -29,5 +29,9 @@
       "credentialRef": "ODFT_AGENT_TOKEN_ACCOMMODATION_ALT",
       "requiredSkills": ["accommodation.recommend.v1"]
     }
-  ]
+  ],
+  "coordinator": {
+    "agentIdentity": "coordinator",
+    "credentialRef": "ODFT_COORDINATOR_TOKEN"
+  }
 }

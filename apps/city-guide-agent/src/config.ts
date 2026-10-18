@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { DEFAULT_PROTOCOL_TIMEOUTS, trustedRegistrySchema, type ProtocolConfig, type TrustedRegistry } from "@odft/protocols";
+import {
+  DEFAULT_PROTOCOL_TIMEOUTS,
+  scopeInboundRegistry,
+  trustedRegistrySchema,
+  type ProtocolConfig,
+  type TrustedRegistry,
+} from "@odft/protocols";
 
 /**
  * Phase 06 City Guide Agent configuration (plan §3.3/§3.15): the inbound trusted
@@ -33,6 +39,8 @@ export interface CityGuideAgentConfig {
   /** Restricted `odft_city_guide_agent` role connection (never the owner role). */
   readonly databaseUrl: string;
   readonly registryPath: string;
+  /** Environment variable holding this agent's own inbound bearer. */
+  readonly selfTokenRef: string;
   readonly mcpRegistryPath: string | null;
   /** Test-only delay between work steps (parallel-window observation). */
   readonly stepDelayMs: number;
@@ -54,7 +62,9 @@ function envNumber(env: Record<string, string | undefined>, key: string, fallbac
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function loadCityGuideAgentConfig(env: Record<string, string | undefined> = process.env): CityGuideAgentConfig {
+export function loadCityGuideAgentConfig(
+  env: Record<string, string | undefined> = process.env,
+): CityGuideAgentConfig {
   const parsed = envSchema.parse({
     port: envNumber(env, "ODFT_CITY_GUIDE_AGENT_PORT", 4403),
     host: env["ODFT_CITY_GUIDE_AGENT_HOST"] ?? "127.0.0.1",
@@ -70,8 +80,10 @@ export function loadCityGuideAgentConfig(env: Record<string, string | undefined>
   if (!parsed.databaseUrl) {
     throw new Error("DATABASE_URL is required for the city-guide-agent");
   }
-  const inbound = trustedRegistrySchema.parse(
-    JSON.parse(readFileSync(parsed.registryPath, "utf8")),
+  const inbound = scopeInboundRegistry(
+    trustedRegistrySchema.parse(JSON.parse(readFileSync(parsed.registryPath, "utf8"))),
+    CITY_GUIDE_AGENT_IDENTITY,
+    parsed.selfTokenRef,
   );
   const mcpRegistry = parsed.mcpRegistryPath
     ? JSON.parse(readFileSync(parsed.mcpRegistryPath, "utf8"))
@@ -81,6 +93,7 @@ export function loadCityGuideAgentConfig(env: Record<string, string | undefined>
     port: parsed.port,
     databaseUrl: parsed.databaseUrl,
     registryPath: parsed.registryPath,
+    selfTokenRef: parsed.selfTokenRef,
     mcpRegistryPath: parsed.mcpRegistryPath,
     stepDelayMs: parsed.stepDelayMs,
     aiMode: parsed.aiMode,

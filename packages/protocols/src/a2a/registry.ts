@@ -44,8 +44,18 @@ export class TrustedAgentRegistry {
     return entry;
   }
 
+  /**
+   * Bearer for coordinator→agent traffic. When the registry declares a
+   * coordinator identity, the coordinator presents ITS OWN credential; a
+   * registry without one falls back to the target credential for backwards
+   * compatibility with older fixtures (the inbound side then only accepts the
+   * agent's self identity).
+   */
   bearerFor(agentIdentity: string): string {
-    const entry = this.entryFor(agentIdentity);
-    return outboundBearer(this.config, entry.credentialRef);
+    const coordinator = this.config.registry.coordinator;
+    const ref = coordinator
+      ? coordinator.credentialRef
+      : this.entryFor(agentIdentity).credentialRef;
+    return outboundBearer(this.config, ref);
   }
 }

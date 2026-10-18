@@ -131,7 +131,9 @@ export type { CompleteOperationInput } from "./operations/lease.js";
 export {
   assertFencingCurrent,
   isFencingCurrent,
+  lockOperationEffectGate,
   lockOperationFence,
+  operationEffectLockKey,
   readOperationOwnership,
   StaleFencingError,
 } from "./operations/fencing.js";
@@ -388,6 +390,7 @@ export {
 
 export {
   acceptDelegationArtifact,
+  adoptDelegationsForOperation,
   bindDelegationTask,
   findActiveDelegationForSnapshot,
   getAgentDelegation,
@@ -402,6 +405,7 @@ export {
   requestDelegationCancellation,
   resolveDelegationCancellation,
   revokeDelegation,
+  setDelegationCurrentOperation,
   type AgentDelegationRecord,
   type InsertDelegationInput,
   type InsertOutboundMessageInput,
@@ -421,6 +425,7 @@ export {
   markRestartedTasksFailed,
   recordInputRequest,
   requestTaskCancellation,
+  reserveTaskMcpInvocation,
   saveValidatedOutput,
   setTaskState,
   upsertTaskControl,

@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import {
+  agentTaskRequestLimits,
   agentTaskRequestSchema,
   itineraryProposalSchema,
   type CoordinatorRunData,
@@ -21,6 +22,7 @@ import {
   deliverDelegation,
   loadDelegationDelivery,
   newTraceId,
+  resolveCardVersion,
   type CoordinatorDelegationTransport,
 } from "./delegations.js";
 import type { CoordinatorTransitionResult } from "./state.js";
@@ -223,12 +225,7 @@ export async function startItineraryAttempt(
     deadlineAt: new Date(Date.now() + 300_000).toISOString(),
     // Plan §3.9: one itinerary proposal/review attempt is 120 s, 6 MCP calls,
     // 4 LLM transport attempts and at most 0.25 USD.
-    limits: {
-      activeTimeMs: 120_000,
-      mcpInvocations: 6,
-      llmTransportAttempts: 4,
-      maxTaskCostUsd: 0.25,
-    },
+    limits: agentTaskRequestLimits("itinerary.propose.v1"),
     preferences: trip.preferences,
     continuation: null,
   });
@@ -281,6 +278,11 @@ export async function startItineraryAttempt(
     }
   }
 
+  const itineraryCardVersion = await resolveCardVersion(
+    deps.transport,
+    binding.agentIdentity,
+    binding.skillId,
+  );
   const created = await createOutboundDelegation(deps.pool, {
     tripId: claim.tripId,
     operationId: claim.operationId,
@@ -288,6 +290,7 @@ export async function startItineraryAttempt(
     skillId: binding.skillId,
     agentIdentity: binding.agentIdentity,
     endpointUrl: binding.endpointUrl,
+    ...(itineraryCardVersion !== undefined ? { cardVersion: itineraryCardVersion } : {}),
     snapshotId: prepared.snapshotId,
     inputFingerprint: prepared.inputFingerprint,
     domains: [...ITINERARY_DOMAINS],

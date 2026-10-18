@@ -7,7 +7,7 @@ import {
   type McpServerFactory,
 } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
-import { authenticateServiceRequest } from "../auth.js";
+import { authenticateAgentServiceRequest } from "../auth.js";
 import type { ProtocolConfig } from "../config.js";
 
 /**
@@ -67,7 +67,7 @@ export function mcpAuthMiddleware(config: ProtocolConfig): RequestHandler {
   return (request, response, next) => {
     try {
       // The raw Authorization header: the helper parses the bearer itself.
-      const identity = authenticateServiceRequest(config, request.headers.authorization);
+      const identity = authenticateAgentServiceRequest(config, request.headers.authorization);
       (request as { auth?: unknown }).auth = {
         token: "verified",
         clientId: identity.agentIdentity,
@@ -97,11 +97,10 @@ export interface MountedMcpServer {
  */
 export function createMcpServerMiddleware(deps: McpServerDependencies): MountedMcpServer {
   const handler = createMcpServerHandler(deps);
-  const nodeHandler = toNodeHandler(handler, deps.onerror ? { onerror: deps.onerror } : {}) as unknown as (
-    request: unknown,
-    response: unknown,
-    parsedBody?: unknown,
-  ) => void;
+  const nodeHandler = toNodeHandler(
+    handler,
+    deps.onerror ? { onerror: deps.onerror } : {},
+  ) as unknown as (request: unknown, response: unknown, parsedBody?: unknown) => void;
   const adapter: RequestHandler = (request, response, next) => {
     const parsedBody = (request as { body?: unknown }).body;
     if (parsedBody === undefined) {

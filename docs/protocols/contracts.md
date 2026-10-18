@@ -7,14 +7,14 @@ worker. Everything here was verified against the pinned packages
 
 ## 1. Where things live
 
-| Concern | Location |
-| --- | --- |
-| Artifact/envelope/task/observation contracts | `packages/contracts/src/{agent-artifacts,agent-tasks,coordinator,protocol-observations}.ts` |
-| Engine-aware decisions/operations | `packages/contracts/src/{decisions,operations,enums,errors}.ts` |
-| Transport adapters, auth, registry, telemetry | `packages/protocols/src/**` |
-| Protocol state (migration `0013`) | `packages/persistence/migrations/0013-protocol-state.sql` |
-| Protocol repositories | `packages/persistence/src/{coordinator-runs,agent-delegations,protocol-tasks,protocol-observations}.ts` |
-| Fixtures used by the interoperability tests | `tests/fixtures/protocols/{a2a-echo,mcp-echo}.ts` |
+| Concern                                       | Location                                                                                                |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Artifact/envelope/task/observation contracts  | `packages/contracts/src/{agent-artifacts,agent-tasks,coordinator,protocol-observations}.ts`             |
+| Engine-aware decisions/operations             | `packages/contracts/src/{decisions,operations,enums,errors}.ts`                                         |
+| Transport adapters, auth, registry, telemetry | `packages/protocols/src/**`                                                                             |
+| Protocol state (migration `0013`)             | `packages/persistence/migrations/0013-protocol-state.sql`                                               |
+| Protocol repositories                         | `packages/persistence/src/{coordinator-runs,agent-delegations,protocol-tasks,protocol-observations}.ts` |
+| Fixtures used by the interoperability tests   | `tests/fixtures/protocols/{a2a-echo,mcp-echo}.ts`                                                       |
 
 ## 2. Artifact envelope (v1)
 
@@ -27,16 +27,25 @@ cached artifact.
 
 Versioned media types:
 
-| Artifact | Media type |
-| --- | --- |
-| Flight recommendations | `application/vnd.odft.flight-recommendations.v1+json` |
+| Artifact                      | Media type                                                   |
+| ----------------------------- | ------------------------------------------------------------ |
+| Flight recommendations        | `application/vnd.odft.flight-recommendations.v1+json`        |
 | Accommodation recommendations | `application/vnd.odft.accommodation-recommendations.v1+json` |
-| City-guide recommendations | `application/vnd.odft.city-guide-recommendations.v1+json` |
-| Itinerary proposal | `application/vnd.odft.itinerary-proposal.v1+json` |
-| Input request | `application/vnd.odft.agent-input-request.v1+json` |
+| City-guide recommendations    | `application/vnd.odft.city-guide-recommendations.v1+json`    |
+| Itinerary proposal            | `application/vnd.odft.itinerary-proposal.v1+json`            |
+| Input request                 | `application/vnd.odft.agent-input-request.v1+json`           |
 
 All schemas are strict: unknown fields are rejected before anything is
 persisted, and ranked ids must reference existing offers/candidates.
+`requestedDomains` carries the exact delegation scopes, including `flights`;
+the task envelope also declares the per-skill limits the agent enforces.
+
+On acceptance the coordinator rechecks the artifact's `inputFingerprint` and
+per-domain `domainFingerprints` against the dispatch snapshot: the run cursor
+stores `expectedFingerprints` per researched domain, every observed domain hash
+must equal the snapshot manifest's content hash, and every successful outcome
+must carry its hash. A domain that produced no page may omit it; its outcome is
+handled as a partial failure.
 
 ## 3. Real A2A shapes (verified against the pinned SDK)
 
@@ -103,7 +112,9 @@ state and is never turned into a failure.
   `401` + `WWW-Authenticate` and never construct a server instance.
 - Client: pinned modern negotiation
   (`versionNegotiation: { mode: { pin: "2026-07-28" } }`), explicit deadlines,
-  one bounded retry for read-only resource reads only.
+  one bounded retry for read-only resource reads only, and one cached
+  connection per trusted endpoint per agent process. A failed/timed-out
+  handshake closes its transport; a broken cached connection is invalidated.
 - 2025-era clients are rejected with the SDK's unsupported-protocol-version
   error (asserted by the interoperability test).
 
@@ -114,6 +125,10 @@ state and is never turned into a failure.
   failures are uniform. The authenticated identity always comes from the token,
   never from the request body.
 - Only registry agents are reachable; endpoints are pinned to an exact origin.
+- Coordinator→agent calls use the registry's separate `coordinator` identity
+  (`ODFT_COORDINATOR_TOKEN`), never an agent's own token. Each agent scopes its
+  inbound registry to its own entry plus the coordinator; Host/Origin validation
+  runs before admission on the A2A surface.
 - Observations (`odft_app.protocol_observations`) are append-only safe records:
   bounded codes/counters only, sanitized one-line details, no prompts, tokens,
   credentials or provider payloads. The optional unique link to an execution

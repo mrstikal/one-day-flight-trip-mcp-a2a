@@ -104,3 +104,25 @@ export async function lockOperationFence(
     throw new StaleFencingError(ctx.operationId);
   }
 }
+
+/**
+ * Advisory gate shared by the fenced effect runner and cancellation.
+ *
+ * The effect runner holds it across the whole effect (including its callback,
+ * which may take the trip row lock), while cancellation takes it BEFORE the
+ * trip lock. This serializes an in-flight effect with a cancellation without
+ * holding the operation row lock across the callback, and without the ABBA
+ * cycle trip→operation / operation→trip.
+ */
+export function operationEffectLockKey(operationId: string): string {
+  return `odft-effect-operation:${operationId}`;
+}
+
+export async function lockOperationEffectGate(
+  client: Pick<PoolClient, "query">,
+  operationId: string,
+): Promise<void> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    operationEffectLockKey(operationId),
+  ]);
+}

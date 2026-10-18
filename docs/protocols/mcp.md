@@ -12,11 +12,11 @@ development stack; only the ports differ, never the endpoints or contracts.
 
 ## Endpoints and identities
 
-| Endpoint | Identity | Port (default) | Tools | Authorized callers |
-| --- | --- | --- | --- | --- |
-| `/geography/mcp` | `odft-geography` | 4321 | `search_countries`, `search_cities`, `find_airports`, `get_city_details`, `get_airport_details`, `get_city_airports`, `estimate_distance`, `validate_air_route` | all three agent identities; the route tool additionally requires a non-revoked delegation with the route scope |
-| `/travel-data/mcp` | `odft-travel-data` | 4322 | `search_flights`, `search_hotels`, `search_restaurants`, `search_attractions`, `search_events`, `get_scenario_metadata` | per-identity domain allowlist: Flight → flights/metadata, Accommodation → hotels/metadata, City Guide → meals/activities/events/metadata; **every** tool (metadata included) requires a non-revoked delegation for the exact snapshot |
-| `/itinerary-tools/mcp` | `odft-itinerary-tools` | 4323 | `estimate_travel_time`, `validate_itinerary`, `calculate_trip_cost` | City Guide only (itinerary scope) |
+| Endpoint               | Identity               | Port (default) | Tools                                                                                                                                                           | Authorized callers                                                                                                                                                                                                                    |
+| ---------------------- | ---------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/geography/mcp`       | `odft-geography`       | 4321           | `search_countries`, `search_cities`, `find_airports`, `get_city_details`, `get_airport_details`, `get_city_airports`, `estimate_distance`, `validate_air_route` | all three agent identities; the route tool additionally requires a non-revoked delegation with the route scope                                                                                                                        |
+| `/travel-data/mcp`     | `odft-travel-data`     | 4322           | `search_flights`, `search_hotels`, `search_restaurants`, `search_attractions`, `search_events`, `get_scenario_metadata`                                         | per-identity domain allowlist: Flight → flights/metadata, Accommodation → hotels/metadata, City Guide → meals/activities/events/metadata; **every** tool (metadata included) requires a non-revoked delegation for the exact snapshot |
+| `/itinerary-tools/mcp` | `odft-itinerary-tools` | 4323           | `estimate_travel_time`, `validate_itinerary`, `calculate_trip_cost`                                                                                             | City Guide only (itinerary scope)                                                                                                                                                                                                     |
 
 Resources: `odft://geography/coverage`, `odft://geography/licenses`,
 `odft://scenario/{snapshotId}/manifest` (template, delegation-scoped) and
@@ -73,9 +73,14 @@ registered: reusable planning prompts live with the governed AI roles.
   never reach a tool.
 - Five-second deadlines cover the connect handshake and every call; the one
   bounded retry applies only to eligible transport failures on read-only
-  resource reads (never to permission denials or timeouts). Each real
-  invocation is recorded as one sanitized observation (tool name, duration,
-  safe outcome; no arguments, results or credentials).
+  resource reads (never to permission denials or timeouts). Each agent process
+  keeps one cached connection per trusted endpoint (reused across calls); a
+  failed handshake closes its transport. Each real invocation is recorded as one
+  sanitized observation (tool name, duration, safe outcome; no arguments,
+  results or credentials). The per-task invocation budget is reserved with an
+  atomic conditional UPDATE before the call, so concurrent callers cannot
+  exceed it; a failed or timed-out attempt still consumes its reservation
+  ("invocations including retries").
 - `/health` on each endpoint answers a static payload and performs no database,
   provider or external request.
 

@@ -1,11 +1,15 @@
 import type { Pool, PoolClient } from "pg";
 import {
+  agentTaskRequestLimits,
+  delegationScopeSchema,
   domainCommandSchema,
   chatCommandPayloadSchema,
   researchDomainSchema,
   SCENARIO_DOMAIN_FOR_RESEARCH,
   scheduleValidationSchema,
   tripPreferencesSchema,
+  type AgentSkillId,
+  type AgentTaskLimits,
   type CoordinatorRunData,
   type CoordinatorWaitReason,
   type DomainCommand,
@@ -19,6 +23,7 @@ import {
 import { fingerprint } from "@odft/domain";
 import {
   acceptDelegationArtifact,
+  adoptDelegationsForOperation,
   appendConversationMessage,
   contentHash,
   finalizeConflict,
@@ -37,8 +42,11 @@ import {
   insertCoordinatorRunFenced,
   listRecommendationArtifacts,
   loadDecision,
+  loadSnapshotManifest,
   markProposalResolved,
   MAX_AUTO_CLAIMS_PER_ROUND,
+  requestDelegationCancellation,
+  requestTaskCancellation,
   updateCoordinatorRun,
   updateCoordinatorRunFenced,
   type ClaimedOperation,
@@ -55,6 +63,7 @@ import {
   insertContinuationOutbound,
   loadDelegationDelivery,
   newTraceId,
+  resolveCardVersion,
   type CoordinatorDelegationTransport,
 } from "./delegations.js";
 import {
@@ -139,7 +148,6 @@ export interface CoordinatorAgentBinding {
   readonly agentIdentity: string;
   readonly endpointUrl: string;
   readonly skillId: string;
-  readonly cardVersion: string;
 }
 
 export interface CoordinatorDispatchDeps {
@@ -186,9 +194,9 @@ const RECOVERY_REOPEN_OPTIONS: Readonly<
 };
 
 /** Pure mapping used by the recovery-option admission and its unit test. */
-export function recoveryReopenOption(optionId: string):
-  | { readonly label: string; readonly reopen: "hotel_choice" | "program_choices" }
-  | undefined {
+export function recoveryReopenOption(
+  optionId: string,
+): { readonly label: string; readonly reopen: "hotel_choice" | "program_choices" } | undefined {
   return RECOVERY_REOPEN_OPTIONS[optionId];
 }
 
@@ -214,7 +222,9 @@ const SAFE_AGENT_FAILURE_CODES: ReadonlySet<string> = new Set([
 /** Extract a safe application code from a terminal task text or an error. */
 function safeAgentFailureCode(value: unknown, fallback: string): string {
   if (typeof value === "string") {
-    const match = /^([A-Z][A-Z0-9_]{2,40}):/.exec(value.trim());
+    // The SDK prefixes executor errors with "Agent execution error: ", so a
+    // safe code can appear after a bounded prose prefix.
+    const match = /(?:^|\s)([A-Z][A-Z0-9_]{2,40}):/.exec(value.trim());
     if (match && SAFE_AGENT_FAILURE_CODES.has(match[1] as string)) {
       return match[1] as string;
     }
@@ -226,6 +236,11 @@ function safeAgentFailureCode(value: unknown, fallback: string): string {
     }
   }
   return fallback;
+}
+
+/** A transient specialist saturation/unavailability gets the bounded retry. */
+function isRetryableAgentFailure(code: string, reason: string): boolean {
+  return code === "AGENT_UNAVAILABLE" || /retryable_error/i.test(reason);
 }
 
 /** Every research domain of a persisted delegation scope (failure events). */
@@ -259,6 +274,36 @@ async function delay(ms: number): Promise<void> {
 
 function preferencesOf(trip: { preferences: unknown }): TripPreferences {
   return tripPreferencesSchema.parse(trip.preferences);
+}
+
+/** The task envelope must declare the SAME per-skill budget the agent enforces. */
+function taskLimitsFor(skillId: string): AgentTaskLimits {
+  return agentTaskRequestLimits(skillId as AgentSkillId);
+}
+
+/**
+ * Raw snapshot manifest hashes for a delegation's scopes. Artifact
+ * `correlation.domainFingerprints` must equal these (plan §3.5).
+ */
+async function expectedDomainHashes(
+  deps: CoordinatorDispatchDeps,
+  delegation: {
+    readonly snapshotId: string;
+    readonly scope: unknown;
+  },
+): Promise<Record<string, string | undefined> | undefined> {
+  const scope = delegationScopeSchema.safeParse(delegation.scope);
+  if (!scope.success) {
+    return undefined;
+  }
+  const manifest = await loadSnapshotManifest(deps.pool, delegation.snapshotId);
+  const expected: Record<string, string | undefined> = {};
+  for (const domain of scope.data.domains) {
+    const scenarioDomain =
+      domain === "flights" ? "flights" : SCENARIO_DOMAIN_FOR_RESEARCH[domain as ResearchDomain];
+    expected[domain] = manifest.domainContentHashes[scenarioDomain];
+  }
+  return expected;
 }
 
 /** Reuse a non-terminal research delegation of THIS operation, else create one. */
@@ -334,6 +379,7 @@ async function reuseOrCreateResearchDelegation(
       return { delegationId: completedId, taskData: persisted.outbound.payload };
     }
   }
+  const cardVersion = await resolveCardVersion(deps.transport, input.agentIdentity, input.skillId);
   const created = await createOutboundDelegation(deps.pool, {
     tripId: claim.tripId,
     operationId: claim.operationId,
@@ -341,6 +387,7 @@ async function reuseOrCreateResearchDelegation(
     skillId: input.skillId,
     agentIdentity: input.agentIdentity,
     endpointUrl: input.endpointUrl,
+    ...(cardVersion !== undefined ? { cardVersion } : {}),
     snapshotId: input.snapshotId,
     inputFingerprint: input.inputFingerprint,
     domains: input.domains,
@@ -384,15 +431,20 @@ async function retryResearchDelegations(
       allowRouteValidation?: boolean;
       allowItinerary?: boolean;
     };
-    const retryDomains = (
-      failure.domains.length > 0 ? failure.domains : (scope.domains ?? [])
-    ) as (ResearchDomain | "flights")[];
+    const retryDomains = (failure.domains.length > 0 ? failure.domains : (scope.domains ?? [])) as (
+      ResearchDomain | "flights"
+    )[];
     const retryTaskData = { ...(persisted.outbound.payload as Record<string, unknown>) };
     if (failure.domains.length > 0) {
       // Retry ONLY the failed subset; leaving the original requestedDomains
       // would make the specialist redo the whole scope.
       retryTaskData.requestedDomains = [...failure.domains];
     }
+    const retryCardVersion = await resolveCardVersion(
+      deps.transport,
+      delegation.agentIdentity,
+      delegation.skillId,
+    );
     const created = await createOutboundDelegation(deps.pool, {
       tripId: claim.tripId,
       operationId: claim.operationId,
@@ -400,6 +452,7 @@ async function retryResearchDelegations(
       skillId: delegation.skillId,
       agentIdentity: delegation.agentIdentity,
       endpointUrl: delegation.endpointUrl,
+      ...(retryCardVersion !== undefined ? { cardVersion: retryCardVersion } : {}),
       snapshotId: delegation.snapshotId,
       inputFingerprint: delegation.inputFingerprint,
       domains: retryDomains,
@@ -455,7 +508,11 @@ async function dispatchSpecialistResearch(
   data: CoordinatorRunData,
 ): Promise<
   | { kind: "fail"; runData: CoordinatorRunDataInput; code: string; reason: string }
-  | { kind: "continue"; delegationIds: string[] }
+  | {
+      kind: "continue";
+      delegationIds: string[];
+      expectedFingerprints: CoordinatorRunData["expectedFingerprints"];
+    }
 > {
   const accommodation = deps.agents.accommodation;
   const cityGuide = deps.agents.cityGuide;
@@ -535,12 +592,6 @@ async function dispatchSpecialistResearch(
     searchObjective: "preserve_level" as const,
     queryContext: { domainInputFingerprints: inputs.fingerprints },
     deadlineAt: new Date(Date.now() + 600_000).toISOString(),
-    limits: {
-      activeTimeMs: 90_000,
-      mcpInvocations: 8,
-      llmTransportAttempts: 2,
-      maxTaskCostUsd: 0.1,
-    },
     preferences: prefs,
     continuation: null,
   };
@@ -558,6 +609,7 @@ async function dispatchSpecialistResearch(
       requestedDomains: ["hotel"],
       delegationId: "",
       searchObjective: deps.hotelObjective ?? "preserve_level",
+      limits: taskLimitsFor(accommodation.skillId),
     },
   });
   const cityDomains = ["breakfast", "lunch", "dinner", "attractions", "events"];
@@ -578,6 +630,7 @@ async function dispatchSpecialistResearch(
       // envelope must carry the same fingerprint or its artifact correlation is
       // rejected as a mismatched delegation.
       inputFingerprint: inputs.fingerprints.breakfast ?? "",
+      limits: taskLimitsFor(cityGuide.skillId),
     },
   });
   // Deliver both in parallel, outside any transaction.
@@ -613,6 +666,7 @@ async function dispatchSpecialistResearch(
       hotelDelegation.delegationId,
       cityDelegation.delegationId,
     ],
+    expectedFingerprints: { ...inputs.fingerprints },
   };
 }
 
@@ -717,6 +771,7 @@ async function acceptedArtifactPayload(
     agentIdentity: delegation.agentIdentity,
     taskId: delegation.taskId,
   });
+  const expectedDomainFingerprints = await expectedDomainHashes(deps, delegation);
   for (const artifact of task.artifacts) {
     // The DELEGATION is the binding: a later operation (e.g. the hotel booking)
     // re-reads the artifact under the delegation's own operation/revision.
@@ -725,13 +780,11 @@ async function acceptedArtifactPayload(
       delegation,
       operationId: delegation.originatingOperationId,
       acceptedRevision: delegation.acceptedRevision,
+      ...(expectedDomainFingerprints ? { expectedDomainFingerprints } : {}),
     });
     // A question artifact shares the same correlation envelope; only the
     // artifact carrying this skill's ranking payload is the result.
-    if (
-      accepted &&
-      (accepted.value as Record<string, unknown>)[rankingField] !== undefined
-    ) {
+    if (accepted && (accepted.value as Record<string, unknown>)[rankingField] !== undefined) {
       return accepted.value;
     }
   }
@@ -911,9 +964,8 @@ async function openFlightChoice(
       )) as { rankedCombinationIds?: unknown } | undefined;
       const valid = await validFlightCombinationIds(deps.pool, claim.tripId);
       if (valid) {
-        ranked = (Array.isArray(payload?.rankedCombinationIds)
-          ? payload.rankedCombinationIds
-          : []
+        ranked = (
+          Array.isArray(payload?.rankedCombinationIds) ? payload.rankedCombinationIds : []
         ).filter((id): id is string => typeof id === "string" && valid.has(id));
       }
     } catch {
@@ -1050,12 +1102,28 @@ async function ingestCityArtifact(
   // Never persist an outcome computed under a different input fingerprint than
   // the one this pass requested: it would poison the projection and the
   // fingerprint-bound decision allowlists.
-  const outcomes = (value.outcomes ?? []).filter((outcome) => {
-    if (typeof outcome.domain !== "string" || typeof outcome.inputFingerprint !== "string") {
+  const hasExpectedFingerprints = Object.keys(data.expectedFingerprints).length > 0;
+  const rawOutcomes = value.outcomes ?? [];
+  const outcomes = rawOutcomes.filter((outcome) => {
+    if (!hasExpectedFingerprints) {
       return true;
     }
+    if (typeof outcome.domain !== "string") {
+      return false;
+    }
     const expected = data.expectedFingerprints[outcome.domain as ResearchDomain];
-    return expected === undefined || expected === outcome.inputFingerprint;
+    if (expected === undefined) {
+      // A domain outside the dispatched scope is never admissible.
+      return false;
+    }
+    if (outcome.status === "ok") {
+      // A successful outcome must have been computed from this exact business
+      // snapshot. A failed outcome has no ranking and may lack a fingerprint
+      // (e.g. a thrown transport call); keep it so partial-failure handling and
+      // the necessary-domain gate still see the failure.
+      return typeof outcome.inputFingerprint === "string" && outcome.inputFingerprint === expected;
+    }
+    return true;
   });
   const ranked = outcomes.filter(
     (outcome) =>
@@ -1066,10 +1134,21 @@ async function ingestCityArtifact(
       typeof outcome.inputFingerprint === "string",
   );
   if (options.recordEvents !== false) {
-    for (const outcome of outcomes) {
+    // Events describe the raw artifact, including a successful outcome that was
+    // dropped for a fingerprint mismatch: the recovery panel must see it as a
+    // retryable failure instead of a silent gap.
+    for (const outcome of rawOutcomes) {
       if (typeof outcome.domain !== "string") {
         continue;
       }
+      const expected = hasExpectedFingerprints
+        ? data.expectedFingerprints[outcome.domain as ResearchDomain]
+        : undefined;
+      if (hasExpectedFingerprints && expected === undefined) {
+        continue;
+      }
+      const fingerprintMismatch =
+        hasExpectedFingerprints && outcome.status === "ok" && outcome.inputFingerprint !== expected;
       await deps.ports.recordResearchEvent({
         tripId: claim.tripId,
         operationId: claim.operationId,
@@ -1077,10 +1156,10 @@ async function ingestCityArtifact(
         phase: "finished",
         attempt: options.attempt ?? 1,
         durationMs: null,
-        status: outcome.status as never,
+        status: (fingerprintMismatch ? "retryable_error" : outcome.status) as never,
         simulatedFailure: outcome.simulatedFailure ?? false,
-        reason: outcome.reason ?? null,
-        fingerprint: outcome.inputFingerprint ?? null,
+        reason: fingerprintMismatch ? "fingerprint_mismatch" : (outcome.reason ?? null),
+        fingerprint: fingerprintMismatch ? null : (outcome.inputFingerprint ?? null),
       });
     }
   }
@@ -1257,12 +1336,6 @@ async function dispatchScopedResearch(
       ...(spec.searchIntent ? { searchIntent: spec.searchIntent } : {}),
     },
     deadlineAt: new Date(Date.now() + 600_000).toISOString(),
-    limits: {
-      activeTimeMs: 90_000,
-      mcpInvocations: 8,
-      llmTransportAttempts: 2,
-      maxTaskCostUsd: 0.1,
-    },
     preferences: trip.preferences,
     continuation: null,
   };
@@ -1289,6 +1362,7 @@ async function dispatchScopedResearch(
         delegationId: "",
         inputFingerprint: hotelFingerprint as string,
         searchObjective: spec.objective ?? "preserve_level",
+        limits: taskLimitsFor(accommodation.skillId),
       },
     });
     delegationIds.push(delegation.delegationId);
@@ -1326,6 +1400,7 @@ async function dispatchScopedResearch(
         requestedDomains: [...spec.cityDomains],
         delegationId: "",
         inputFingerprint: cityFingerprint as string,
+        limits: taskLimitsFor(cityGuide.skillId),
       },
     });
     delegationIds.push(delegation.delegationId);
@@ -1384,6 +1459,19 @@ async function dispatchScopedResearch(
     runData: {
       ...data,
       delegationIds,
+      expectedFingerprints: {
+        ...(spec.hotel && hotelFingerprint ? { hotel: hotelFingerprint } : {}),
+        ...spec.cityDomains.reduce<Partial<Record<ResearchDomain, string>>>(
+          (fingerprints, domain) => {
+            const value = inputs.fingerprints[domain];
+            if (value !== undefined) {
+              fingerprints[domain] = value;
+            }
+            return fingerprints;
+          },
+          {},
+        ),
+      },
       researchTarget: spec.target,
       searchIntent: spec.searchIntent,
       planningAttempt: 0,
@@ -1670,10 +1758,7 @@ function progressResearchTarget(progress: {
 }
 
 /** Newest per-domain research outcomes whose last result was not `ok`. */
-async function loadFailedResearchDomains(
-  pool: Pool,
-  tripId: string,
-): Promise<ResearchDomain[]> {
+async function loadFailedResearchDomains(pool: Pool, tripId: string): Promise<ResearchDomain[]> {
   const result = await pool.query<{ domain: string; status: string | null }>(
     `SELECT DISTINCT ON (payload->>'domain')
             payload->>'domain' AS domain,
@@ -2098,9 +2183,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
       if (route.status !== "FEASIBLE") {
         const routeReasons =
           "reasons" in route && Array.isArray(route.reasons) ? route.reasons : [];
-        const explanation = routeReasons
-          .map((entry) => entry.explanation ?? entry.code)
-          .join("; ");
+        const explanation = routeReasons.map((entry) => entry.explanation ?? entry.code).join("; ");
         // A rejected route is a terminal blocked outcome, not a pending choice:
         // there is no option to choose and no downstream work to resume. The
         // persisted route validation keeps the safe reasons for the flights UI.
@@ -2244,6 +2327,11 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
         traceId: newTraceId(),
         preferences: preferencesOf(trip),
       });
+      const flightCardVersion = await resolveCardVersion(
+        deps.transport,
+        deps.agents.flight.agentIdentity,
+        deps.agents.flight.skillId,
+      );
       const created = await createOutboundDelegation(deps.pool, {
         tripId: context.tripId,
         operationId: claim.operationId,
@@ -2251,6 +2339,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
         skillId: deps.agents.flight.skillId,
         agentIdentity: deps.agents.flight.agentIdentity,
         endpointUrl: deps.agents.flight.endpointUrl,
+        ...(flightCardVersion !== undefined ? { cardVersion: flightCardVersion } : {}),
         snapshotId: materialized.snapshotId,
         inputFingerprint: schedule.fingerprint,
         domains: ["flights"],
@@ -2496,6 +2585,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           delegationId: binding.delegationId,
           payload: continuationRequest,
           continuationGeneration: (binding.inputGeneration ?? 1) + 1,
+          operationId: claim.operationId,
         });
         const delivered = await deliverDelegation(deps.pool, deps.transport, {
           delegationId: binding.delegationId,
@@ -2675,7 +2765,10 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           return {
             kind: "continue",
             step: "researching",
-            runData: runDataWith(data, { delegationIds: research.delegationIds }),
+            runData: runDataWith(data, {
+              delegationIds: research.delegationIds,
+              expectedFingerprints: research.expectedFingerprints,
+            }),
           };
         }
         // The hotel side is settled (booked or kept as a selection): open the
@@ -2866,8 +2959,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
           optionCommands?: Record<string, DomainCommand[]>;
           researchFailed?: boolean;
         } | null;
-        const fallback =
-          decision.kind === "recovery" ? recoveryReopenOption(optionId) : undefined;
+        const fallback = decision.kind === "recovery" ? recoveryReopenOption(optionId) : undefined;
         const option =
           optionPayload?.options?.find((entry) => entry.id === optionId) ??
           (fallback
@@ -3111,11 +3203,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
                   }
                 | undefined;
               try {
-                payload = (await acceptedArtifactPayload(
-                  deps,
-                  delegationId,
-                  "outcomes",
-                )) as
+                payload = (await acceptedArtifactPayload(deps, delegationId, "outcomes")) as
                   | {
                       outcomes?: {
                         domain?: string;
@@ -3206,7 +3294,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               code,
               reason,
               domains: researchDomainsOf(delegation),
-              retryable: /retryable_error/i.test(reason),
+              retryable: isRetryableAgentFailure(code, reason),
             });
             continue;
           }
@@ -3220,7 +3308,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               code,
               reason,
               domains: researchDomainsOf(delegation),
-              retryable: /retryable_error/i.test(reason),
+              retryable: isRetryableAgentFailure(code, reason),
             });
             continue;
           }
@@ -3272,6 +3360,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               : delegation.skillId === "accommodation.recommend.v1"
                 ? "rankedHotelOfferIds"
                 : "outcomes";
+          const expectedDomainFingerprints = await expectedDomainHashes(deps, delegation);
           for (const artifact of task.artifacts) {
             // The DELEGATION is the binding (a continuation artifact carries the
             // delegation's originating operation, not the current claim), and
@@ -3282,6 +3371,7 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
               delegation,
               operationId: delegation.originatingOperationId,
               acceptedRevision: delegation.acceptedRevision,
+              ...(expectedDomainFingerprints ? { expectedDomainFingerprints } : {}),
             });
             if (
               candidate &&
@@ -3335,9 +3425,8 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
                 reason: "the trip has no current Stage-B schedule approval",
               };
             }
-            const ranked = (Array.isArray(value.rankedCombinationIds)
-              ? value.rankedCombinationIds
-              : []
+            const ranked = (
+              Array.isArray(value.rankedCombinationIds) ? value.rankedCombinationIds : []
             ).filter((id): id is string => typeof id === "string" && valid.has(id));
             if (ranked.length === 0) {
               return {
@@ -3387,27 +3476,47 @@ async function runStep(context: StepContext): Promise<CoordinatorTransitionResul
             await ingestCityArtifact(deps, claim, data, value, {
               attempt: delegation.attempt,
             });
-            const failedOutcomes = (value.outcomes ?? []).filter(
-              (outcome) => outcome.status !== "ok" && typeof outcome.domain === "string",
-            );
+            const hasExpectedFingerprints = Object.keys(data.expectedFingerprints).length > 0;
+            const failedOutcomes = (value.outcomes ?? []).filter((outcome) => {
+              if (typeof outcome.domain !== "string") {
+                return false;
+              }
+              if (outcome.status !== "ok") {
+                return true;
+              }
+              // A successful outcome computed under a different business
+              // snapshot is a FAILED domain, not a silently skipped one: it
+              // must reach the one-retry / necessary-domain gate. In a
+              // fingerprinted run, an `ok` domain with NO expectation is a
+              // dispatch inconsistency and is treated the same way.
+              if (!hasExpectedFingerprints) {
+                return false;
+              }
+              const expected = data.expectedFingerprints[outcome.domain as ResearchDomain];
+              return expected === undefined || outcome.inputFingerprint !== expected;
+            });
             if (failedOutcomes.length > 0) {
               const domains = failedOutcomes
                 .map((outcome) => outcome.domain)
                 .filter(
                   (domain): domain is ResearchDomain =>
-                    typeof domain === "string" &&
-                    researchDomainSchema.safeParse(domain).success,
+                    typeof domain === "string" && researchDomainSchema.safeParse(domain).success,
                 );
               failedDelegations.push({
                 delegationId,
                 skillId: delegation.skillId,
                 code: "AGENT_PARTIAL",
                 reason: failedOutcomes
-                  .map((outcome) => `${outcome.domain}: ${outcome.status}`)
+                  .map(
+                    (outcome) =>
+                      `${outcome.domain}: ${
+                        outcome.status === "ok" ? "fingerprint_mismatch" : outcome.status
+                      }`,
+                  )
                   .join(", "),
                 domains,
                 retryable: failedOutcomes.some(
-                  (outcome) => outcome.status === "retryable_error",
+                  (outcome) => outcome.status === "ok" || outcome.status === "retryable_error",
                 ),
               });
             }
@@ -3718,14 +3827,45 @@ async function revokeSupersededCoordinatorWork(
   pool: Pool,
   run: CoordinatorRunRecord,
 ): Promise<void> {
-  await pool.query(
-    `UPDATE odft_app.agent_delegations
-        SET status = 'revoked', revoked_at = now(),
-            revoke_reason = 'superseded by a later operation', updated_at = now()
-      WHERE trip_id = $1 AND originating_operation_id = $2
-        AND status IN ('pending', 'dispatched', 'working', 'input_required')`,
-    [run.tripId, run.operationId],
-  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Revoke every live delegation the superseded operation counted on:
+    // delegations it created, delegations it continued (current_operation_id),
+    // and delegations still listed in its durable run cursor. The remote-cancel
+    // intents commit in the same transaction so a crash cannot leave a revoked
+    // delegation executing remotely without a durable cancel record.
+    const revoked = await client.query<{
+      id: string;
+      agent_identity: string;
+      task_id: string | null;
+    }>(
+      `UPDATE odft_app.agent_delegations
+          SET status = 'revoked', revoked_at = now(),
+              revoke_reason = 'superseded by a later operation', updated_at = now()
+        WHERE trip_id = $1
+          AND (originating_operation_id = $2 OR current_operation_id = $2
+               OR id = ANY($3::uuid[]))
+          AND status IN ('pending', 'dispatched', 'working', 'input_required')
+        RETURNING id, agent_identity, task_id`,
+      [run.tripId, run.operationId, run.runData.delegationIds],
+    );
+    for (const row of revoked.rows) {
+      await requestDelegationCancellation(client, row.id);
+      if (row.task_id) {
+        await requestTaskCancellation(client, {
+          agentIdentity: row.agent_identity,
+          taskId: row.task_id,
+        });
+      }
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /** Run one claimed coordinator operation to its next resting point. */
@@ -3807,6 +3947,8 @@ export async function runCoordinatorOperation(
       // The run was parked; the decision operation takes over the cursor and
       // re-enters at `interpreting` (a decision op routes into the planning
       // stage). `running` rows must not carry a wait reason (schema constraint).
+      const inheritedDelegationIds =
+        claim.kind === "decision" ? [...run.runData.delegationIds] : [];
       run = await updateCoordinatorRunFenced(
         deps.pool,
         {
@@ -3841,6 +3983,18 @@ export async function runCoordinatorOperation(
           },
         },
         fence,
+        claim.kind === "decision"
+          ? async (client) => {
+              // The decision operation now counts on the run's live
+              // delegations: cancellation/supersede must find them through
+              // `current_operation_id`, not only their originating operation.
+              await adoptDelegationsForOperation(client, {
+                tripId: claim.tripId,
+                operationId: claim.operationId,
+                delegationIds: inheritedDelegationIds,
+              });
+            }
+          : undefined,
       );
     }
   } catch (error) {

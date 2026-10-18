@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { TaskState } from "@a2a-js/sdk";
-import { DEFAULT_PROTOCOL_TIMEOUTS, A2AClient, trustedRegistrySchema, type ProtocolConfig } from "@odft/protocols";
+import {
+  DEFAULT_PROTOCOL_TIMEOUTS,
+  A2AClient,
+  trustedRegistrySchema,
+  type ProtocolConfig,
+} from "@odft/protocols";
 import type {
   CoordinatorAgentBinding,
   CoordinatorDelegationTransport,
@@ -56,7 +61,6 @@ export function loadCoordinatorTransportConfig(
       agentIdentity: entry.agentIdentity,
       endpointUrl: entry.endpointUrl,
       skillId,
-      cardVersion: "",
     };
   };
   return {
@@ -107,12 +111,24 @@ function artifactData(artifact: TaskArtifactLike): unknown {
   return undefined;
 }
 
-export function createA2ADelegationTransport(config: ProtocolConfig): CoordinatorDelegationTransport {
+export function createA2ADelegationTransport(
+  config: ProtocolConfig,
+): CoordinatorDelegationTransport {
   // Non-blocking send + explicit polling: a durable outbound intent must not
   // hold the coordinator's claim for the whole specialist computation, and a
   // queued question can be observed while a sibling is still working.
   const client = new A2AClient({ config, polling: true });
   return {
+    async describeAgent(input) {
+      const discovered = await client.discoverCard(input.agentIdentity);
+      const skills = new Set(discovered.card.skills.map((skill) => skill.id));
+      if (!skills.has(input.skillId)) {
+        throw new Error(
+          `agent ${input.agentIdentity} does not advertise the required skill ${input.skillId}`,
+        );
+      }
+      return { cardVersion: discovered.cardVersion };
+    },
     async sendTask(input) {
       const dataMessage = {
         messageId: input.messageId,

@@ -37,6 +37,7 @@ export const AGENT_TOKENS = {
   accommodation: "test-token-accommodation-0123456789",
   accommodationAlt: "test-token-accommodation-alt-0123456789",
   cityGuide: "test-token-city-guide-0123456789",
+  coordinator: "test-token-coordinator-0123456789",
 } as const;
 export { FLIGHT_AGENT_PASSWORD, PROTOCOL_PASSWORD, READONLY_PASSWORD, REPO_ROOT };
 

@@ -4,12 +4,31 @@ import type { Kysely } from "kysely";
 import { sql } from "kysely";
 import { ServerCallContext } from "@a2a-js/sdk/server";
 import { Task as ProtoTask, Role, TaskState, type Message, type Task } from "@a2a-js/sdk";
-import { authenticateServiceRequest, type ServiceIdentity } from "../auth.js";
+import type { ProtocolSource } from "@odft/contracts";
+import { authenticateServiceRequest, isAuthorizedCaller, type ServiceIdentity } from "../auth.js";
 import { canonicalHash } from "../canonical-json.js";
 import type { ProtocolConfig } from "../config.js";
 import { buildObservation, type ProtocolTelemetryWriter } from "../telemetry.js";
 import { ServiceInstanceLock } from "../service-lock.js";
 import { createTransactionalTaskStore, type AgentTaskTable } from "./task-store.js";
+
+const SOURCE_BY_AGENT_IDENTITY: Readonly<Record<string, ProtocolSource>> = {
+  "flight-agent": "flight-agent",
+  "accommodation-agent": "accommodation-agent",
+  "accommodation-agent-alt": "accommodation-alt-agent",
+  "city-guide-agent": "city-guide-agent",
+};
+
+/** Telemetry source derived from the AUTHENTICATED caller, never hardcoded. */
+function protocolSourceFor(
+  identity: ServiceIdentity,
+  coordinatorIdentity: string | undefined,
+): ProtocolSource {
+  if (coordinatorIdentity && identity.agentIdentity === coordinatorIdentity) {
+    return "coordinator";
+  }
+  return SOURCE_BY_AGENT_IDENTITY[identity.agentIdentity] ?? "coordinator";
+}
 
 /**
  * Phase 03 durable inbound admission (plan §3.7).
@@ -132,10 +151,7 @@ export class DurableMessageAdmission {
    * (express middleware) then hands the request to the official handler on the
    * canonical task, or answers a replay.
    */
-  async admit(
-    message: Message,
-    context: ServerCallContext,
-  ): Promise<AdmissionResult> {
+  async admit(message: Message, context: ServerCallContext): Promise<AdmissionResult> {
     if (!message.messageId) {
       throw new MessageConflictError("(missing messageId)");
     }
@@ -194,14 +210,17 @@ export class DurableMessageAdmission {
       if (message.taskId) {
         // Continuation: map the message, reopen the task-control row so a crash
         // mid-continuation is reconciled like any other active task.
-        const contextId = message.contextId || (await store.load(message.taskId, context))?.contextId;
+        const contextId =
+          message.contextId || (await store.load(message.taskId, context))?.contextId;
         if (!contextId) {
           throw new UnknownTaskError(message.taskId);
         }
         await sql`
           UPDATE odft_app.protocol_inbound_messages
              SET task_id = ${message.taskId}, context_id = ${contextId}, state = 'mapped', mapped_at = now()
-           WHERE agent_identity = ${agentIdentity} AND message_id = ${message.messageId}`.execute(trx);
+           WHERE agent_identity = ${agentIdentity} AND message_id = ${message.messageId}`.execute(
+          trx,
+        );
         await sql`
           INSERT INTO odft_app.protocol_task_control
               (agent_identity, task_id, context_id, tenant, state, active_owner, input_generation)
@@ -237,7 +256,9 @@ export class DurableMessageAdmission {
       await sql`
         UPDATE odft_app.protocol_inbound_messages
            SET task_id = ${taskId}, context_id = ${contextId}, state = 'mapped', mapped_at = now()
-         WHERE agent_identity = ${agentIdentity} AND message_id = ${message.messageId}`.execute(trx);
+         WHERE agent_identity = ${agentIdentity} AND message_id = ${message.messageId}`.execute(
+        trx,
+      );
       await sql`
         INSERT INTO odft_app.protocol_task_control
             (agent_identity, task_id, context_id, tenant, state, active_owner)
@@ -352,7 +373,9 @@ export class DurableMessageAdmission {
           await sql`
             UPDATE odft_app.protocol_task_control
                SET state = 'failed', restart_failed_at = now(), active_owner = NULL, updated_at = now()
-             WHERE agent_identity = ${this.options.agentIdentity} AND task_id = ${row.task_id}`.execute(trx);
+             WHERE agent_identity = ${this.options.agentIdentity} AND task_id = ${row.task_id}`.execute(
+            trx,
+          );
           failed.push(row.task_id);
           continue;
         }
@@ -368,7 +391,9 @@ export class DurableMessageAdmission {
         await sql`
           UPDATE odft_app.protocol_task_control
              SET state = ${synced}, active_owner = NULL, updated_at = now()
-           WHERE agent_identity = ${this.options.agentIdentity} AND task_id = ${row.task_id}`.execute(trx);
+           WHERE agent_identity = ${this.options.agentIdentity} AND task_id = ${row.task_id}`.execute(
+          trx,
+        );
       }
       return failed;
     });
@@ -478,7 +503,7 @@ export function createAdmissionMiddleware(deps: {
       respondError(response, requestId, 401, "unauthorized");
       return;
     }
-    if (identity.agentIdentity !== deps.admission.agentIdentity) {
+    if (!isAuthorizedCaller(deps.config, identity, deps.admission.agentIdentity)) {
       respondError(response, requestId, 403, "forbidden");
       return;
     }
@@ -513,12 +538,11 @@ export function createAdmissionMiddleware(deps: {
     }
     await deps.telemetry?.record(
       buildObservation({
-        source: "coordinator",
+        source: protocolSourceFor(identity, deps.config.registry.coordinator?.agentIdentity),
         kind: "task_accepted",
         correlation: { taskId: outcome.taskId, contextId: outcome.contextId },
         payload: {
-          detail:
-            outcome.kind === "replay" ? "duplicate message reused the canonical task" : null,
+          detail: outcome.kind === "replay" ? "duplicate message reused the canonical task" : null,
           status: outcome.kind,
           counters: {},
         },

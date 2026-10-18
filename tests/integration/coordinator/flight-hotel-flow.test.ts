@@ -99,7 +99,11 @@ describe("coordinator flight-hotel flow", () => {
     expect(hotelPark?.waitReason).toBe("hotel_choice");
 
     // The same BookingService created the demo reservation.
-    const reservation = await harness.pool.query<{ service_key: string; demo_reference: string; status: string }>(
+    const reservation = await harness.pool.query<{
+      service_key: string;
+      demo_reference: string;
+      status: string;
+    }>(
       `SELECT service_key, demo_reference, status FROM odft_app.reservations
         WHERE trip_id = $1`,
       [tripId],
@@ -130,14 +134,19 @@ describe("coordinator flight-hotel flow", () => {
 
     // Hotel + City Guide delegations were dispatched concurrently and both
     // settled through the real specialists.
-    const delegations = await harness.pool.query<{ skill_id: string; status: string }>(
-      `SELECT skill_id, status FROM odft_app.agent_delegations WHERE trip_id = $1`,
-      [tripId],
-    );
+    const delegations = await harness.pool.query<{
+      skill_id: string;
+      status: string;
+      card_version: string | null;
+    }>(`SELECT skill_id, status, card_version FROM odft_app.agent_delegations WHERE trip_id = $1`, [
+      tripId,
+    ]);
     const bySkill = new Map(delegations.rows.map((row) => [row.skill_id, row.status]));
     expect(bySkill.get("flight.recommend.v1")).toBe("completed");
     expect(bySkill.get("accommodation.recommend.v1")).toBe("completed");
     expect(bySkill.get("city-guide.research.v1")).toBe("completed");
+    // Dispatch validated and persisted the advertised card version.
+    expect(delegations.rows.every((row) => (row.card_version ?? "").length > 0)).toBe(true);
 
     // Choose the hotel, confirm its booking, and the coordinator opens the
     // program choices from the City Guide artifact's ranked domains.
@@ -235,10 +244,9 @@ describe("coordinator flight-hotel flow", () => {
     const trip = await harness.pool.query<{
       workflow_status: string;
       current_route_validation_id: string | null;
-    }>(
-      `SELECT workflow_status, current_route_validation_id FROM odft_app.trips WHERE id = $1`,
-      [tripId],
-    );
+    }>(`SELECT workflow_status, current_route_validation_id FROM odft_app.trips WHERE id = $1`, [
+      tripId,
+    ]);
     expect(trip.rows[0]?.workflow_status).toBe("blocked");
     const route = await harness.pool.query<{ status: string }>(
       `SELECT status FROM odft_app.route_validations WHERE id = $1`,

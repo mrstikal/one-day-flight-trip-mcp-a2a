@@ -179,13 +179,11 @@ export function coordinatorDriver(
         agentIdentity: "accommodation-agent-alt",
         endpointUrl: `http://127.0.0.1:${ACCOMMODATION_ALT_AGENT_PORT}`,
         skillId: "accommodation.recommend.v1",
-        cardVersion: "",
       }
     : {
         agentIdentity: "accommodation-agent",
         endpointUrl: `http://127.0.0.1:${ACCOMMODATION_AGENT_PORT}`,
         skillId: "accommodation.recommend.v1",
-        cardVersion: "",
       };
   return {
     async runOperation(claim: ClaimedOperation) {
@@ -204,20 +202,17 @@ export function coordinatorDriver(
               agentIdentity: "flight-agent",
               endpointUrl: `http://127.0.0.1:${FLIGHT_AGENT_PORT}`,
               skillId: "flight.recommend.v1",
-              cardVersion: "",
             },
             accommodation: accommodationBinding,
             cityGuide: {
               agentIdentity: "city-guide-agent",
               endpointUrl: `http://127.0.0.1:${CITY_GUIDE_AGENT_PORT}`,
               skillId: "city-guide.research.v1",
-              cardVersion: "",
             },
             itinerary: {
               agentIdentity: "city-guide-agent",
               endpointUrl: `http://127.0.0.1:${CITY_GUIDE_AGENT_PORT}`,
               skillId: "itinerary.propose.v1",
-              cardVersion: "",
             },
           },
           delegationWaitMs: options.delegationWaitMs ?? 30_000,

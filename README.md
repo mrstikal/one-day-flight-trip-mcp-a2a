@@ -26,10 +26,10 @@ prompt.
 The demo deliberately uses two open protocols instead of one monolithic prompt or a pile of
 service-specific adapters. They solve different problems and complement each other:
 
-| Protocol | What it is | Role in this demo | Why it helps |
-| --- | --- | --- | --- |
-| **MCP (Model Context Protocol)** | An open protocol for exposing tools, resources and prompts to AI applications through a standard client/server contract. | A read-only MCP host publishes three capability endpoints: `geography`, `travel-data` and `itinerary-tools`. Agents discover and call those capabilities over Streamable HTTP. | Standard discovery and invocation instead of bespoke tool glue; one capability can serve several agents; least-privilege read-only boundaries; replaceable implementations; bounded, auditable calls; no agent needs direct SQL or ownership of business state. |
-| **A2A (Agent2Agent)** | An open protocol for discovering agents and delegating tasks to them, with a real task lifecycle, streaming updates, artifacts and `input-required` continuations. | The coordinator delegates flight, hotel/meal and city-guide research to independent A2A services, each publishing an Agent Card and returning a versioned artifact. | Loose coupling and independent deployment or replacement; specialist autonomy behind a stable contract; parallel research; explicit task state and provenance; real retry, cancel and recovery semantics; one agent can be swapped through the registry without changing the coordinator or UI. |
+| Protocol                         | What it is                                                                                                                                                         | Role in this demo                                                                                                                                                              | Why it helps                                                                                                                                                                                                                                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **MCP (Model Context Protocol)** | An open protocol for exposing tools, resources and prompts to AI applications through a standard client/server contract.                                           | A read-only MCP host publishes three capability endpoints: `geography`, `travel-data` and `itinerary-tools`. Agents discover and call those capabilities over Streamable HTTP. | Standard discovery and invocation instead of bespoke tool glue; one capability can serve several agents; least-privilege read-only boundaries; replaceable implementations; bounded, auditable calls; no agent needs direct SQL or ownership of business state.                                 |
+| **A2A (Agent2Agent)**            | An open protocol for discovering agents and delegating tasks to them, with a real task lifecycle, streaming updates, artifacts and `input-required` continuations. | The coordinator delegates flight, hotel/meal and city-guide research to independent A2A services, each publishing an Agent Card and returning a versioned artifact.            | Loose coupling and independent deployment or replacement; specialist autonomy behind a stable contract; parallel research; explicit task state and provenance; real retry, cancel and recovery semantics; one agent can be swapped through the registry without changing the coordinator or UI. |
 
 MCP answers "what capabilities can an agent use?" while A2A answers "which specialist should do this
 piece of work, and how do we track it?". Keeping the two separate means the coordinator owns business
@@ -263,15 +263,15 @@ tests, 101 E2E tests (1 skipped) and a 25/30 benchmark; see
 child. The coordinator worker has no public port; it claims queued operations from
 PostgreSQL and writes a heartbeat every 10 seconds.
 
-| Process | Default address | Purpose |
-| --- | --- | --- |
-| Web | `http://127.0.0.1:3000` | Next.js BFF, wizard, inspector, SSE |
-| MCP host | `127.0.0.1:4321-4323` | geography, travel-data and itinerary-tools endpoints |
-| Flight agent | `127.0.0.1:4401` | flight recommendations |
-| Accommodation agent | `127.0.0.1:4402` | hotel/meal recommendations |
-| City Guide agent | `127.0.0.1:4403` | attractions/events research and itinerary proposals |
-| Accommodation agent B | `127.0.0.1:4404` | independent replacement implementation |
-| Coordinator worker | no port | durable operation execution |
+| Process               | Default address         | Purpose                                              |
+| --------------------- | ----------------------- | ---------------------------------------------------- |
+| Web                   | `http://127.0.0.1:3000` | Next.js BFF, wizard, inspector, SSE                  |
+| MCP host              | `127.0.0.1:4321-4323`   | geography, travel-data and itinerary-tools endpoints |
+| Flight agent          | `127.0.0.1:4401`        | flight recommendations                               |
+| Accommodation agent   | `127.0.0.1:4402`        | hotel/meal recommendations                           |
+| City Guide agent      | `127.0.0.1:4403`        | attractions/events research and itinerary proposals  |
+| Accommodation agent B | `127.0.0.1:4404`        | independent replacement implementation               |
+| Coordinator worker    | no port                 | durable operation execution                          |
 
 Start/stop:
 
@@ -361,16 +361,17 @@ for the full list. Key values:
 | `DATABASE_URL`                                         | Required; never logged                                                                                                                                                                                                          |
 | `PUBLIC_BASE_URL`                                      | Exact origin used by cookie/CSRF checks                                                                                                                                                                                         |
 | `SESSION_HMAC_KEY`                                     | Required random server secret (>= 32 chars)                                                                                                                                                                                     |
-| `ODFT_PROTOCOL_ROLE_PASSWORD`                          | Required before `npm run protocol:roles`; >= 16 chars. Password for the `odft_protocol_service` role (protocol tables, coordinator run/outbound writes). Never commit it.                                                        |
-| `ODFT_MCP_READONLY_PASSWORD`                           | Required before `npm run protocol:roles` and `npm run dev`; >= 16 chars. Password for the `odft_mcp_readonly` role used by the MCP host; read-only grants, no write access.                                                      |
+| `ODFT_PROTOCOL_ROLE_PASSWORD`                          | Required before `npm run protocol:roles`; >= 16 chars. Password for the `odft_protocol_service` role (protocol tables, coordinator run/outbound writes). Never commit it.                                                       |
+| `ODFT_MCP_READONLY_PASSWORD`                           | Required before `npm run protocol:roles` and `npm run dev`; >= 16 chars. Password for the `odft_mcp_readonly` role used by the MCP host; read-only grants, no write access.                                                     |
 | `ODFT_FLIGHT_AGENT_PASSWORD`                           | Required before `npm run protocol:roles` and `npm run dev`; >= 16 chars. Password for the `odft_flight_agent` role; `npm run dev` derives that agent's restricted `DATABASE_URL` from it.                                       |
 | `ODFT_ACCOMMODATION_AGENT_PASSWORD`                    | Same as above for the `odft_accommodation_agent` role.                                                                                                                                                                          |
 | `ODFT_CITY_GUIDE_AGENT_PASSWORD`                       | Same as above for the `odft_city_guide_agent` role.                                                                                                                                                                             |
-| `ODFT_ACCOMMODATION_ALT_AGENT_PASSWORD`                | Optional; only for the replacement demo. Password for the `odft_accommodation_agent` role connection used by Accommodation Agent B on port 4404.                                                                                 |
-| `ODFT_AGENT_TOKEN_FLIGHT`                              | Required before `npm run dev`; bearer token referenced by the registries for the flight agent (inbound identity and outbound MCP calls). Registries contain only the `credentialRef` name, never the token.                       |
+| `ODFT_ACCOMMODATION_ALT_AGENT_PASSWORD`                | Optional; only for the replacement demo. Password for the `odft_accommodation_agent` role connection used by Accommodation Agent B on port 4404.                                                                                |
+| `ODFT_AGENT_TOKEN_FLIGHT`                              | Required before `npm run dev`; bearer token referenced by the registries for the flight agent (inbound identity and outbound MCP calls). Registries contain only the `credentialRef` name, never the token.                     |
 | `ODFT_AGENT_TOKEN_ACCOMMODATION`                       | Same as above for the accommodation agent.                                                                                                                                                                                      |
 | `ODFT_AGENT_TOKEN_CITY_GUIDE`                          | Same as above for the city guide agent.                                                                                                                                                                                         |
-| `ODFT_AGENT_TOKEN_ACCOMMODATION_ALT`                   | Optional; bearer token for Accommodation Agent B and the replacement demo.                                                                                                                                                       |
+| `ODFT_AGENT_TOKEN_ACCOMMODATION_ALT`                   | Optional; bearer token for Accommodation Agent B and the replacement demo.                                                                                                                                                      |
+| `ODFT_COORDINATOR_TOKEN`                               | Required before `npm run dev`; distinct coordinator→agent bearer. Agents accept this coordinator identity in addition to their own token, so the coordinator never holds an agent's credential.                                 |
 | `DEMO_CONTROLS_ENABLED`                                | `true` enables the Inspector and protected simulation controls for owned trips in a local/demo deployment                                                                                                                       |
 | `WIKIDATA_DISCOVERY`                                   | Optional (`true`): on the first trip to a city without reviewed landmarks, curate its notable attractions from Wikidata once and store them in the reference tables (see "Reference landmarks"); default off, tests never fetch |
 | `AI_MODE`                                              | `fixture` (default, no credentials) or `openrouter`                                                                                                                                                                             |

@@ -1,6 +1,11 @@
 import { z } from "zod";
-import { agentSkillIdSchema } from "./agent-artifacts.js";
-import { researchDomainSchema, serviceLevelSchema, travelVariantSchema } from "./enums.js";
+import { agentSkillIdSchema, type AgentSkillId } from "./agent-artifacts.js";
+import {
+  delegationDomainSchema,
+  researchDomainSchema,
+  serviceLevelSchema,
+  travelVariantSchema,
+} from "./enums.js";
 import {
   fingerprintSchema,
   instantSchema,
@@ -32,6 +37,62 @@ export const agentTaskLimitsSchema = z
   .strict();
 export type AgentTaskLimits = z.infer<typeof agentTaskLimitsSchema>;
 
+/** Cumulative per-skill profile of the plan §3.9 table (one source of truth). */
+export interface AgentTaskLimitProfile {
+  readonly activeTimeMs: number;
+  readonly mcpInvocations: number;
+  readonly llmAttempts: number;
+  readonly maxTaskCostUsd: number;
+  readonly maxInputs: number;
+}
+
+export const AGENT_TASK_LIMITS: Readonly<Record<AgentSkillId, AgentTaskLimitProfile>> = {
+  "flight.recommend.v1": {
+    activeTimeMs: 60_000,
+    mcpInvocations: 4,
+    llmAttempts: 2,
+    maxTaskCostUsd: 0.1,
+    maxInputs: 2,
+  },
+  "accommodation.recommend.v1": {
+    activeTimeMs: 60_000,
+    mcpInvocations: 4,
+    llmAttempts: 2,
+    maxTaskCostUsd: 0.1,
+    maxInputs: 2,
+  },
+  "city-guide.research.v1": {
+    activeTimeMs: 90_000,
+    mcpInvocations: 8,
+    llmAttempts: 2,
+    maxTaskCostUsd: 0.1,
+    maxInputs: 2,
+  },
+  /**
+   * Phase 08: one application planning attempt. The planner role's ceiling is
+   * 0.20 USD and the deterministic preflight is free, so 0.25 covers exactly
+   * one paid planner send plus its reservation headroom.
+   */
+  "itinerary.propose.v1": {
+    activeTimeMs: 120_000,
+    mcpInvocations: 6,
+    llmAttempts: 4,
+    maxTaskCostUsd: 0.25,
+    maxInputs: 2,
+  },
+};
+
+/** Request-envelope projection of a skill profile. */
+export function agentTaskRequestLimits(skillId: AgentSkillId): AgentTaskLimits {
+  const limits = AGENT_TASK_LIMITS[skillId];
+  return {
+    activeTimeMs: limits.activeTimeMs,
+    mcpInvocations: limits.mcpInvocations,
+    llmTransportAttempts: limits.llmAttempts,
+    maxTaskCostUsd: limits.maxTaskCostUsd,
+  };
+}
+
 /** Explicit frozen-snapshot binding every task must carry. */
 export const agentTaskSnapshotBindingSchema = z
   .object({
@@ -59,8 +120,8 @@ export const agentTaskRequestSchema = z
     traceId: nonEmptyStringSchema,
     snapshot: agentTaskSnapshotBindingSchema,
     inputFingerprint: fingerprintSchema,
-    /** Exact domain scopes this task is allowed to research. */
-    requestedDomains: z.array(researchDomainSchema).min(1).max(6),
+    /** Exact delegation scopes this task is allowed to act on (flights included). */
+    requestedDomains: z.array(delegationDomainSchema).min(1).max(7),
     travelVariant: travelVariantSchema,
     adults: z.number().int().min(1).max(6),
     sightseeingDate: z.string().min(1),

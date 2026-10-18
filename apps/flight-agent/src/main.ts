@@ -35,10 +35,14 @@ const admission = new DurableMessageAdmission(db, {
 const telemetry = new ProtocolTelemetryWriter(pool);
 const mcp = new McpClient({ config: config.protocol });
 
-const serviceLock = await ServiceInstanceLock.acquire(pool, FLIGHT_AGENT_IDENTITY).catch((error) => {
-  process.stderr.write(`flight-agent: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-});
+const serviceLock = await ServiceInstanceLock.acquire(pool, FLIGHT_AGENT_IDENTITY).catch(
+  (error) => {
+    process.stderr.write(
+      `flight-agent: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exit(1);
+  },
+);
 const reconciled = await admission.reconcileRestartedTasks(serviceLock);
 
 const app = createFlightAgentApp({
@@ -59,6 +63,7 @@ const server = app.listen(config.port, config.host, () => {
 
 async function shutdown(): Promise<void> {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  await mcp.close();
   await serviceLock.release();
   await db.destroy();
   await pool.end();

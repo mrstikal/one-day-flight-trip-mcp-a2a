@@ -113,6 +113,7 @@ function startCoordinatorWorker(registryPath: string): ChildProcess {
       ODFT_AGENT_TOKEN_ACCOMMODATION: AGENT_TOKENS.accommodation,
       ODFT_AGENT_TOKEN_ACCOMMODATION_ALT: AGENT_TOKENS.accommodationAlt,
       ODFT_AGENT_TOKEN_CITY_GUIDE: AGENT_TOKENS.cityGuide,
+      ODFT_COORDINATOR_TOKEN: AGENT_TOKENS.coordinator,
       WIKIDATA_DISCOVERY: "false",
     },
     stdio: ["ignore", "inherit", "inherit"],

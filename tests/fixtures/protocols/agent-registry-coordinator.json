@@ -22,5 +22,9 @@
       "credentialRef": "ODFT_AGENT_TOKEN_CITY_GUIDE",
       "requiredSkills": ["city-guide.research.v1", "itinerary.propose.v1"]
     }
-  ]
+  ],
+  "coordinator": {
+    "agentIdentity": "coordinator",
+    "credentialRef": "ODFT_COORDINATOR_TOKEN"
+  }
 }

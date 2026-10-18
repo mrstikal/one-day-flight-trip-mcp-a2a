@@ -14,12 +14,12 @@ trip state and books nothing.
 
 ### Endpoint and identity
 
-| Item | Value |
-| --- | --- |
-| Identity / card | `flight-agent`, `/ .well-known/agent-card.json`, skill `flight.recommend.v1` |
-| Default bind | `127.0.0.1:4401` (`ODFT_FLIGHT_AGENT_HOST` / `ODFT_FLIGHT_AGENT_PORT`) |
-| Protocol | modern A2A 1.0 JSON-RPC only, durable admission middleware, single-instance service lock |
-| Task storage | `odft_protocol.agent_tasks_flight` (official SDK store) |
+| Item            | Value                                                                                    |
+| --------------- | ---------------------------------------------------------------------------------------- |
+| Identity / card | `flight-agent`, `/ .well-known/agent-card.json`, skill `flight.recommend.v1`             |
+| Default bind    | `127.0.0.1:4401` (`ODFT_FLIGHT_AGENT_HOST` / `ODFT_FLIGHT_AGENT_PORT`)                   |
+| Protocol        | modern A2A 1.0 JSON-RPC only, durable admission middleware, single-instance service lock |
+| Task storage    | `odft_protocol.agent_tasks_flight` (official SDK store)                                  |
 
 ### Database roles
 
@@ -72,9 +72,23 @@ curl http://127.0.0.1:4401/health
 
 Environment: `ODFT_FLIGHT_AGENT_REGISTRY_PATH` (inbound trusted identities),
 `ODFT_MCP_REGISTRY_PATH` (Phase 04 endpoints), `ODFT_AGENT_TOKEN_FLIGHT`,
+`ODFT_COORDINATOR_TOKEN` (the distinct coordinator bearer the agent accepts),
 `AI_MODE` (`fixture` by default; `openrouter` requires `AI_CONFIG_PATH` with a
 validated `recommendation` profile), `ODFT_FLIGHT_AGENT_CRASH=1` (test-only
 crash-before-work hook).
+
+### Inbound security
+
+- The bearer token is resolved against the trusted registry; the caller identity
+  comes from the token, never from the request body.
+- An agent accepts only its own identity and the registry's `coordinator`
+  identity. A peer agent's token is rejected, and the process scopes its
+  inbound registry to its own entry plus the coordinator (it never resolves
+  every peer's `credentialRef`).
+- Host and Origin headers are validated before admission; unexpected browser
+  origins and misdirected Host headers are rejected with 403/421.
+- Execution is bounded to two concurrent tasks with a bounded queue; saturation
+  fails the task with the retryable `AGENT_UNAVAILABLE` code.
 
 ### Lifecycle and recovery
 
@@ -106,13 +120,13 @@ plus the shared lock-order concurrency checks.
 
 ## Accommodation Agent (`apps/accommodation-agent`)
 
-| Item | Value |
-| --- | --- |
-| Identity / card | `accommodation-agent`, skill `accommodation.recommend.v1` |
-| Default bind | `127.0.0.1:4402` (`ODFT_ACCOMMODATION_AGENT_HOST` / `..._PORT`) |
-| Task storage | `odft_protocol.agent_tasks_accommodation` |
-| DB role | `odft_accommodation_agent` (restricted, same profile as the flight agent) |
-| MCP scope | `odft-travel-data` `search_hotels` + `get_scenario_metadata` (hotel domain only) |
+| Item            | Value                                                                            |
+| --------------- | -------------------------------------------------------------------------------- |
+| Identity / card | `accommodation-agent`, skill `accommodation.recommend.v1`                        |
+| Default bind    | `127.0.0.1:4402` (`ODFT_ACCOMMODATION_AGENT_HOST` / `..._PORT`)                  |
+| Task storage    | `odft_protocol.agent_tasks_accommodation`                                        |
+| DB role         | `odft_accommodation_agent` (restricted, same profile as the flight agent)        |
+| MCP scope       | `odft-travel-data` `search_hotels` + `get_scenario_metadata` (hotel domain only) |
 
 - Deterministic eligibility comes from the delegated query itself (effective
   level / dates / party / luggage / objective override applied by the read
@@ -140,19 +154,18 @@ plus the shared lock-order concurrency checks.
 
 ## Accommodation Agent B (`apps/accommodation-agent-alt`)
 
-| Item | Value |
-| --- | --- |
-| Identity / card | `accommodation-agent-alt`, skill `accommodation.recommend.v1` |
-| Default bind | `127.0.0.1:4404` (`ODFT_ACCOMMODATION_ALT_AGENT_HOST` / `..._PORT`) |
-| Task storage | `odft_protocol.agent_tasks_accommodation_alt` |
-| DB role | `odft_accommodation_agent` (same restricted profile) |
-| MCP scope | `odft-travel-data` `search_hotels` + `get_scenario_metadata` (hotel domain only) |
+| Item            | Value                                                                            |
+| --------------- | -------------------------------------------------------------------------------- |
+| Identity / card | `accommodation-agent-alt`, skill `accommodation.recommend.v1`                    |
+| Default bind    | `127.0.0.1:4404` (`ODFT_ACCOMMODATION_ALT_AGENT_HOST` / `..._PORT`)              |
+| Task storage    | `odft_protocol.agent_tasks_accommodation_alt`                                    |
+| DB role         | `odft_accommodation_agent` (same restricted profile)                             |
+| MCP scope       | `odft-travel-data` `search_hotels` + `get_scenario_metadata` (hotel domain only) |
 
 - Phase 10 replacement implementation. It shares the public request/artifact
   contracts, official SDK plumbing, deterministic read services and governed AI
   infrastructure, but imports **no code** from `apps/accommodation-agent`.
-- Its strategy is a value score (`0.6 × normalized price + 0.4 × normalized
-  centre distance`); answering the tradeoff question selects the cheapest-first
+- Its strategy is a value score (`0.6 × normalized price + 0.4 × normalized centre distance`); answering the tradeoff question selects the cheapest-first
   or distance-first order. It uses its own optional model profile
   (`ODFT_ACCOMMODATION_ALT_AI_CONFIG_PATH`) and the same task limits.
 - It asks the same genuine price-versus-location question with request id prefix
@@ -166,13 +179,13 @@ plus the shared lock-order concurrency checks.
 
 ## City Guide Agent (`apps/city-guide-agent`)
 
-| Item | Value |
-| --- | --- |
-| Identity / card | `city-guide-agent`, skill `city-guide.research.v1` |
-| Default bind | `127.0.0.1:4403` (`ODFT_CITY_GUIDE_AGENT_HOST` / `..._PORT`) |
-| Task storage | `odft_protocol.agent_tasks_city_guide` |
-| DB role | `odft_city_guide_agent` (restricted, same profile) |
-| MCP scope | `odft-travel-data` `search_restaurants`/`search_attractions`/`search_events` + `get_scenario_metadata` |
+| Item            | Value                                                                                                  |
+| --------------- | ------------------------------------------------------------------------------------------------------ |
+| Identity / card | `city-guide-agent`, skill `city-guide.research.v1`                                                     |
+| Default bind    | `127.0.0.1:4403` (`ODFT_CITY_GUIDE_AGENT_HOST` / `..._PORT`)                                           |
+| Task storage    | `odft_protocol.agent_tasks_city_guide`                                                                 |
+| DB role         | `odft_city_guide_agent` (restricted, same profile)                                                     |
+| MCP scope       | `odft-travel-data` `search_restaurants`/`search_attractions`/`search_events` + `get_scenario_metadata` |
 
 - Preserves the EXACT requested meal/activity/event domains (order preserved,
   duplicates removed); domains outside its skill become explicit `unsupported`

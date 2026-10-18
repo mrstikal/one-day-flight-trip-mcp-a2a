@@ -300,6 +300,58 @@ describe("phase 09 cancellation and history", () => {
     });
   });
 
+  it("revokes a delegation continued by the cancelled operation", async () => {
+    const { tripId, sessionId } = await createFixtureTrip(pool);
+    const created = await pool.query<{ id: string }>(
+      `SELECT id FROM odft_app.workflow_operations WHERE trip_id = $1 ORDER BY created_at ASC LIMIT 1`,
+      [tripId],
+    );
+    const originatingOperationId = created.rows[0]?.id as string;
+    // A later operation (the decision answer) becomes the newest active one.
+    const continuedOperationId = randomUUID();
+    await pool.query(
+      `INSERT INTO odft_app.workflow_operations
+         (id, trip_id, request_id, payload, payload_hash, status,
+          accepted_revision, fencing_token, attempts)
+       VALUES ($1, $2, $3, '{}'::jsonb, $4, 'waiting', 1, 1, 0)`,
+      [continuedOperationId, tripId, randomUUID(), "b".repeat(64)],
+    );
+    // The delegation was created by the earlier operation but CONTINUED by the
+    // later one (current_operation_id), exactly the agent_input answer path.
+    const delegationId = await fixtureDelegation(pool, {
+      tripId,
+      operationId: originatingOperationId,
+      taskId: "task-continued",
+      status: "working",
+    });
+    await pool.query(
+      `UPDATE odft_app.agent_delegations SET current_operation_id = $2 WHERE id = $1`,
+      [delegationId, continuedOperationId],
+    );
+
+    const result = await cancelOperation(pools.operations, {
+      tripId,
+      sessionId,
+      operationId: continuedOperationId,
+      controlRequestId: randomUUID(),
+      expectedRevision: 1,
+    });
+    expect("status" in result && result.status).toBe("cancelled");
+
+    const delegation = await pool.query<{
+      status: string;
+      cancellation_state: string | null;
+      current_operation_id: string | null;
+    }>(
+      `SELECT status, cancellation_state, current_operation_id
+         FROM odft_app.agent_delegations WHERE id = $1`,
+      [delegationId],
+    );
+    expect(delegation.rows[0]?.status).toBe("revoked");
+    expect(delegation.rows[0]?.cancellation_state).toBe("pending");
+    expect(delegation.rows[0]?.current_operation_id).toBe(continuedOperationId);
+  });
+
   it("bridges unlinked observations to protocol.observed events in source order", async () => {
     const { tripId } = await createFixtureTrip(pool);
     const first = await insertProtocolObservation(

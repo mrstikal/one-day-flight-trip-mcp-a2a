@@ -8,13 +8,13 @@ claimed or started.
 
 ## Runtime ownership
 
-| Concern | Owner |
-| --- | --- |
-| HTTP BFF, session/CSRF, projections, SSE | `apps/web` (Next.js) |
-| Durable operation execution | `apps/worker` (`coordinator-v1`) |
-| MCP reference/scenario/itinerary tools | `apps/mcp-server` |
-| Specialist research/planning | `apps/flight-agent`, `apps/accommodation-agent`, `apps/accommodation-agent-alt`, `apps/city-guide-agent` |
-| Domain truth, operations, decisions, events, protocol evidence | PostgreSQL |
+| Concern                                                        | Owner                                                                                                    |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| HTTP BFF, session/CSRF, projections, SSE                       | `apps/web` (Next.js)                                                                                     |
+| Durable operation execution                                    | `apps/worker` (`coordinator-v1`)                                                                         |
+| MCP reference/scenario/itinerary tools                         | `apps/mcp-server`                                                                                        |
+| Specialist research/planning                                   | `apps/flight-agent`, `apps/accommodation-agent`, `apps/accommodation-agent-alt`, `apps/city-guide-agent` |
+| Domain truth, operations, decisions, events, protocol evidence | PostgreSQL                                                                                               |
 
 `trips.engine` is `coordinator-v1` for every new trip and is immutable.
 `workflow_operations` and `pending_decisions` carry the same engine; the claim
@@ -24,19 +24,30 @@ heartbeat every 10 seconds.
 
 ## Process topology (development defaults)
 
-| Process | Default address | Notes |
-| --- | --- | --- |
-| Web | `http://127.0.0.1:3000` | Production E2E uses `next start` on port 3100 |
-| MCP host | `127.0.0.1:4321-4323` | `/geography/mcp`, `/travel-data/mcp`, `/itinerary-tools/mcp` |
-| Flight agent | `127.0.0.1:4401` | `flight.recommend.v1` |
-| Accommodation agent | `127.0.0.1:4402` | `accommodation.recommend.v1` |
-| City Guide agent | `127.0.0.1:4403` | `city-guide.research.v1`, `itinerary.propose.v1` |
-| Accommodation agent B | `127.0.0.1:4404` | Same skill, independent implementation |
-| Coordinator worker | no public port | Claims queued operations and writes the heartbeat |
+| Process               | Default address         | Notes                                                        |
+| --------------------- | ----------------------- | ------------------------------------------------------------ |
+| Web                   | `http://127.0.0.1:3000` | Production E2E uses `next start` on port 3100                |
+| MCP host              | `127.0.0.1:4321-4323`   | `/geography/mcp`, `/travel-data/mcp`, `/itinerary-tools/mcp` |
+| Flight agent          | `127.0.0.1:4401`        | `flight.recommend.v1`                                        |
+| Accommodation agent   | `127.0.0.1:4402`        | `accommodation.recommend.v1`                                 |
+| City Guide agent      | `127.0.0.1:4403`        | `city-guide.research.v1`, `itinerary.propose.v1`             |
+| Accommodation agent B | `127.0.0.1:4404`        | Same skill, independent implementation                       |
+| Coordinator worker    | no public port          | Claims queued operations and writes the heartbeat            |
 
 The trusted agent registry is the only discovery source. Each agent receives its
 own restricted database role and MCP token; the MCP host reads the inbound agent
-identity from the bearer token, never from a request body.
+identity from the bearer token, never from a request body. Coordinator→agent
+traffic uses the separate `coordinator` registry identity
+(`ODFT_COORDINATOR_TOKEN`); agents accept that identity in addition to their own
+and scope their inbound registry to their own entry plus the coordinator.
+
+> **Implementation deviation from ODTF_PLAN §3.1.** The plan describes one MCP
+> host at `127.0.0.1:4200` serving `/geography/mcp`, `/travel-data/mcp` and
+> `/itinerary-tools/mcp`. The implementation runs three independently bound MCP
+> servers on `4321-4323` (same paths, one identity and credential per process),
+> and the agent defaults are `4401-4404` rather than `4101-4104`. This keeps each
+> MCP identity and agent process independently restartable; the protocol,
+> registry, credential and authorization contracts are unchanged.
 
 ## Cursor and transitions
 
@@ -44,8 +55,7 @@ identity from the bearer token, never from a request body.
   `(step, wait_reason, runData)`; `state_version` increments on every write.
 - `packages/workflow/src/coordinator/state.ts` defines the transition algebra:
   `continue`, `wait`, `complete`, `fail`, `abandon`.
-- Steps: `initializing → interpreting → validating_route → requesting_flights →
-  researching → planning → awaiting_user`; terminal run states are `completed`
+- Steps: `initializing → interpreting → validating_route → requesting_flights → researching → planning → awaiting_user`; terminal run states are `completed`
   and `failed`. A decision resume re-enters at `interpreting` with the same cursor
   row and a new operation id.
 - `dispatch.ts` owns the step handlers and a bounded transition budget per claim

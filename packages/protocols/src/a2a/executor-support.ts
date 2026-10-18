@@ -7,8 +7,8 @@ import { getTaskControl } from "@odft/persistence";
 import type { DurableMessageAdmission } from "./message-admission.js";
 import {
   assertAllowance,
-  countMcpInvocation,
   loadTaskAllowance,
+  reserveMcpInvocation,
   TaskLimitError,
   type TaskAllowanceState,
 } from "./task-control.js";
@@ -30,7 +30,12 @@ export function agentMessage(taskId: string, contextId: string, text: string): M
     taskId,
     role: Role.ROLE_AGENT,
     parts: [
-      { content: { $case: "text", value: text }, mediaType: "text/plain", filename: "", metadata: {} },
+      {
+        content: { $case: "text", value: text },
+        mediaType: "text/plain",
+        filename: "",
+        metadata: {},
+      },
     ],
     metadata: undefined,
     extensions: [],
@@ -58,9 +63,7 @@ export function dataPartOf(message: Message): unknown {
  */
 export function safeFailureCode(error: unknown): string {
   const code = (error as { code?: unknown } | undefined)?.code;
-  return typeof code === "string" && /^[A-Z][A-Z0-9_]{2,40}$/.test(code)
-    ? code
-    : "INTERNAL_ERROR";
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{2,40}$/.test(code) ? code : "INTERNAL_ERROR";
 }
 
 /** Terminal text is safe, bounded and free of credential-bearing URLs. */
@@ -121,9 +124,11 @@ export async function createTaskClock(input: {
 }
 
 /**
- * One counted MCP call: refresh the allowance and assert BEFORE the call (the
- * cap can never be exceeded, even by concurrent callers on a stale snapshot),
- * perform it, count it (retries included), then refresh again.
+ * One counted MCP call: refresh the allowance for the active-time deadline,
+ * reserve the invocation with an atomic conditional UPDATE BEFORE the call,
+ * then perform it. A concurrent caller that lost the last slot is rejected
+ * instead of exceeding the cap. The reservation is not refunded when the call
+ * fails: plan §3.9 counts invocations including retries.
  */
 export async function countedToolCall(input: {
   mcp: McpClient;
@@ -135,15 +140,20 @@ export async function countedToolCall(input: {
   name: string;
   arguments: Record<string, unknown>;
 }): Promise<CallToolResult> {
-  // Refresh immediately before the assert: concurrent callers must never pass
-  // on a stale allowance snapshot, so the cap cannot be exceeded by one.
   await input.clock.refresh();
   input.clock.assertNow({ mcpInvocation: true });
+  const reserved = await reserveMcpInvocation(input.pool, {
+    agentIdentity: input.agentIdentity,
+    taskId: input.taskId,
+    maxInvocations: input.clock.allowance().limits.mcpInvocations,
+  });
+  if (!reserved) {
+    throw new TaskLimitError("the task MCP invocation allowance is exhausted");
+  }
   const result = await input.mcp.callTool(input.service, {
     name: input.name,
     arguments: input.arguments,
   });
-  await countMcpInvocation(input.pool, { agentIdentity: input.agentIdentity, taskId: input.taskId });
   await input.clock.refresh();
   return result;
 }

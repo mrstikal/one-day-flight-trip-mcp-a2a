@@ -32,10 +32,24 @@ export const trustedAgentEntrySchema = z
   .strict();
 export type TrustedAgentEntry = z.infer<typeof trustedAgentEntrySchema>;
 
+/**
+ * The coordinator is a first-class service identity, not an agent: it has its
+ * own bearer credential and is accepted by every agent in addition to the
+ * agent's own identity (plan §3.15).
+ */
+export const trustedCoordinatorEntrySchema = z
+  .object({
+    agentIdentity: z.string().min(1).max(120),
+    credentialRef: z.string().min(1).max(120),
+  })
+  .strict();
+export type TrustedCoordinatorEntry = z.infer<typeof trustedCoordinatorEntrySchema>;
+
 export const trustedRegistrySchema = z
   .object({
     schemaVersion: z.literal(1),
     agents: z.array(trustedAgentEntrySchema).min(1),
+    coordinator: trustedCoordinatorEntrySchema.optional(),
   })
   .strict();
 export type TrustedRegistry = z.infer<typeof trustedRegistrySchema>;
@@ -118,6 +132,28 @@ export function trustedEntryFor(
   agentIdentity: string,
 ): TrustedAgentEntry | undefined {
   return registry.agents.find((agent) => agent.agentIdentity === agentIdentity);
+}
+
+/**
+ * Inbound registries are least-privilege: an agent process only needs its own
+ * entry (for self-identification) plus the optional coordinator identity. It
+ * must never resolve every peer's credential reference.
+ */
+export function scopeInboundRegistry(
+  registry: TrustedRegistry,
+  selfAgentIdentity: string,
+  selfTokenRef: string,
+): TrustedRegistry {
+  const self = trustedEntryFor(registry, selfAgentIdentity);
+  if (!self) {
+    throw new Error(`the trusted registry has no entry for ${selfAgentIdentity}`);
+  }
+  if (self.credentialRef !== selfTokenRef) {
+    throw new Error(
+      `the trusted registry entry for ${selfAgentIdentity} must use credentialRef ${selfTokenRef}`,
+    );
+  }
+  return { ...registry, agents: [self] };
 }
 
 /** Exact-origin check: card and endpoint URLs must share the trusted origin. */

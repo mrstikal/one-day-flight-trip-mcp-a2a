@@ -8,6 +8,7 @@ import {
   cityGuideRecommendationsSchema,
   itineraryProposalSchema,
   itineraryTaskContextSchema,
+  researchDomainSchema,
   type AgentTaskRequest,
   type CityGuideDomainOutcome,
   type CityGuideRecommendations,
@@ -109,7 +110,10 @@ async function mapBounded<T, R>(
   return results;
 }
 
-function fingerprintFromQueryContext(queryContext: Record<string, unknown>, domain: string): string | null {
+function fingerprintFromQueryContext(
+  queryContext: Record<string, unknown>,
+  domain: string,
+): string | null {
   const map = queryContext.domainInputFingerprints;
   if (map !== null && typeof map === "object") {
     const value = (map as Record<string, unknown>)[domain];
@@ -133,7 +137,10 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
         ? { name: "search_attractions", arguments: { delegationId, snapshotId, pageSize: 20 } }
         : domain === "events"
           ? { name: "search_events", arguments: { delegationId, snapshotId, pageSize: 20 } }
-          : { name: "search_restaurants", arguments: { delegationId, snapshotId, meal: domain, pageSize: 20 } };
+          : {
+              name: "search_restaurants",
+              arguments: { delegationId, snapshotId, meal: domain, pageSize: 20 },
+            };
     let page: {
       domainHash?: string;
       error?: string;
@@ -311,7 +318,10 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
     // is available for the deterministic preflight.
     const assertPageOk = (page: { providerStatus?: string }): void => {
       if (page.providerStatus !== "ok") {
-        throw new McpClientError("MCP_UNAVAILABLE", "a candidate domain is unavailable on the snapshot");
+        throw new McpClientError(
+          "MCP_UNAVAILABLE",
+          "a candidate domain is unavailable on the snapshot",
+        );
       }
     };
     assertPageOk(
@@ -324,7 +334,11 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
           clock,
           service: "odft-travel-data",
           name: "search_attractions",
-          arguments: { delegationId: authority.delegationId, snapshotId: authority.snapshotId, pageSize: 50 },
+          arguments: {
+            delegationId: authority.delegationId,
+            snapshotId: authority.snapshotId,
+            pageSize: 50,
+          },
         }),
       ),
     );
@@ -434,13 +448,11 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
         mealRefs[candidate.meal] = stop.refId;
       }
     }
-    const findings = [...preflight.errors, ...preflight.warnings]
-      .slice(0, 16)
-      .map((finding) => ({
-        code: finding.code,
-        explanation: finding.message.slice(0, 400),
-        offerIds: [],
-      }));
+    const findings = [...preflight.errors, ...preflight.warnings].slice(0, 16).map((finding) => ({
+      code: finding.code,
+      explanation: finding.message.slice(0, 400),
+      offerIds: [],
+    }));
     const artifact: ItineraryProposal = itineraryProposalSchema.parse({
       correlation: {
         schemaVersion: 1,
@@ -494,11 +506,15 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
       taskId: task.id,
       state: "completed",
     });
-    session.publishStatus(TaskState.TASK_STATE_COMPLETED, "city guide itinerary proposal completed", {
-      stops: artifact.stops.length,
-      preflight: preflight.status,
-      mode: planned.mode,
-    });
+    session.publishStatus(
+      TaskState.TASK_STATE_COMPLETED,
+      "city guide itinerary proposal completed",
+      {
+        stops: artifact.stops.length,
+        preflight: preflight.status,
+        mode: planned.mode,
+      },
+    );
     input.eventBus.finished();
   };
 
@@ -523,7 +539,11 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
         kind: "task",
         data: {
           ...task,
-          status: { state: TaskState.TASK_STATE_WORKING, message: undefined, timestamp: new Date().toISOString() },
+          status: {
+            state: TaskState.TASK_STATE_WORKING,
+            message: undefined,
+            timestamp: new Date().toISOString(),
+          },
         },
       });
 
@@ -535,7 +555,10 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
         }
         const request = agentTaskRequestSchema.safeParse(dataPartOf(message));
         if (!request.success) {
-          await session.publishFailure("INVALID_ARTIFACT", "the task request is not a valid city guide request");
+          await session.publishFailure(
+            "INVALID_ARTIFACT",
+            "the task request is not a valid city guide request",
+          );
           return;
         }
         const data = request.data;
@@ -544,15 +567,29 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
           return;
         }
         if (data.skillId !== CITY_GUIDE_SKILL_ID) {
-          await session.publishFailure("INVALID_ARTIFACT", "the task request is not a valid city guide request");
+          await session.publishFailure(
+            "INVALID_ARTIFACT",
+            "the task request is not a valid city guide request",
+          );
           return;
         }
         // Preserve the EXACT requested domains (order + duplicates removed):
-        // domains outside this skill become explicit `unsupported` outcomes,
-        // they are never dropped from the artifact.
+        // research domains outside this skill become explicit `unsupported`
+        // outcomes, they are never dropped from the artifact. A flight scope is
+        // not a city-guide domain at all, so it is a malformed request.
         const requestedDomains = [...new Set(data.requestedDomains)];
+        if (requestedDomains.includes("flights")) {
+          await session.publishFailure(
+            "INVALID_ARTIFACT",
+            "the city guide task cannot serve a flight domain",
+          );
+          return;
+        }
+        const researchRequestedDomains = requestedDomains.filter(
+          (domain): domain is ResearchDomain => researchDomainSchema.safeParse(domain).success,
+        );
         const serviceableDomains = CITY_GUIDE_DOMAINS.filter((domain) =>
-          requestedDomains.includes(domain),
+          researchRequestedDomains.includes(domain),
         );
         if (serviceableDomains.length === 0) {
           await session.publishFailure(
@@ -616,7 +653,7 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
 
         // Bounded parallel domain queries: a completed domain is kept even when
         // a sibling fails (no all-domains-success barrier).
-        const results = await mapBounded(requestedDomains, QUERY_CONCURRENCY, (domain) =>
+        const results = await mapBounded(researchRequestedDomains, QUERY_CONCURRENCY, (domain) =>
           CITY_GUIDE_DOMAINS.includes(domain)
             ? queryDomain(domain, authority.delegationId, authority.snapshotId, clock, task.id)
             : Promise.resolve({
@@ -673,7 +710,8 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
             .filter((result) => result.outcome.status !== "ok")
             .map((result) => ({
               code: `CITY_GUIDE_${result.outcome.status.toUpperCase()}`,
-              explanation: result.outcome.reason ?? `the ${result.outcome.domain} domain is unavailable`,
+              explanation:
+                result.outcome.reason ?? `the ${result.outcome.domain} domain is unavailable`,
               offerIds: [],
             })),
         });
@@ -701,11 +739,10 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
           taskId: task.id,
           state: "completed",
         });
-        session.publishStatus(
-          TaskState.TASK_STATE_COMPLETED,
-          "city guide research completed",
-          { domains: requestedDomains.length, available: okCount },
-        );
+        session.publishStatus(TaskState.TASK_STATE_COMPLETED, "city guide research completed", {
+          domains: requestedDomains.length,
+          available: okCount,
+        });
         eventBus.finished();
       } catch (error) {
         await session.publishFailure(
@@ -726,7 +763,10 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
         agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
         taskId,
       });
-      await requestTaskCancellation(runtime.pool, { agentIdentity: CITY_GUIDE_AGENT_IDENTITY, taskId });
+      await requestTaskCancellation(runtime.pool, {
+        agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
+        taskId,
+      });
       await setTaskState(runtime.pool, {
         agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
         taskId,
@@ -737,7 +777,11 @@ export function createCityGuideExecutor(runtime: CityGuideAgentRuntime): AgentEx
         data: {
           taskId,
           contextId: control?.contextId ?? taskId,
-          status: { state: TaskState.TASK_STATE_CANCELED, message: undefined, timestamp: new Date().toISOString() },
+          status: {
+            state: TaskState.TASK_STATE_CANCELED,
+            message: undefined,
+            timestamp: new Date().toISOString(),
+          },
           metadata: undefined,
         },
       });

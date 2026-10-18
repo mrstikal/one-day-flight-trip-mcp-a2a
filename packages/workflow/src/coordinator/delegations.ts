@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
   accommodationRecommendationsSchema,
+  agentTaskRequestLimits,
   agentTaskRequestSchema,
   cityGuideRecommendationsSchema,
   delegationScopeSchema,
@@ -18,6 +19,7 @@ import {
   insertAgentDelegation,
   insertOutboundMessage,
   markOutboundDelivery,
+  setDelegationCurrentOperation,
   type AgentDelegationRecord,
 } from "@odft/persistence";
 
@@ -60,6 +62,15 @@ export interface CoordinatorDelegationTransport {
   /** Read the saved task (recovery/reconciliation path). */
   getTask(input: { agentIdentity: string; taskId: string }): Promise<DelegationTaskSnapshot>;
   /**
+   * Validate the advertised card/skill binding before persisting a delegation
+   * and return the card version recorded on it (plan §3.3). Optional so test
+   * doubles that never speak A2A stay compatible.
+   */
+  describeAgent?(input: {
+    agentIdentity: string;
+    skillId: string;
+  }): Promise<{ cardVersion: string }>;
+  /**
    * Phase 09 best-effort remote cancellation of one specialist task (cancel
    * outbox reconciler). The task may have completed already; a transport error
    * persists as `failed` inspector evidence, never a reconciler crash.
@@ -74,6 +85,8 @@ export interface CreateOutboundDelegationInput {
   readonly skillId: string;
   readonly agentIdentity: string;
   readonly endpointUrl: string;
+  /** Advertised agent-card version validated before the delegation is persisted. */
+  readonly cardVersion?: string;
   readonly snapshotId: string;
   readonly inputFingerprint: string;
   readonly domains: readonly (ResearchDomain | "flights")[];
@@ -95,6 +108,33 @@ export interface OutboundDelegation {
 }
 
 /**
+ * Bind a delegation to the card the agent actually advertises (skill + card
+ * version). A registry/card mismatch surfaces at dispatch, not as a late
+ * artifact rejection.
+ */
+export async function resolveCardVersion(
+  transport: CoordinatorDelegationTransport,
+  agentIdentity: string,
+  skillId: string,
+): Promise<string | undefined> {
+  if (!transport.describeAgent) {
+    return undefined;
+  }
+  try {
+    const binding = await transport.describeAgent({ agentIdentity, skillId });
+    return binding.cardVersion;
+  } catch (error) {
+    const failure = new Error(
+      `agent card validation failed for ${agentIdentity}/${skillId}: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
+    ) as Error & { code?: string };
+    failure.code = "AGENT_UNAVAILABLE";
+    throw failure;
+  }
+}
+
+/**
  * Persist the delegation + outbound delivery intent in the caller's transaction
  * (short, fenced). NO network call happens here.
  */
@@ -109,6 +149,7 @@ export async function createOutboundDelegation(
     skillId: input.skillId,
     agentIdentity: input.agentIdentity,
     endpointUrl: input.endpointUrl,
+    ...(input.cardVersion !== undefined ? { cardVersion: input.cardVersion } : {}),
     snapshotId: input.snapshotId,
     inputFingerprint: input.inputFingerprint,
     scope: {
@@ -242,6 +283,14 @@ export function acceptArtifact(input: {
   delegation: AgentDelegationRecord;
   operationId: string;
   acceptedRevision: number;
+  /**
+   * Snapshot manifest hashes for the delegation's scopes. When supplied, every
+   * hash PRESENT in `correlation.domainFingerprints` must equal the manifest
+   * hash, and every successful outcome must carry one (plan §3.5
+   * "snapshot/domain hash equality"). A domain that produced no page may be
+   * omitted; its outcome is handled as a partial failure.
+   */
+  expectedDomainFingerprints?: Readonly<Record<string, string | undefined>>;
 }): IngestedArtifact | undefined {
   const value = input.artifact as {
     correlation?: {
@@ -252,6 +301,7 @@ export function acceptArtifact(input: {
       snapshotId?: unknown;
       skillId?: unknown;
       inputFingerprint?: unknown;
+      domainFingerprints?: unknown;
     };
   } | null;
   const correlation = value?.correlation;
@@ -268,6 +318,25 @@ export function acceptArtifact(input: {
     correlation.inputFingerprint !== input.delegation.inputFingerprint
   ) {
     return undefined;
+  }
+
+  const observedDomainFingerprints =
+    correlation.domainFingerprints &&
+    typeof correlation.domainFingerprints === "object" &&
+    !Array.isArray(correlation.domainFingerprints)
+      ? (correlation.domainFingerprints as Record<string, unknown>)
+      : undefined;
+  if (input.expectedDomainFingerprints) {
+    for (const [domain, expected] of Object.entries(input.expectedDomainFingerprints)) {
+      const observedHash = observedDomainFingerprints?.[domain];
+      // A domain that produced no page is omitted from the correlation (its
+      // outcome is a partial failure); only a PRESENT hash must match. Absence
+      // must not reject the successful sibling domains of the same artifact.
+      // The success-presence rule below closes the omission loophole.
+      if (observedHash !== undefined && observedHash !== expected) {
+        return undefined;
+      }
+    }
   }
 
   // Validate the payload against the skill's contract, not only its envelope.
@@ -311,6 +380,30 @@ export function acceptArtifact(input: {
     return undefined;
   }
 
+  if (input.expectedDomainFingerprints && input.delegation.skillId !== "itinerary.propose.v1") {
+    // Evidence is mandatory for SUCCESS: every `ok` outcome (or the single
+    // flight/hotel domain) must carry the exact snapshot manifest hash. Failed
+    // domains may omit it because no page was produced.
+    if ("outcomes" in parsed.data) {
+      for (const outcome of parsed.data.outcomes) {
+        if (outcome.status !== "ok") {
+          continue;
+        }
+        const expected = input.expectedDomainFingerprints[outcome.domain];
+        if (expected !== undefined && observedDomainFingerprints?.[outcome.domain] !== expected) {
+          return undefined;
+        }
+      }
+    } else {
+      for (const domain of scope.data.domains) {
+        const expected = input.expectedDomainFingerprints[domain];
+        if (expected !== undefined && observedDomainFingerprints?.[domain] !== expected) {
+          return undefined;
+        }
+      }
+    }
+  }
+
   return { payloadHash: contentHash(value), value };
 }
 
@@ -348,10 +441,9 @@ export function buildFlightTaskRequest(input: {
       domainFingerprints: {},
     },
     inputFingerprint: input.inputFingerprint,
-    // The frozen request schema has no `flights` option (it predates the
-    // specialist services); the flight agent derives its domain from the
-    // delegation scope, so this stays a schema-valid placeholder.
-    requestedDomains: ["hotel"],
+    // `requestedDomains` carries delegation scopes (flights included), so the
+    // flight binding states its real scope instead of a placeholder.
+    requestedDomains: ["flights"],
     travelVariant: input.travelVariant,
     adults: input.adults,
     sightseeingDate: input.sightseeingDate,
@@ -362,12 +454,7 @@ export function buildFlightTaskRequest(input: {
     searchObjective: "preserve_level",
     queryContext: {},
     deadlineAt: new Date(Date.now() + 300_000).toISOString(),
-    limits: {
-      activeTimeMs: 60_000,
-      mcpInvocations: 4,
-      llmTransportAttempts: 2,
-      maxTaskCostUsd: 0.1,
-    },
+    limits: agentTaskRequestLimits("flight.recommend.v1"),
     preferences: input.preferences,
     continuation: null,
   });
@@ -393,7 +480,13 @@ async function latestOutboundMessageId(
 /** Insert a persisted continuation intent (answer to a specialist question). */
 export async function insertContinuationOutbound(
   pool: Pool,
-  input: { delegationId: string; payload: unknown; continuationGeneration: number },
+  input: {
+    delegationId: string;
+    payload: unknown;
+    continuationGeneration: number;
+    /** The operation that now counts on the continued delegation. */
+    operationId: string;
+  },
 ): Promise<{ messageId: string }> {
   const payloadHash = contentHash(input.payload);
   // Replay-safe identity: the same answer for the same generation always maps
@@ -404,17 +497,47 @@ export async function insertContinuationOutbound(
   const messageId = deterministicUuid(
     `continuation:${input.delegationId}:${input.continuationGeneration}:${payloadHash}`,
   );
-  const written = await insertOutboundMessage(pool, {
-    delegationId: input.delegationId,
-    messageId,
-    payloadHash,
-    payload: input.payload,
-    continuationGeneration: input.continuationGeneration,
-  });
-  if (written.conflict) {
-    throw new Error("continuation outbound conflict");
+  // The continuation moves the delegation's authority to the answering
+  // operation in the SAME transaction as the durable outbound intent: a cancel
+  // of that operation must revoke the delegation it now depends on.
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const state = await client.query<{ status: string }>(
+      `SELECT status FROM odft_app.agent_delegations WHERE id = $1 FOR UPDATE`,
+      [input.delegationId],
+    );
+    const status = state.rows[0]?.status;
+    if (
+      status === undefined ||
+      !["pending", "dispatched", "working", "input_required"].includes(status)
+    ) {
+      await client.query("ROLLBACK");
+      throw new Error("continuation target is not an active delegation");
+    }
+    await setDelegationCurrentOperation(client, {
+      delegationId: input.delegationId,
+      operationId: input.operationId,
+    });
+    const written = await insertOutboundMessage(client, {
+      delegationId: input.delegationId,
+      messageId,
+      payloadHash,
+      payload: input.payload,
+      continuationGeneration: input.continuationGeneration,
+    });
+    if (written.conflict) {
+      await client.query("ROLLBACK");
+      throw new Error("continuation outbound conflict");
+    }
+    await client.query("COMMIT");
+    return { messageId };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
   }
-  return { messageId };
 }
 
 /** Stable UUID-shaped identity derived from a seed (replay-safe message ids). */

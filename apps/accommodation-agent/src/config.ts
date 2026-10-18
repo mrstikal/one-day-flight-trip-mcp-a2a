@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { DEFAULT_PROTOCOL_TIMEOUTS, trustedRegistrySchema, type ProtocolConfig, type TrustedRegistry } from "@odft/protocols";
+import {
+  DEFAULT_PROTOCOL_TIMEOUTS,
+  scopeInboundRegistry,
+  trustedRegistrySchema,
+  type ProtocolConfig,
+  type TrustedRegistry,
+} from "@odft/protocols";
 
 /**
  * Phase 06 Accommodation Agent configuration (plan §3.3/§3.15): the inbound trusted
@@ -32,6 +38,8 @@ export interface AccommodationAgentConfig {
   /** Restricted `odft_accommodation_agent` role connection (never the owner role). */
   readonly databaseUrl: string;
   readonly registryPath: string;
+  /** Environment variable holding this agent's own inbound bearer. */
+  readonly selfTokenRef: string;
   readonly mcpRegistryPath: string | null;
   readonly aiMode: "fixture" | "openrouter";
   readonly aiConfigPath: string | null;
@@ -53,7 +61,9 @@ function envNumber(env: Record<string, string | undefined>, key: string, fallbac
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function loadAccommodationAgentConfig(env: Record<string, string | undefined> = process.env): AccommodationAgentConfig {
+export function loadAccommodationAgentConfig(
+  env: Record<string, string | undefined> = process.env,
+): AccommodationAgentConfig {
   const parsed = envSchema.parse({
     port: envNumber(env, "ODFT_ACCOMMODATION_AGENT_PORT", 4402),
     host: env["ODFT_ACCOMMODATION_AGENT_HOST"] ?? "127.0.0.1",
@@ -69,8 +79,10 @@ export function loadAccommodationAgentConfig(env: Record<string, string | undefi
   if (!parsed.databaseUrl) {
     throw new Error("DATABASE_URL is required for the accommodation-agent");
   }
-  const inbound = trustedRegistrySchema.parse(
-    JSON.parse(readFileSync(parsed.registryPath, "utf8")),
+  const inbound = scopeInboundRegistry(
+    trustedRegistrySchema.parse(JSON.parse(readFileSync(parsed.registryPath, "utf8"))),
+    ACCOMMODATION_AGENT_IDENTITY,
+    parsed.selfTokenRef,
   );
   const mcpRegistry = parsed.mcpRegistryPath
     ? JSON.parse(readFileSync(parsed.mcpRegistryPath, "utf8"))
@@ -80,6 +92,7 @@ export function loadAccommodationAgentConfig(env: Record<string, string | undefi
     port: parsed.port,
     databaseUrl: parsed.databaseUrl,
     registryPath: parsed.registryPath,
+    selfTokenRef: parsed.selfTokenRef,
     mcpRegistryPath: parsed.mcpRegistryPath,
     aiMode: parsed.aiMode,
     aiConfigPath: parsed.aiConfigPath,

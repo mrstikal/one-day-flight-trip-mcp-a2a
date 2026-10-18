@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Role, TaskState, type Message, type Task } from "@a2a-js/sdk";
-import { Client as McpSdkClient, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import {
+  Client as McpSdkClient,
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
 import {
   A2AClient,
   DEFAULT_PROTOCOL_TIMEOUTS,
@@ -196,7 +199,9 @@ describe("A2A interoperability", () => {
     const { card } = await client.discoverCard("flight-agent");
     expect(card.skills.map((skill) => skill.id)).toContain("flight.recommend.v1");
     const interfaces = card.supportedInterfaces ?? [];
-    expect(interfaces.every((entry) => entry.url.startsWith(`http://127.0.0.1:${A2A_PORT}`))).toBe(true);
+    expect(interfaces.every((entry) => entry.url.startsWith(`http://127.0.0.1:${A2A_PORT}`))).toBe(
+      true,
+    );
   });
 
   it("completes a task with a validated versioned artifact", async () => {
@@ -275,11 +280,11 @@ describe("A2A interoperability", () => {
     expect(continuation.status?.state).toBe(TaskState.TASK_STATE_COMPLETED);
     // The continuation preserved the first turn: the original message and the
     // question artifact are still there (nothing was wiped).
-    expect(continuation.history.map((entry) => entry.messageId)).toContain(
-      firstMessage.messageId,
-    );
+    expect(continuation.history.map((entry) => entry.messageId)).toContain(firstMessage.messageId);
     expect(
-      continuation.artifacts.some((artifact) => artifact.artifactId === questionArtifact?.artifactId),
+      continuation.artifacts.some(
+        (artifact) => artifact.artifactId === questionArtifact?.artifactId,
+      ),
     ).toBe(true);
   });
 
@@ -334,10 +339,7 @@ describe("A2A interoperability", () => {
 
   it("cancels a task that is waiting for input", async () => {
     const client = new A2AClient({ config: a2aConfig() });
-    const task = await sendAndAwaitTask(
-      client,
-      dataMessage(randomUUID(), { requestInput: true }),
-    );
+    const task = await sendAndAwaitTask(client, dataMessage(randomUUID(), { requestInput: true }));
     expect(task.status?.state).toBe(TaskState.TASK_STATE_INPUT_REQUIRED);
     const cancelled = await client.cancelTask("flight-agent", {
       id: task.id,
@@ -390,6 +392,25 @@ describe("A2A interoperability", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects a foreign browser Origin before admission", async () => {
+    const response = await fetch(`http://127.0.0.1:${A2A_PORT}/`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${A2A_TOKEN}`,
+        "a2a-version": "1.0",
+        origin: "http://evil.example",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "SendMessage",
+        params: { message: dataMessage(randomUUID(), { payload: {} }), tenant: "" },
+      }),
+    });
+    expect(response.status).toBe(403);
+  });
+
   it("rejects unauthenticated task reads and cancellation", async () => {
     for (const [method, params] of [
       ["GetTask", { id: randomUUID(), tenant: "" }],
@@ -407,7 +428,10 @@ describe("A2A interoperability", () => {
 
   it("retrieves the persisted task after a server restart", async () => {
     const client = new A2AClient({ config: a2aConfig() });
-    const task = await sendAndAwaitTask(client, dataMessage(randomUUID(), { payload: { persist: true } }));
+    const task = await sendAndAwaitTask(
+      client,
+      dataMessage(randomUUID(), { payload: { persist: true } }),
+    );
     const running = fixtures.find((child) => child.exitCode === null && child.pid !== undefined);
     // Restart the A2A fixture (the MCP fixture keeps running).
     const a2aFixture = fixtures[0];
@@ -497,7 +521,8 @@ describe("MCP interoperability", () => {
     });
     expect(result.structuredContent).toEqual({ echoed: "hello", server: "mcp-echo" });
     const resource = await client.readResource("mcp-echo", { uri: "odft://echo/info" });
-    const text = resource.contents[0] && "text" in resource.contents[0] ? resource.contents[0].text : "";
+    const text =
+      resource.contents[0] && "text" in resource.contents[0] ? resource.contents[0].text : "";
     expect(text).toContain("mcp-echo");
   });
 

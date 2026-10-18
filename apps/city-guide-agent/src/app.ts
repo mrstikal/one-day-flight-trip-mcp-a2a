@@ -5,6 +5,7 @@ import {
   AGENT_TASK_TABLES,
   DurableMessageAdmission,
   ProtocolTelemetryWriter,
+  a2aHostValidationMiddleware,
   createAdmissionMiddleware,
   createTaskStore,
   mountA2AServer,
@@ -12,7 +13,7 @@ import {
 import { buildCityGuideAgentCard } from "./card.js";
 import { createCityGuideExecutor } from "./executor.js";
 import { CITY_GUIDE_AGENT_IDENTITY, type CityGuideAgentConfig } from "./config.js";
-import type { ServerConfig } from "@odft/persistence";
+import { setTaskState, type ServerConfig } from "@odft/persistence";
 import type { DelegatedItineraryDeps } from "@odft/services";
 
 /**
@@ -33,6 +34,13 @@ export function createCityGuideAgentApp(input: {
   app.get("/health", (_request, response) => {
     response.json({ status: "ok", endpoint: CITY_GUIDE_AGENT_IDENTITY, version: "1.0.0" });
   });
+  // Host/Origin validation runs BEFORE admission: a misdirected or
+  // browser-origin request never claims a message.
+  app.use(
+    a2aHostValidationMiddleware({
+      allowedHostnames: [input.config.host, "127.0.0.1", "localhost", "[::1]"],
+    }),
+  );
   app.use(express.json({ limit: "1mb" }));
   app.use(
     createAdmissionMiddleware({
@@ -41,22 +49,34 @@ export function createCityGuideAgentApp(input: {
       telemetry: input.telemetry,
     }),
   );
-  mountA2AServer(app, {
-    config: input.config.protocol,
-    agentCard: buildCityGuideAgentCard(input.config),
-    taskStore: createTaskStore(input.db, {
-      tableName: AGENT_TASK_TABLES.cityGuide,
-      owner: CITY_GUIDE_AGENT_IDENTITY,
-    }),
-    executor: createCityGuideExecutor({
-      config: input.config,
-      serverConfig: input.serverConfig,
-      admission: input.admission,
-      pool: input.pool,
-      mcp: input.mcp,
-      protocol: input.config.protocol,
-      itineraryDeps: input.itineraryDeps,
-    }),
-  });
+  mountA2AServer(
+    app,
+    {
+      config: input.config.protocol,
+      agentCard: buildCityGuideAgentCard(input.config),
+      taskStore: createTaskStore(input.db, {
+        tableName: AGENT_TASK_TABLES.cityGuide,
+        owner: CITY_GUIDE_AGENT_IDENTITY,
+      }),
+      executor: createCityGuideExecutor({
+        config: input.config,
+        serverConfig: input.serverConfig,
+        admission: input.admission,
+        pool: input.pool,
+        mcp: input.mcp,
+        protocol: input.config.protocol,
+        itineraryDeps: input.itineraryDeps,
+      }),
+    },
+    {
+      onSaturation: async (taskId) => {
+        await setTaskState(input.pool, {
+          agentIdentity: CITY_GUIDE_AGENT_IDENTITY,
+          taskId,
+          state: "failed",
+        });
+      },
+    },
+  );
   return app;
 }

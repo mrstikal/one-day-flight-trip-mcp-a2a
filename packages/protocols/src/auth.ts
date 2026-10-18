@@ -55,16 +55,63 @@ export function authenticateServiceRequest(
   if (!token) {
     throw new ProtocolAuthError();
   }
-  for (const agent of config.registry.agents) {
-    const expected = config.resolveCredential(agent.credentialRef);
+  const candidates = [
+    ...config.registry.agents.map((agent) => ({
+      agentIdentity: agent.agentIdentity,
+      credentialRef: agent.credentialRef,
+    })),
+    ...(config.registry.coordinator
+      ? [
+          {
+            agentIdentity: config.registry.coordinator.agentIdentity,
+            credentialRef: config.registry.coordinator.credentialRef,
+          },
+        ]
+      : []),
+  ];
+  for (const candidate of candidates) {
+    const expected = config.resolveCredential(candidate.credentialRef);
     if (!expected) {
       continue;
     }
     if (safeEqual(token, expected)) {
-      return { agentIdentity: agent.agentIdentity };
+      return { agentIdentity: candidate.agentIdentity };
     }
   }
   throw new ProtocolAuthError();
+}
+
+/**
+ * The serving agent accepts its own identity and the configured coordinator
+ * identity. A peer agent's token is never sufficient (least privilege).
+ */
+export function isAuthorizedCaller(
+  config: ProtocolConfig,
+  identity: ServiceIdentity,
+  selfAgentIdentity: string,
+): boolean {
+  return (
+    identity.agentIdentity === selfAgentIdentity ||
+    identity.agentIdentity === config.registry.coordinator?.agentIdentity
+  );
+}
+
+/**
+ * MCP transport authentication: agents only. The coordinator identity is
+ * accepted on the A2A surface but must never gain MCP tool/resource access.
+ */
+export function authenticateAgentServiceRequest(
+  config: ProtocolConfig,
+  header: string | undefined,
+): ServiceIdentity {
+  const identity = authenticateServiceRequest(config, header);
+  if (
+    config.registry.coordinator &&
+    identity.agentIdentity === config.registry.coordinator.agentIdentity
+  ) {
+    throw new ProtocolAuthError();
+  }
+  return identity;
 }
 
 /**
@@ -73,13 +120,13 @@ export function authenticateServiceRequest(
  */
 export function mcpBearerVerifier(
   config: ProtocolConfig,
-): (request: { headers: { get(name: string): string | null } }) => Promise<
-  { token: string; clientId: string; scopes: string[] } | undefined
-> {
+): (request: {
+  headers: { get(name: string): string | null };
+}) => Promise<{ token: string; clientId: string; scopes: string[] } | undefined> {
   return async (request) => {
     const header = request.headers.get("authorization");
     try {
-      const identity = authenticateServiceRequest(config, header ?? undefined);
+      const identity = authenticateAgentServiceRequest(config, header ?? undefined);
       return { token: "verified", clientId: identity.agentIdentity, scopes: [] };
     } catch {
       return undefined;

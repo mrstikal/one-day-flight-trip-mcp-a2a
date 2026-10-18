@@ -251,6 +251,28 @@ export async function getTaskControl(
   return row ? toTaskControl(row) : undefined;
 }
 
+/**
+ * Atomically reserve one MCP invocation against the cumulative task cap.
+ *
+ * A single conditional UPDATE is the only correct form under concurrency: a
+ * read-then-write (refresh, assert, count) lets N callers pass on the same
+ * snapshot and exceed the cap by N-1.
+ */
+export async function reserveTaskMcpInvocation(
+  client: Queryable,
+  input: { agentIdentity: string; taskId: string; maxInvocations: number },
+): Promise<boolean> {
+  const result = await client.query(
+    `UPDATE odft_app.protocol_task_control
+        SET mcp_invocations = mcp_invocations + 1, updated_at = now()
+      WHERE agent_identity = $1 AND task_id = $2
+        AND mcp_invocations < $3
+      RETURNING mcp_invocations`,
+    [input.agentIdentity, input.taskId, input.maxInvocations],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 /** Cumulative counters: continuations never reset them (GREATEST/sum semantics). */
 export async function addTaskCounters(
   client: Queryable,
@@ -305,7 +327,13 @@ export async function setTaskState(
             input_generation = COALESCE($5, input_generation),
             updated_at = now()
       WHERE agent_identity = $1 AND task_id = $2`,
-    [input.agentIdentity, input.taskId, input.state, input.activeOwner ?? null, input.inputGeneration ?? null],
+    [
+      input.agentIdentity,
+      input.taskId,
+      input.state,
+      input.activeOwner ?? null,
+      input.inputGeneration ?? null,
+    ],
   );
 }
 
@@ -348,7 +376,9 @@ export async function recordInputRequest(
     [input.agentIdentity, input.taskId, input.requestId, input.requestHash, input.expiresAt],
   );
   if (result.rowCount !== 1) {
-    throw new Error("the canonical task-control row is required before a question can be persisted");
+    throw new Error(
+      "the canonical task-control row is required before a question can be persisted",
+    );
   }
 }
 
@@ -475,5 +505,7 @@ export async function loadValidatedOutput(
     [input.agentIdentity, input.taskId, input.artifactKind],
   );
   const row = result.rows[0];
-  return row ? { payload: row.payload, payloadHash: row.payload_hash, accepted: row.accepted } : undefined;
+  return row
+    ? { payload: row.payload, payloadHash: row.payload_hash, accepted: row.accepted }
+    : undefined;
 }

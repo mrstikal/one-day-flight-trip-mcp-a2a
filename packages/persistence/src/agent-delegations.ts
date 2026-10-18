@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import { delegationScopeSchema, type DelegationStatus, type OutboundDeliveryState } from "@odft/contracts";
+import {
+  delegationScopeSchema,
+  type DelegationStatus,
+  type OutboundDeliveryState,
+} from "@odft/contracts";
 
 type Queryable = Pick<PoolClient, "query">;
 
@@ -134,9 +138,10 @@ export async function insertAgentDelegation(
   const scope = delegationScopeSchema.parse(input.scope ?? {});
   const result = await client.query<DelegationRow>(
     `INSERT INTO odft_app.agent_delegations
-       (id, trip_id, originating_operation_id, accepted_revision, skill_id, agent_identity, endpoint_url,
-        card_version, snapshot_id, input_fingerprint, scope, deadline_at, attempt)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
+       (id, trip_id, originating_operation_id, current_operation_id, accepted_revision, skill_id,
+        agent_identity, endpoint_url, card_version, snapshot_id, input_fingerprint, scope, deadline_at,
+        attempt)
+     VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
      RETURNING ${DELEGATION_COLUMNS}`,
     [
       input.id ?? randomUUID(),
@@ -155,6 +160,46 @@ export async function insertAgentDelegation(
     ],
   );
   return toRecord(result.rows[0] as DelegationRow);
+}
+
+/**
+ * Move one still-active delegation to the operation that currently counts on
+ * it (a continuation answer or a decision takeover). Terminal rows keep their
+ * historical operation binding.
+ */
+export async function setDelegationCurrentOperation(
+  client: Queryable,
+  input: { delegationId: string; operationId: string },
+): Promise<boolean> {
+  const result = await client.query(
+    `UPDATE odft_app.agent_delegations
+        SET current_operation_id = $2, updated_at = now()
+      WHERE id = $1
+        AND status IN ('pending','dispatched','working','input_required')
+        AND current_operation_id IS DISTINCT FROM $2`,
+    [input.delegationId, input.operationId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+/** Adopt the run's still-active delegations for a decision operation. */
+export async function adoptDelegationsForOperation(
+  client: Queryable,
+  input: { tripId: string; operationId: string; delegationIds: readonly string[] },
+): Promise<number> {
+  if (input.delegationIds.length === 0) {
+    return 0;
+  }
+  const result = await client.query(
+    `UPDATE odft_app.agent_delegations
+        SET current_operation_id = $2, updated_at = now()
+      WHERE trip_id = $1
+        AND id = ANY($3::uuid[])
+        AND status IN ('pending','dispatched','working','input_required')
+        AND current_operation_id IS DISTINCT FROM $2`,
+    [input.tripId, input.operationId, input.delegationIds],
+  );
+  return result.rowCount ?? 0;
 }
 
 export async function getAgentDelegation(
@@ -430,9 +475,7 @@ export async function insertOutboundMessage(
   );
   const row = existing.rows[0];
   if (!row) {
-    throw new Error(
-      `outbound message ${input.messageId} vanished between insert and re-read`,
-    );
+    throw new Error(`outbound message ${input.messageId} vanished between insert and re-read`);
   }
   return { record: toOutboundRecord(row), conflict: row.payload_hash !== input.payloadHash };
 }
